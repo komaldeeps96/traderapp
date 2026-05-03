@@ -1,0 +1,20 @@
+# Secrets
+backend/config/config.yaml
+
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Logs
+.logs/
+
+# OS
+.DS_Store
+
+# Screenshots
+.screenshot/

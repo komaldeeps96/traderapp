@@ -1,0 +1,146 @@
+indicators:
+  # --- 10s EMAs ---
+  - id: ema54
+    type: ema
+    label: EMA 54
+    color: '#3b82f6'
+    timeframes:
+      10s: { span: 54, default_enabled: true }
+      # 1m/1d omitted -> not applicable
+
+  - id: ema120
+    type: ema
+    label: EMA 120
+    color: '#eab308'
+    timeframes:
+      10s: { span: 120, default_enabled: true }
+
+  - id: ema270
+    type: ema
+    label: EMA 270
+    color: '#ec4899'
+    timeframes:
+      10s: { span: 270, default_enabled: false }
+
+  # --- 1m/1d EMAs ---
+  - id: ema9
+    type: ema
+    label: EMA 9
+    color: '#3b82f6'
+    timeframes:
+      1m: { span: 9, default_enabled: true }
+      1d: { span: 9, default_enabled: true }
+
+  - id: ema20
+    type: ema
+    label: EMA 20
+    color: '#eab308'
+    timeframes:
+      1m: { span: 20, default_enabled: true }
+      1d: { span: 20, default_enabled: true }
+
+  - id: ema50
+    type: ema
+    label: EMA 50
+    color: '#ec4899'
+    timeframes:
+      1m: { span: 50, default_enabled: false }
+      1d: { span: 50, default_enabled: false }
+
+  # --- VWAP (intraday only) ---
+  - id: vwap
+    type: vwap
+    label: VWAP
+    color: '#7B1FA2'
+    timeframes:
+      10s: { default_enabled: true }
+      1m:  { default_enabled: true }
+
+  # --- Daily overlays (intraday only) ---
+  - id: d_sma20
+    type: daily
+    label: 1D SMA 20
+    span: 20
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      10s: { default_enabled: true }
+      1m:  { default_enabled: true }
+
+  - id: d_sma50
+    type: daily
+    label: 1D SMA 50
+    span: 50
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      10s: { default_enabled: true }
+      1m:  { default_enabled: true }
+
+  - id: d_sma200
+    type: daily
+    label: 1D SMA 200
+    span: 200
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      10s: { default_enabled: true }
+      1m:  { default_enabled: true }
+
+  - id: d_ema20
+    type: daily
+    label: 1D EMA 20
+    span: 20
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      10s: { default_enabled: true }
+      1m:  { default_enabled: true }
+
+  - id: d_ema50
+    type: daily
+    label: 1D EMA 50
+    span: 50
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      10s: { default_enabled: true }
+      1m:  { default_enabled: true }
+
+  - id: d_ema200
+    type: daily
+    label: 1D EMA 200
+    span: 200
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      10s: { default_enabled: true }
+      1m:  { default_enabled: true }
+
+  # --- Volume ---
+  - id: volume
+    type: volume
+    label: Volume
+    color: '#6b7280'
+    timeframes:
+      10s: { default_enabled: true }
+      1m:  { default_enabled: true }
+      1d:  { default_enabled: true }

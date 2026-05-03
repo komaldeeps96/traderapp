@@ -1,0 +1,6 @@
+alpaca:
+  api_key: YOUR_ALPACA_API_KEY
+  paper: true
+  secret_key: YOUR_ALPACA_SECRET_KEY
+state:
+  active_ticker: AAPL
