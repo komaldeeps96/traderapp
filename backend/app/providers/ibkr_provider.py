@@ -105,10 +105,10 @@ class IBKRProvider:
     # ── historical data ────────────────────────────────────
 
     async def fetch_historical(self, ticker: str):
-        """Fetch 1D of 10s bars from IBKR. Skips if already cached in aggregator."""
-        cache_key = f"{ticker}_10s"
-        if self._aggregator and cache_key in self._aggregator.dataframes:
-            logger.info(f"IBKR historical data for {ticker} already cached. Skipping fetch.")
+        """Fetch 1D of 10s bars from IBKR. Skips only if already streaming live ticks."""
+        # If we're already streaming live ticks, data is current — no gap to fill
+        if ticker in self._subscriptions:
+            logger.info(f"IBKR already streaming {ticker}, skipping historical re-fetch.")
             return
 
         if not await self._ensure_connected():
@@ -194,7 +194,7 @@ class IBKRProvider:
         start = sub['last_tick_idx']
         for i in range(start, len(ticks)):
             tick = ticks[i]
-            timestamp = tick.time.timestamp() if tick.time else asyncio.get_event_loop().time()
+            timestamp = tick.time.timestamp() if tick.time else asyncio.get_running_loop().time()
             price = float(tick.price) if tick.price == tick.price else 0.0
             size = int(tick.size) if tick.size == tick.size else 0
             if price > 0 and size > 0:

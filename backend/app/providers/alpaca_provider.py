@@ -14,6 +14,8 @@ class AlpacaProvider:
         self.config_path = config_path
         self.client = None
         self._aggregator = None
+        self._fetched_1m: set = set()
+        self._fetched_1d: set = set()
         self._load_config()
 
     def _load_config(self):
@@ -41,11 +43,15 @@ class AlpacaProvider:
             logger.error("Alpaca client not initialized.")
             return
 
-        if self._aggregator and f"{ticker}_1d" in self._aggregator.dataframes:
-            logger.info(f"Alpaca 1d data for {ticker} already cached. Skipping fetch.")
+        if ticker in self._fetched_1d:
+            logger.info(f"Alpaca 1d data for {ticker} already fetched this session. Skipping.")
             return
+        self._fetched_1d.add(ticker)
 
-        await self._fetch_bars(ticker, TimeFrame.Day, days=365 * 3, label="1d")
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        start = today_start - timedelta(days=365 * 3)
+        end = today_start
+        await self._fetch_bars_range(ticker, TimeFrame.Day, start, "1d", end=end)
 
     # ── 1m data ────────────────────────────────────────────
 
@@ -54,26 +60,33 @@ class AlpacaProvider:
             logger.error("Alpaca client not initialized.")
             return
 
-        await self._fetch_bars(ticker, TimeFrame.Minute, days=30, label="1m")
+        if ticker in self._fetched_1m:
+            logger.info(f"Alpaca 1m data for {ticker} already fetched this session. Skipping.")
+            return
+        self._fetched_1m.add(ticker)
+
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        start = today_start - timedelta(days=30)
+        end = today_start
+        await self._fetch_bars_range(ticker, TimeFrame.Minute, start, "1m", end=end)
 
     # ── generic bar fetch ──────────────────────────────────
 
-    async def _fetch_bars(self, ticker: str, timeframe, days: int, label: str):
+    async def _fetch_bars_range(self, ticker: str, timeframe, start: datetime, label: str, end: datetime = None):
         try:
-            end_time = datetime.now(timezone.utc) - timedelta(minutes=16)
-            start_time = end_time - timedelta(days=days)
+            end_time = end or (datetime.now(timezone.utc) - timedelta(minutes=16))
 
-            logger.info(f"Fetching Alpaca {label} data for {ticker} from {start_time} to {end_time}")
+            logger.info(f"Fetching Alpaca {label} data for {ticker} from {start} to {end_time}")
 
             request_params = StockBarsRequest(
                 symbol_or_symbols=ticker,
                 timeframe=timeframe,
-                start=start_time,
+                start=start,
                 end=end_time,
                 feed="sip"
             )
 
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             bars = await loop.run_in_executor(None, self.client.get_stock_bars, request_params)
 
             df = pd.DataFrame()

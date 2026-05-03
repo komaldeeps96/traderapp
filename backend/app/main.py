@@ -186,6 +186,17 @@ async def shutdown_event():
     logger.info("Shutting down...")
     await ibkr_provider.disconnect()
 
+async def cleanup_stale_ibkr(current_ticker: str = None):
+    """Unsubscribe IBKR streams for any ticker not currently watched.
+    If current_ticker is None, unsubscribes everything (e.g. on disconnect)."""
+    for stale in list(ibkr_provider._subscriptions.keys()):
+        if stale != current_ticker:
+            await ibkr_provider.unsubscribe_realtime(stale)
+            # Also clean aggregator live subscriptions for the stale ticker
+            for tf in list(aggregator._live_subscriptions.get(stale, [])):
+                aggregator.remove_live_subscription(stale, tf)
+            logger.info(f"Cleaned up stale subscription: {stale}")
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
@@ -223,11 +234,16 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 asyncio.create_task(fetch_and_subscribe(ticker))
 
+                # Clean up IBKR streams for tickers no longer watched
+                await cleanup_stale_ibkr(ticker)
+
             elif action == "unsubscribe" and ticker:
                 manager.subscriptions[websocket].discard(ticker)
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+        await cleanup_stale_ibkr()  # Single client — clean up everything
     except Exception as e:
         logger.error(f"WebSocket error: {e}", exc_info=True)
         manager.disconnect(websocket)
+        await cleanup_stale_ibkr()

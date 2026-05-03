@@ -201,44 +201,11 @@ class AggregatorService:
         for callback in self._on_bar_callbacks:
             await callback(ticker, timeframe, bar_data)
 
-    # ── ingestion ───────────────────────────────────────────
-
-    async def process_batch(self, ticker: str, ticks: List[dict]):
-        for timeframe in ['10s', '1m']:
-            key = f"{ticker}_{timeframe}"
-
-            df_ticks = pd.DataFrame(ticks)
-            df_ticks.set_index('time', inplace=True)
-
-            resample_rule = '10s' if timeframe == '10s' else '1min'
-
-            ohlcv = df_ticks.resample(resample_rule).agg({
-                'price': ['first', 'max', 'min', 'last'],
-                'volume': 'sum',
-            })
-            ohlcv.columns = ['open', 'high', 'low', 'close', 'volume']
-            ohlcv = ohlcv.dropna(subset=['open'])
-
-            if ohlcv.empty:
-                continue
-
-            self._compute_emas(ohlcv, timeframe)
-
-            if self._has_vwap(timeframe):
-                self._compute_vwap(ohlcv)
-
-            self.dataframes[key] = ohlcv
-            self.raw_ticks[key] = ticks.copy()
-
-            bars = self._dataframe_to_bars(ohlcv, ticker, timeframe)
-
-            logger.info(f"[{key}] Batch processed: {len(bars)} bars")
-
-            for callback in self._on_history_callbacks:
-                await callback(ticker, timeframe, bars)
+    # ── live tick processing ─────────────────────────────────
 
     async def on_tick(self, ticker: str, timestamp: float, price: float, volume: int):
         tick_time = pd.to_datetime(timestamp, unit='s', utc=True)
+        cutoff = tick_time - pd.Timedelta(minutes=10)
 
         for timeframe in ['10s', '1m']:
             self._live_subscriptions.setdefault(ticker, set()).add(timeframe)
@@ -252,6 +219,11 @@ class AggregatorService:
                 'price': price,
                 'volume': volume,
             })
+
+            # Prune ticks older than 10 minutes
+            self.raw_ticks[key] = [
+                t for t in self.raw_ticks[key] if t['time'] >= cutoff
+            ]
 
             await self._process_live_tick(ticker, timeframe, key)
 

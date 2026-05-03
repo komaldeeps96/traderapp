@@ -492,6 +492,7 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
                             type="text"
                             value={inputTicker}
                             onChange={(e) => setInputTicker(e.target.value.toUpperCase())}
+                            onFocus={(e) => e.target.select()}
                             placeholder="Ticker"
                             className="px-2 py-1 bg-white border border-gray-300 rounded text-sm text-gray-800 focus:outline-none focus:border-blue-500 uppercase w-24"
                         />
