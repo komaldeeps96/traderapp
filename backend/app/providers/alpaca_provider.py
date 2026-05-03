@@ -34,7 +34,9 @@ class AlpacaProvider:
     def set_aggregator(self, aggregator):
         self._aggregator = aggregator
 
-    async def fetch_historical_data(self, ticker: str):
+    # ── 1d data ────────────────────────────────────────────
+
+    async def fetch_1d_data(self, ticker: str):
         if not self.client:
             logger.error("Alpaca client not initialized.")
             return
@@ -43,18 +45,29 @@ class AlpacaProvider:
             logger.info(f"Alpaca 1d data for {ticker} already cached. Skipping fetch.")
             return
 
-        await self._fetch_1d_data(ticker)
+        await self._fetch_bars(ticker, TimeFrame.Day, days=365 * 3, label="1d")
 
-    async def _fetch_1d_data(self, ticker: str):
+    # ── 1m data ────────────────────────────────────────────
+
+    async def fetch_1m_data(self, ticker: str):
+        if not self.client:
+            logger.error("Alpaca client not initialized.")
+            return
+
+        await self._fetch_bars(ticker, TimeFrame.Minute, days=30, label="1m")
+
+    # ── generic bar fetch ──────────────────────────────────
+
+    async def _fetch_bars(self, ticker: str, timeframe, days: int, label: str):
         try:
             end_time = datetime.now(timezone.utc) - timedelta(minutes=16)
-            start_time = end_time - timedelta(days=365 * 3)
+            start_time = end_time - timedelta(days=days)
 
-            logger.info(f"Fetching Alpaca 1d data for {ticker} from {start_time} to {end_time}")
+            logger.info(f"Fetching Alpaca {label} data for {ticker} from {start_time} to {end_time}")
 
             request_params = StockBarsRequest(
                 symbol_or_symbols=ticker,
-                timeframe=TimeFrame.Day,
+                timeframe=timeframe,
                 start=start_time,
                 end=end_time,
                 feed="sip"
@@ -63,10 +76,10 @@ class AlpacaProvider:
             loop = asyncio.get_event_loop()
             bars = await loop.run_in_executor(None, self.client.get_stock_bars, request_params)
 
-            df_1d = pd.DataFrame()
+            df = pd.DataFrame()
             if bars and bars.data and ticker in bars.data:
                 bars_data = bars.data[ticker]
-                df_1d = pd.DataFrame([{
+                df = pd.DataFrame([{
                     'time': b.timestamp,
                     'open': b.open,
                     'high': b.high,
@@ -75,13 +88,13 @@ class AlpacaProvider:
                     'volume': b.volume,
                 } for b in bars_data])
 
-                if not df_1d.empty:
-                    df_1d.set_index('time', inplace=True)
-                    df_1d.index = pd.to_datetime(df_1d.index, utc=True)
+                if not df.empty:
+                    df.set_index('time', inplace=True)
+                    df.index = pd.to_datetime(df.index, utc=True)
 
-            if not df_1d.empty and self._aggregator:
-                logger.info(f"Alpaca returned {len(df_1d)} 1d bars for {ticker}")
-                await self._aggregator.ingest_ohlcv(ticker, '1d', df_1d)
+            if not df.empty and self._aggregator:
+                logger.info(f"Alpaca returned {len(df)} {label} bars for {ticker}")
+                await self._aggregator.ingest_ohlcv(ticker, label, df)
 
         except Exception as e:
-            logger.error(f"Failed to fetch Alpaca 1d data for {ticker}: {e}", exc_info=True)
+            logger.error(f"Failed to fetch Alpaca {label} data for {ticker}: {e}", exc_info=True)

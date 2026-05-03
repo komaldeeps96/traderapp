@@ -174,9 +174,10 @@ async def startup_event():
         active_ticker = config.get('state', {}).get('active_ticker')
         if active_ticker:
             logger.info(f"Loading initial active ticker: {active_ticker}")
-            await alpaca_provider.fetch_historical_data(active_ticker)
             await ibkr_provider.fetch_historical(active_ticker)
             await ibkr_provider.subscribe_realtime(active_ticker)
+            asyncio.create_task(alpaca_provider.fetch_1d_data(active_ticker))
+            asyncio.create_task(alpaca_provider.fetch_1m_data(active_ticker))
     except Exception as e:
         logger.error(f"Failed to load initial ticker: {e}")
 
@@ -215,9 +216,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 aggregator.add_live_subscription(ticker, timeframe)
 
                 async def fetch_and_subscribe(t: str):
-                    await alpaca_provider.fetch_historical_data(t)
                     await ibkr_provider.fetch_historical(t)
                     await ibkr_provider.subscribe_realtime(t)
+                    asyncio.create_task(alpaca_provider.fetch_1d_data(t))
+                    asyncio.create_task(alpaca_provider.fetch_1m_data(t))
                 
                 asyncio.create_task(fetch_and_subscribe(ticker))
 
