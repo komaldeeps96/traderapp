@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType, CrosshairMode } from 'lightweight-charts';
+import { createChart, ColorType, CrosshairMode, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts';
 
 export default function ChartWidget({ chartData, ticker, timeframe, isConnected, onSubscribe, indicatorConfig, indicatorVisibility, toggleIndicator }) {
     const [inputTicker, setInputTicker] = useState(ticker);
@@ -8,35 +8,36 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
         setInputTicker(ticker);
     }, [ticker]);
 
-    const mainContainerRef = useRef();
-    const volContainerRef = useRef();
+    const chartContainerRef = useRef();
 
-    const chartRefs = useRef({});
+    const chartRef = useRef(null);
     const seriesRef = useRef({});
     const barsRef = useRef([]);
     const initialZoomRef = useRef(false);
 
     const [hoverTime, setHoverTime] = useState(null);
     const [latestBar, setLatestBar] = useState(null);
-    const [volHeight, setVolHeight] = useState(160);
-    const isDraggingVolRef = useRef(false);
-    const dragStartYRef = useRef(0);
-    const dragStartHeightRef = useRef(0);
+    const [volPaneBottom, setVolPaneBottom] = useState(185); // distance from container bottom to top of vol pane
 
+    // Filter out volume from the indicator overlay list (it has its own Vol label in the pane)
     const applicableIndicators = indicatorConfig.filter(
-        ind => ind.timeframes && ind.timeframes[timeframe] !== undefined
+        ind => ind.type !== 'volume' && ind.timeframes && ind.timeframes[timeframe] !== undefined
     );
 
-    // Initialize charts once
+    // Initialize single chart with multi-pane support
     useEffect(() => {
-        if (!mainContainerRef.current) return;
+        if (!chartContainerRef.current) return;
 
         const handleResize = () => {
-            if (chartRefs.current.main) chartRefs.current.main.applyOptions({ width: mainContainerRef.current.clientWidth, height: mainContainerRef.current.clientHeight });
-            if (chartRefs.current.vol) chartRefs.current.vol.applyOptions({ width: volContainerRef.current.clientWidth, height: volContainerRef.current.clientHeight });
+            if (chartRef.current) {
+                chartRef.current.applyOptions({
+                    width: chartContainerRef.current.clientWidth,
+                    height: chartContainerRef.current.clientHeight,
+                });
+            }
         };
 
-        const chartOptions = {
+        const chart = createChart(chartContainerRef.current, {
             layout: {
                 background: { type: ColorType.Solid, color: '#ffffff' },
                 textColor: '#787b86',
@@ -55,7 +56,8 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
             localization: {
                 timeFormatter: (time) => {
                     const date = new Date(time * 1000);
-                    return date.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    const opts = { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' };
+                    return date.toLocaleString('en-US', opts);
                 }
             },
             timeScale: {
@@ -76,55 +78,11 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
                 entireTextOnly: false,
                 minimumWidth: 50,
             },
-        };
+        });
 
-        const indicatorOptions = {
-            ...chartOptions,
-            layout: {
-                ...chartOptions.layout,
-                background: { type: ColorType.Solid, color: 'transparent' },
-            },
-            grid: {
-                vertLines: { color: '#f0f3fa' },
-                horzLines: { color: 'transparent' },
-            },
-            rightPriceScale: {
-                borderColor: '#d1d4dc',
-                autoScale: true,
-                entireTextOnly: false,
-                minimumWidth: 50,
-            },
-        };
+        chartRef.current = chart;
 
-        const mainChart = createChart(mainContainerRef.current, chartOptions);
-        const volChart = createChart(volContainerRef.current, indicatorOptions);
-
-        const syncAxisWidths = () => {
-            const mainTable = mainContainerRef.current?.querySelector('table');
-            const volTable = volContainerRef.current?.querySelector('table');
-            if (!mainTable) return;
-
-            const mainAxisTd = mainTable.querySelector('tr td:last-child');
-            if (!mainAxisTd) return;
-            const targetWidth = mainAxisTd.offsetWidth;
-            if (targetWidth <= 0) return;
-
-            if (volTable) {
-                const axisTd = volTable.querySelector('tr td:last-child');
-                if (axisTd && axisTd.offsetWidth !== targetWidth) {
-                    axisTd.style.width = targetWidth + 'px';
-                    axisTd.style.minWidth = targetWidth + 'px';
-                    axisTd.style.maxWidth = targetWidth + 'px';
-                }
-            }
-        };
-
-        const axisInterval = setInterval(syncAxisWidths, 500);
-        setTimeout(syncAxisWidths, 200);
-
-        chartRefs.current = { main: mainChart, vol: volChart };
-
-        // Background tint for extended hours
+        // Background tint for extended hours (pane 0 - main)
         const extBgOpts = {
             priceScaleId: '',
             scaleMargins: { top: 0, bottom: 0 },
@@ -132,31 +90,21 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
             priceLineVisible: false,
             crosshairMarkerVisible: false,
         };
-        const mainExtSeries = mainChart.addHistogramSeries(extBgOpts);
-        const volExtSeries = volChart.addHistogramSeries(extBgOpts);
+        const mainExtSeries = chart.addSeries(HistogramSeries, extBgOpts, 0);
 
-        const candleSeries = mainChart.addCandlestickSeries({
+        // Candlestick series (pane 0 - main)
+        const candleSeries = chart.addSeries(CandlestickSeries, {
             upColor: '#26a69a',
             downColor: '#ef5350',
             borderVisible: false,
             wickUpColor: '#26a69a',
             wickDownColor: '#ef5350',
-        });
+        }, 0);
 
-        const indicatorOpts = { crosshairMarkerVisible: false, autoscaleInfoProvider: () => null };
+        seriesRef.current = { mainExtSeries, candleSeries };
 
-        seriesRef.current = { mainExtSeries, volExtSeries, candleSeries };
-
-        // Sync Time Scales
-        const syncTime = (source, target) => {
-            source.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-                if (range) target.timeScale().setVisibleLogicalRange(range);
-            });
-        };
-        syncTime(mainChart, volChart);
-        syncTime(volChart, mainChart);
-
-        mainChart.subscribeCrosshairMove((param) => {
+        // Crosshair move handler — unified, no sync needed
+        chart.subscribeCrosshairMove((param) => {
             if (!param.time || param.point === undefined) {
                 setHoverTime(null);
             } else {
@@ -167,20 +115,43 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
         window.addEventListener('resize', handleResize);
         setTimeout(handleResize, 100);
 
+        // Set volume pane height and track it dynamically
+        const updateVolPaneBottom = () => {
+            try {
+                const panes = chart.panes();
+                if (panes.length > 1) {
+                    const volHeight = panes[1].getHeight();
+                    // Time axis is ~25px, separator ~6px
+                    const table = chartContainerRef.current?.querySelector('table');
+                    const timeAxisHeight = table ? (table.querySelector('tr:last-child')?.offsetHeight || 25) : 25;
+                    setVolPaneBottom(volHeight + timeAxisHeight);
+                }
+            } catch (e) { /* chart may be disposed */ }
+        };
+
+        setTimeout(() => {
+            const panes = chart.panes();
+            if (panes.length > 1) {
+                panes[1].setHeight(160);
+            }
+            updateVolPaneBottom();
+        }, 200);
+
+        // Poll for pane height changes (user can drag native separator)
+        const paneHeightInterval = setInterval(updateVolPaneBottom, 200);
+
         return () => {
-            clearInterval(axisInterval);
+            clearInterval(paneHeightInterval);
             window.removeEventListener('resize', handleResize);
-            mainChart.remove();
-            volChart.remove();
+            chart.remove();
         };
     }, []);
 
-    // Add indicator series when config loads (separate from chart init)
+    // Add indicator series when config loads
     useEffect(() => {
-        if (!indicatorConfig.length || !chartRefs.current.main) return;
+        if (!indicatorConfig.length || !chartRef.current) return;
 
-        const mainChart = chartRefs.current.main;
-        const volChart = chartRefs.current.vol;
+        const chart = chartRef.current;
         const seriesMap = { ...seriesRef.current };
 
         const indicatorOpts = { crosshairMarkerVisible: false, autoscaleInfoProvider: () => null };
@@ -197,13 +168,18 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
         for (const ind of indicatorConfig) {
             if (seriesMap[ind.id]) continue; // already created
             if (ind.type === 'volume') {
-                seriesMap[ind.id] = volChart.addHistogramSeries({
+                // Volume histogram in pane 1 (separate pane)
+                seriesMap[ind.id] = chart.addSeries(HistogramSeries, {
                     color: ind.color,
                     priceFormat: compactVolFormat,
                     priceScaleId: 'right',
-                });
+                    lastValueVisible: false,
+                    priceLineVisible: false,
+                    title: '',
+                }, 1);
             } else {
-                seriesMap[ind.id] = mainChart.addLineSeries({
+                // Indicator line series in pane 0 (main pane)
+                seriesMap[ind.id] = chart.addSeries(LineSeries, {
                     color: ind.color,
                     lineWidth: ind.line_width || 1,
                     lineStyle: ind.line_style === 'dashed' ? 2 : 0,
@@ -211,11 +187,19 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
                     lastValueVisible: ind.last_value_visible ?? false,
                     title: ind.type === 'daily' ? ind.label : undefined,
                     ...indicatorOpts,
-                });
+                }, 0);
             }
         }
 
         seriesRef.current = seriesMap;
+
+        // Set volume pane height after series are added
+        setTimeout(() => {
+            const panes = chart.panes();
+            if (panes.length > 1) {
+                panes[1].setHeight(160);
+            }
+        }, 100);
     }, [indicatorConfig]);
 
     // Handle incoming data
@@ -223,7 +207,7 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
         if (!chartData || !seriesRef.current.candleSeries) return;
 
         const seriesMap = seriesRef.current;
-        const { mainExtSeries, volExtSeries, candleSeries } = seriesMap;
+        const { mainExtSeries, candleSeries } = seriesMap;
 
         if (chartData.type === 'history') {
             const bars = chartData.bars;
@@ -262,7 +246,6 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
             }
 
             mainExtSeries.setData(extPoints);
-            volExtSeries.setData(extPoints);
             candleSeries.setData(candles);
             seriesMap.volume?.setData(volumePoints);
 
@@ -275,9 +258,9 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
             }
 
             const totalBars = candles.length;
-            if (totalBars > 0 && chartRefs.current.main && !initialZoomRef.current) {
+            if (totalBars > 0 && chartRef.current && !initialZoomRef.current) {
                 const defaultVisibleBars = 240;
-                const timeScale = chartRefs.current.main.timeScale();
+                const timeScale = chartRef.current.timeScale();
                 timeScale.setVisibleLogicalRange({
                     from: Math.max(0, totalBars - defaultVisibleBars),
                     to: totalBars - 1
@@ -301,7 +284,6 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
             const tintColor = isReg ? 'rgba(0, 0, 0, 0)' : 'rgba(33, 150, 243, 0.08)';
 
             mainExtSeries.update({ time: t, value: 1, color: tintColor });
-            volExtSeries.update({ time: t, value: 1, color: tintColor });
 
             candleSeries.update({ time: t, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
 
@@ -348,20 +330,9 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
         }
     }, [indicatorVisibility, indicatorConfig]);
 
-    // Update time axis visibility dynamically based on active panes
-    const showVolume = indicatorVisibility.volume ?? true;
-    useEffect(() => {
-        if (chartRefs.current.main) {
-            chartRefs.current.main.timeScale().applyOptions({ visible: !showVolume });
-            chartRefs.current.vol.timeScale().applyOptions({ visible: showVolume });
-        }
-        const resize = () => window.dispatchEvent(new Event('resize'));
-        setTimeout(resize, 50);
-    }, [showVolume]);
-
     const handleZoomIn = () => {
-        if (chartRefs.current.main) {
-            const timeScale = chartRefs.current.main.timeScale();
+        if (chartRef.current) {
+            const timeScale = chartRef.current.timeScale();
             const range = timeScale.getVisibleLogicalRange();
             if (range) {
                 const diff = (range.to - range.from) * 0.1;
@@ -371,8 +342,8 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
     };
 
     const handleZoomOut = () => {
-        if (chartRefs.current.main) {
-            const timeScale = chartRefs.current.main.timeScale();
+        if (chartRef.current) {
+            const timeScale = chartRef.current.timeScale();
             const range = timeScale.getVisibleLogicalRange();
             if (range) {
                 const diff = (range.to - range.from) * 0.1;
@@ -382,8 +353,8 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
     };
 
     const handleScrollLeft = () => {
-        if (chartRefs.current.main) {
-            const timeScale = chartRefs.current.main.timeScale();
+        if (chartRef.current) {
+            const timeScale = chartRef.current.timeScale();
             const range = timeScale.getVisibleLogicalRange();
             if (range) {
                 const shift = (range.to - range.from) * 0.1;
@@ -393,8 +364,8 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
     };
 
     const handleScrollRight = () => {
-        if (chartRefs.current.main) {
-            const timeScale = chartRefs.current.main.timeScale();
+        if (chartRef.current) {
+            const timeScale = chartRef.current.timeScale();
             const range = timeScale.getVisibleLogicalRange();
             if (range) {
                 const shift = (range.to - range.from) * 0.1;
@@ -468,6 +439,8 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
         return null;
     };
     const dailyChangeData = getDailyChange();
+
+    const showVolume = indicatorVisibility.volume ?? true;
 
     const EyeIcon = ({ visible }) => (visible
         ? <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
@@ -546,84 +519,69 @@ export default function ChartWidget({ chartData, ticker, timeframe, isConnected,
                                     <EyeIcon visible={shown} />
                                 </button>
                                 <span className="text-[11px] font-medium" style={{ color: ind.color }}>{ind.label}</span>
-                                {shown && value != null && <span className="text-[11px] font-mono" style={{ color: ind.color }}>{ind.type === 'volume' ? formatVol(value) : formatPrice(value)}</span>}
+                                {shown && value != null && <span className="text-[11px] font-mono" style={{ color: ind.color }}>{formatPrice(value)}</span>}
                             </div>
                         );
                     })}
+
                 </div>
             </div>
 
-            {/* Chart Panes Layout */}
-            <div className="flex-1 flex flex-col w-full h-full">
-                <div className="flex-1 w-full relative" style={{ minHeight: 0 }}>
-                    <div ref={mainContainerRef} className="absolute inset-0 w-full h-full" />
+            {/* Single unified chart container */}
+            <div className="flex-1 w-full h-full relative" style={{ minHeight: 0 }}>
+                <div ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
 
-                    <div className="absolute bottom-2 right-0 w-[50px] flex justify-center z-20">
-                        <button
-                            onClick={() => {
-                                if (chartRefs.current.main) {
-                                    chartRefs.current.main.priceScale('right').applyOptions({ autoScale: true });
-                                    const timeScale = chartRefs.current.main.timeScale();
-                                    const totalBars = barsRef.current.length;
-                                    if (totalBars > 0) {
-                                        const visibleBars = 240;
-                                        timeScale.setVisibleLogicalRange({ from: Math.max(0, totalBars - visibleBars), to: totalBars - 1 });
-                                    }
+                <div className="absolute right-0 w-[50px] flex justify-center z-20" style={{ bottom: volPaneBottom + 10 }}>
+                    <button
+                        onClick={() => {
+                            if (chartRef.current) {
+                                chartRef.current.priceScale('right').applyOptions({ autoScale: true });
+                                const timeScale = chartRef.current.timeScale();
+                                const totalBars = barsRef.current.length;
+                                if (totalBars > 0) {
+                                    const visibleBars = 240;
+                                    timeScale.setVisibleLogicalRange({ from: Math.max(0, totalBars - visibleBars), to: totalBars - 1 });
                                 }
-                            }}
-                            className="w-6 h-6 flex items-center justify-center text-[10px] font-bold text-[#2962ff] hover:text-[#1e4eb8] bg-white/80 hover:bg-white rounded shadow-sm border border-[#d1d4dc] cursor-pointer transition-all uppercase"
-                            title="Auto Fit"
-                        >
-                            A
-                        </button>
-                    </div>
+                            }
+                        }}
+                        className="w-6 h-6 flex items-center justify-center text-[10px] font-bold text-[#2962ff] hover:text-[#1e4eb8] bg-white/80 hover:bg-white rounded shadow-sm border border-[#d1d4dc] cursor-pointer transition-all uppercase"
+                        title="Auto Fit"
+                    >
+                        A
+                    </button>
+                </div>
 
-                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center justify-center">
-                        <div className="flex items-center gap-1 bg-transparent p-1 rounded-lg">
-                            <button onClick={handleScrollLeft} className="p-1 px-2 hover:bg-gray-100/30 rounded text-[#787b86] transition-colors">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
-                            </button>
-                            <div className="w-px h-4 bg-[#d1d4dc]/30 mx-0.5"></div>
-                            <button onClick={handleZoomOut} className="p-1 px-2 hover:bg-gray-100/30 rounded text-[#787b86] transition-colors font-bold text-base leading-none">-</button>
-                            <button onClick={handleZoomIn} className="p-1 px-2 hover:bg-gray-100/30 rounded text-[#787b86] transition-colors font-bold text-base leading-none">+</button>
-                            <div className="w-px h-4 bg-[#d1d4dc]/30 mx-0.5"></div>
-                            <button onClick={handleScrollRight} className="p-1 px-2 hover:bg-gray-100/30 rounded text-[#787b86] transition-colors">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
-                            </button>
-                        </div>
+                <div className="absolute left-1/2 -translate-x-1/2 z-20 flex items-center justify-center" style={{ bottom: volPaneBottom + 10 }}>
+                    <div className="flex items-center gap-1 bg-transparent p-1 rounded-lg">
+                        <button onClick={handleScrollLeft} className="p-1 px-2 hover:bg-gray-100/30 rounded text-[#787b86] transition-colors">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
+                        </button>
+                        <div className="w-px h-4 bg-[#d1d4dc]/30 mx-0.5"></div>
+                        <button onClick={handleZoomOut} className="p-1 px-2 hover:bg-gray-100/30 rounded text-[#787b86] transition-colors font-bold text-base leading-none">-</button>
+                        <button onClick={handleZoomIn} className="p-1 px-2 hover:bg-gray-100/30 rounded text-[#787b86] transition-colors font-bold text-base leading-none">+</button>
+                        <div className="w-px h-4 bg-[#d1d4dc]/30 mx-0.5"></div>
+                        <button onClick={handleScrollRight} className="p-1 px-2 hover:bg-gray-100/30 rounded text-[#787b86] transition-colors">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                        </button>
                     </div>
                 </div>
 
-                {showVolume && (
-                    <>
-                        <div
-                            className="w-full h-1.5 cursor-ns-resize flex items-center justify-center group"
-                            style={{ background: '#f0f3fa', borderTop: '1px solid #d1d4dc' }}
-                            onMouseDown={(e) => {
-                                isDraggingVolRef.current = true;
-                                dragStartYRef.current = e.clientY;
-                                dragStartHeightRef.current = volHeight;
-                                const onMove = (me) => {
-                                    if (!isDraggingVolRef.current) return;
-                                    const delta = dragStartYRef.current - me.clientY;
-                                    setVolHeight(Math.max(60, dragStartHeightRef.current + delta));
-                                    window.dispatchEvent(new Event('resize'));
-                                };
-                                const onUp = () => {
-                                    isDraggingVolRef.current = false;
-                                    window.removeEventListener('mousemove', onMove);
-                                    window.removeEventListener('mouseup', onUp);
-                                };
-                                window.addEventListener('mousemove', onMove);
-                                window.addEventListener('mouseup', onUp);
-                            }}
-                        >
-                            <div className="w-8 h-0.5 bg-[#d1d4dc] group-hover:bg-[#9598a1] rounded-full transition-colors" />
-                        </div>
-                        <div ref={volContainerRef} style={{ height: volHeight }} className="w-full" />
-                    </>
-                )}
-                {!showVolume && <div ref={volContainerRef} className="hidden" />}
+                {/* Vol label overlay inside the volume pane */}
+                <div className="absolute left-2 z-10 pointer-events-none flex items-center gap-1" style={{ bottom: volPaneBottom - 20 }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, fontFamily: "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif", color: '#787b86' }}>
+                        Vol
+                    </span>
+                    {displayBar && (
+                        <span style={{
+                            fontSize: 12,
+                            fontWeight: 500,
+                            fontFamily: "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif",
+                            color: displayBar.close >= displayBar.open ? '#089981' : '#f23645'
+                        }}>
+                            {formatVol(displayBar.volume)}
+                        </span>
+                    )}
+                </div>
             </div>
 
         </div>
