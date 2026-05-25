@@ -3,23 +3,28 @@ import asyncio
 import logging
 import pandas as pd
 
+from ..core.constants import (
+    IBKR_HOST, IBKR_PORT, IBKR_CLIENT_ID,
+    TICK_BY_TICK_TYPE,
+)
+
 logger = logging.getLogger(__name__)
 
+
 class IBKRProvider:
-    def __init__(self, host='127.0.0.1', port=7496, client_id=1):
+    def __init__(self, host=IBKR_HOST, port=IBKR_PORT, client_id=IBKR_CLIENT_ID):
         self.host = host
         self.port = port
         self.client_id = client_id
         self.ib = IB()
-        self._subscriptions = {}
+        self._subscription = None
+        self._fetch_task = None
         self._aggregator = None
         self._connect_lock = asyncio.Lock()
         self._should_reconnect = False
         self._reconnect_task = None
         self._on_tick_callbacks = []
         self._contracts = {}
-
-    # ── callbacks ──────────────────────────────────────────
 
     def register_callback(self, callback):
         self._on_tick_callbacks.append(callback)
@@ -34,8 +39,6 @@ class IBKRProvider:
     def set_aggregator(self, aggregator):
         self._aggregator = aggregator
 
-    # ── contract cache ─────────────────────────────────────
-
     async def _get_contract(self, ticker: str):
         if ticker in self._contracts:
             return self._contracts[ticker]
@@ -43,8 +46,6 @@ class IBKRProvider:
         await self.ib.qualifyContractsAsync(contract)
         self._contracts[ticker] = contract
         return contract
-
-    # ── connection ─────────────────────────────────────────
 
     def _setup_disconnect_handler(self):
         self.ib.disconnectedEvent += self._on_disconnected
@@ -102,107 +103,108 @@ class IBKRProvider:
                 logger.warning(f"IBKR connection failed: {e}")
                 return False
 
-    # ── historical data ────────────────────────────────────
+    async def fetch_recent_1m_bars(self, ticker: str):
+        """Fetch last 1 hour of 1-minute bars from IBKR and ingest as '1m'.
 
-    async def fetch_historical(self, ticker: str):
-        """Fetch 1D of 10s bars from IBKR. Skips only if already streaming live ticks."""
-        # If we're already streaming live ticks, data is current — no gap to fill
-        if ticker in self._subscriptions:
-            logger.info(f"IBKR already streaming {ticker}, skipping historical re-fetch.")
-            return
+        Single reqHistoricalDataAsync call — no pagination, no pacing concerns.
+        useRTH=False includes pre-market and after-hours.
+        """
+        if self._fetch_task and not self._fetch_task.done():
+            self._fetch_task.cancel()
+        self._fetch_task = asyncio.current_task()
 
         if not await self._ensure_connected():
-            logger.warning(f"IBKR is not connected. Cannot fetch historical data for {ticker}.")
+            self._fetch_task = None
+            logger.warning(f"IBKR not connected. Cannot fetch 1m bars for {ticker}.")
             return
 
         contract = await self._get_contract(ticker)
 
         try:
-            logger.info(f"Requesting 1D of 10s bars from IBKR for {ticker}")
-            bars_10s = await self.ib.reqHistoricalDataAsync(
+            logger.info(f"Fetching 1m bars (1 hour) from IBKR for {ticker}")
+            bars = await self.ib.reqHistoricalDataAsync(
                 contract,
                 endDateTime='',
-                durationStr='1 D',
-                barSizeSetting='10 secs',
+                durationStr='3600 S',
+                barSizeSetting='1 min',
                 whatToShow='TRADES',
                 useRTH=False,
-                formatDate=2
+                formatDate=2,
             )
 
-            if bars_10s and self._aggregator:
-                df_10s = self._bars_to_dataframe(bars_10s)
-                await self._aggregator.ingest_ohlcv(ticker, '10s', df_10s)
+            if not bars or not self._aggregator:
+                logger.warning(f"IBKR 1m bars: got empty response for {ticker}")
+                return
 
-                df_1m = self._resample_10s_to_1m(df_10s)
-                bars_1m = 0
-                if not df_1m.empty:
-                    await self._aggregator.ingest_ohlcv(ticker, '1m', df_1m)
-                    bars_1m = len(df_1m)
+            df_1m = self._bars_to_dataframe(bars)
 
-                logger.info(f"IBKR historical: {len(df_10s)} 10s bars, {bars_1m} 1m bars for {ticker}")
+            if not df_1m.empty:
+                await self._aggregator.ingest_ohlcv(ticker, '1m', df_1m, source='ibkr')
+
+            logger.info(f"IBKR 1m bars: {len(df_1m)} bars for {ticker}")
 
         except Exception as e:
-            logger.error(f"Failed to fetch IBKR historical data for {ticker}: {e}", exc_info=True)
+            logger.error(f"Failed to fetch IBKR 1m bars for {ticker}: {e}", exc_info=True)
+        finally:
+            if self._fetch_task is asyncio.current_task():
+                self._fetch_task = None
 
-    # ── realtime subscription ──────────────────────────────
+
 
     async def subscribe_realtime(self, ticker: str):
-        """Subscribe to live tick-by-tick trade stream."""
-        if ticker in self._subscriptions:
-            logger.info(f"IBKR realtime already subscribed to {ticker}. Skipping.")
-            return
+        if self._subscription is not None:
+            logger.info(f"Already subscribed. Unsubscribing first.")
+            await self.unsubscribe_realtime()
 
         if not await self._ensure_connected():
-            logger.warning(f"IBKR is not connected. Cannot subscribe to realtime data for {ticker}.")
+            logger.warning(f"IBKR not connected. Cannot subscribe to realtime for {ticker}.")
             return
 
         contract = await self._get_contract(ticker)
 
-        ticker_obj = self.ib.reqTickByTickData(contract, 'AllLast', numberOfTicks=0, ignoreSize=False)
-        self._subscriptions[ticker] = {
+        ticker_obj = self.ib.reqTickByTickData(contract, TICK_BY_TICK_TYPE, numberOfTicks=0)
+        ticker_obj.updateEvent += self._on_tick_by_tick
+
+        self._subscription = {
+            'ticker': ticker,
             'contract': contract,
             'ticker_obj': ticker_obj,
-            'last_tick_idx': 0,
         }
 
-        ticker_obj.updateEvent += self._on_tick_by_tick
-        logger.info(f"IBKR realtime subscribed: {ticker}")
+        logger.info(f"IBKR realtime subscribed (tick-by-tick AllLast): {ticker}")
 
-    async def unsubscribe_realtime(self, ticker: str):
-        if ticker in self._subscriptions:
-            sub = self._subscriptions[ticker]
-            self.ib.cancelTickByTickData(sub['contract'], 'AllLast')
-            del self._subscriptions[ticker]
-            logger.info(f"IBKR realtime unsubscribed: {ticker}")
+    async def unsubscribe_realtime(self, ticker: str = None):
+        if self._fetch_task and not self._fetch_task.done():
+            self._fetch_task.cancel()
+            self._fetch_task = None
+        if self._subscription is None:
+            return
+        sub = self._subscription
+        self._subscription = None
+        self.ib.cancelTickByTickData(sub['contract'], TICK_BY_TICK_TYPE)
+        logger.info(f"IBKR realtime unsubscribed: {sub['ticker']}")
 
-    # ── tick handler ───────────────────────────────────────
-
-    def _on_tick_by_tick(self, ticker):
-        ticks = ticker.tickByTicks
-        if not ticks:
+    def _on_tick_by_tick(self, tick):
+        sub = self._subscription
+        if not sub or sub['ticker_obj'] is not tick:
             return
 
-        symbol = ticker.contract.symbol
-        sub = None
-        for s in self._subscriptions.values():
-            if s['ticker_obj'] is ticker:
-                sub = s
-                break
-        if not sub:
+        if not tick.tickByTicks:
             return
+        tbt = tick.tickByTicks[-1]
+        tick.tickByTicks.clear()
 
-        start = sub['last_tick_idx']
-        for i in range(start, len(ticks)):
-            tick = ticks[i]
-            timestamp = tick.time.timestamp() if tick.time else asyncio.get_running_loop().time()
-            price = float(tick.price) if tick.price == tick.price else 0.0
-            size = int(tick.size) if tick.size == tick.size else 0
-            if price > 0 and size > 0:
-                asyncio.create_task(self.emit_tick(symbol, timestamp, price, size))
+        price = float(tbt.price) if tbt.price == tbt.price else 0.0
+        size = int(tbt.size) if tbt.size == tbt.size else 0
 
-        sub['last_tick_idx'] = len(ticks)
+        if tbt.time:
+            timestamp = tbt.time.timestamp()
+        else:
+            from datetime import datetime, timezone
+            timestamp = datetime.now(timezone.utc).timestamp()
 
-    # ── data utilities ─────────────────────────────────────
+        if price > 0 and size > 0:
+            asyncio.create_task(self.emit_tick(sub['ticker'], timestamp, price, size))
 
     def _bars_to_dataframe(self, bars) -> pd.DataFrame:
         data = []
@@ -216,22 +218,7 @@ class IBKRProvider:
                 'volume': float(b.volume),
             })
         df = pd.DataFrame(data)
-        df.set_index('time', inplace=True)
-        if not isinstance(df.index, pd.DatetimeIndex):
+        if not df.empty:
+            df.set_index('time', inplace=True)
             df.index = pd.to_datetime(df.index, utc=True)
-        elif df.index.tz is None:
-            df.index = df.index.tz_localize('UTC')
-        else:
-            df.index = df.index.tz_convert('UTC')
         return df
-
-    def _resample_10s_to_1m(self, df_10s: pd.DataFrame) -> pd.DataFrame:
-        ohlcv_1m = df_10s.resample('1min').agg({
-            'open': 'first',
-            'high': 'max',
-            'low': 'min',
-            'close': 'last',
-            'volume': 'sum',
-        })
-        ohlcv_1m = ohlcv_1m.dropna(subset=['open'])
-        return ohlcv_1m

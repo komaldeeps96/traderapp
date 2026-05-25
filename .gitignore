@@ -1,5 +1,7 @@
 # Secrets
 backend/config/config.yaml
+backend/config/state.yaml
+
 
 # Python
 backend/venv/
@@ -16,5 +18,7 @@ frontend/dist/
 # OS
 .DS_Store
 
-# Screenshots
+# Screenshots and Debug Images
+screenshot/
+frontend/debug/
 .screenshot/

@@ -1,27 +1,4 @@
 indicators:
-  # --- 10s EMAs ---
-  - id: ema54
-    type: ema
-    label: EMA 54
-    color: '#3b82f6'
-    timeframes:
-      10s: { span: 54, default_enabled: true }
-      # 1m/1d omitted -> not applicable
-
-  - id: ema120
-    type: ema
-    label: EMA 120
-    color: '#eab308'
-    timeframes:
-      10s: { span: 120, default_enabled: true }
-
-  - id: ema270
-    type: ema
-    label: EMA 270
-    color: '#ec4899'
-    timeframes:
-      10s: { span: 270, default_enabled: false }
-
   # --- 1m/1d EMAs ---
   - id: ema9
     type: ema
@@ -39,12 +16,18 @@ indicators:
       1m: { span: 20, default_enabled: true }
       1d: { span: 20, default_enabled: true }
 
+  - id: ema45
+    type: ema
+    label: EMA 45
+    color: '#ec4899'
+    timeframes:
+      1m: { span: 45, default_enabled: true }
+
   - id: ema50
     type: ema
     label: EMA 50
     color: '#ec4899'
     timeframes:
-      1m: { span: 50, default_enabled: false }
       1d: { span: 50, default_enabled: false }
 
   # --- VWAP (intraday only) ---
@@ -53,7 +36,6 @@ indicators:
     label: VWAP
     color: '#7B1FA2'
     timeframes:
-      10s: { default_enabled: true }
       1m:  { default_enabled: true }
 
   # --- Daily overlays (intraday only) ---
@@ -67,7 +49,6 @@ indicators:
     price_line_visible: true
     last_value_visible: true
     timeframes:
-      10s: { default_enabled: true }
       1m:  { default_enabled: true }
 
   - id: d_sma50
@@ -80,7 +61,6 @@ indicators:
     price_line_visible: true
     last_value_visible: true
     timeframes:
-      10s: { default_enabled: true }
       1m:  { default_enabled: true }
 
   - id: d_sma200
@@ -93,7 +73,6 @@ indicators:
     price_line_visible: true
     last_value_visible: true
     timeframes:
-      10s: { default_enabled: true }
       1m:  { default_enabled: true }
 
   - id: d_ema20
@@ -106,7 +85,6 @@ indicators:
     price_line_visible: true
     last_value_visible: true
     timeframes:
-      10s: { default_enabled: true }
       1m:  { default_enabled: true }
 
   - id: d_ema50
@@ -119,7 +97,6 @@ indicators:
     price_line_visible: true
     last_value_visible: true
     timeframes:
-      10s: { default_enabled: true }
       1m:  { default_enabled: true }
 
   - id: d_ema200
@@ -132,8 +109,200 @@ indicators:
     price_line_visible: true
     last_value_visible: true
     timeframes:
-      10s: { default_enabled: true }
       1m:  { default_enabled: true }
+
+  - id: d_high52
+    type: daily
+    label: 52W High
+    span: 252
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m:  { default_enabled: true }
+
+  - id: d_low52
+    type: daily
+    label: 52W Low
+    span: 252
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m:  { default_enabled: true }
+
+  - id: pm_high
+    type: daily
+    label: Pre-Market High
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: pm_low
+    type: daily
+    label: Pre-Market Low
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: d_prev_day_high
+    type: daily
+    label: Prev Day High
+    color: '#000000'
+    line_width: 1
+    line_style: dashed
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: d_prev_day_low
+    type: daily
+    label: Prev Day Low
+    color: '#000000'
+    line_width: 1
+    line_style: dashed
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: d_prev_day_close
+    type: daily
+    label: Prev Day Close
+    color: '#000000'
+    line_width: 1
+    line_style: dashed
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: d_prev_week_high
+    type: daily
+    label: Prev Week High
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: d_prev_week_low
+    type: daily
+    label: Prev Week Low
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: d_prev_week_close
+    type: daily
+    label: Prev Week Close
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: d_prev_month_high
+    type: daily
+    label: Prev Month High
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: d_prev_month_low
+    type: daily
+    label: Prev Month Low
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: d_prev_month_close
+    type: daily
+    label: Prev Month Close
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: d_high26
+    type: daily
+    label: 26W High
+    span: 130
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: d_low26
+    type: daily
+    label: 26W Low
+    span: 130
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: d_high13
+    type: daily
+    label: 13W High
+    span: 65
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
+
+  - id: d_low13
+    type: daily
+    label: 13W Low
+    span: 65
+    color: '#000000'
+    line_width: 1
+    line_style: solid
+    price_line_visible: true
+    last_value_visible: true
+    timeframes:
+      1m: { default_enabled: true }
 
   # --- Volume ---
   - id: volume
@@ -141,6 +310,5 @@ indicators:
     label: Volume
     color: '#6b7280'
     timeframes:
-      10s: { default_enabled: true }
       1m:  { default_enabled: true }
       1d:  { default_enabled: true }

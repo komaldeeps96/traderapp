@@ -7,15 +7,15 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 
+from ..core.constants import CONFIG_PATH
+
 logger = logging.getLogger(__name__)
 
 class AlpacaProvider:
-    def __init__(self, config_path="config/config.yaml"):
+    def __init__(self, config_path=CONFIG_PATH):
         self.config_path = config_path
         self.client = None
         self._aggregator = None
-        self._fetched_1m: set = set()
-        self._fetched_1d: set = set()
         self._load_config()
 
     def _load_config(self):
@@ -43,11 +43,6 @@ class AlpacaProvider:
             logger.error("Alpaca client not initialized.")
             return
 
-        if ticker in self._fetched_1d:
-            logger.info(f"Alpaca 1d data for {ticker} already fetched this session. Skipping.")
-            return
-        self._fetched_1d.add(ticker)
-
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         start = today_start - timedelta(days=365 * 3)
         end = today_start
@@ -60,14 +55,9 @@ class AlpacaProvider:
             logger.error("Alpaca client not initialized.")
             return
 
-        if ticker in self._fetched_1m:
-            logger.info(f"Alpaca 1m data for {ticker} already fetched this session. Skipping.")
-            return
-        self._fetched_1m.add(ticker)
-
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        start = today_start - timedelta(days=30)
-        end = today_start
+        now = datetime.now(timezone.utc)
+        start = now - timedelta(days=5)
+        end = now - timedelta(minutes=30)
         await self._fetch_bars_range(ticker, TimeFrame.Minute, start, "1m", end=end)
 
     # ── generic bar fetch ──────────────────────────────────

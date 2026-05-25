@@ -3,7 +3,6 @@ uvicorn[standard]==0.30.1
 websockets
 ib-async
 pandas
-yfinance
 pyarrow==16.0.0
 alpaca-py
 pyyaml
