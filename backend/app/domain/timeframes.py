@@ -33,7 +33,7 @@ class Timeframe(str, Enum):
         return self in _INTRADAY
 
     @property
-    def base(self) -> "Timeframe":
+    def base(self) -> Timeframe:
         """The upstream timeframe this one is resampled from.
 
         A base timeframe is its own base.
@@ -51,7 +51,7 @@ class Timeframe(str, Enum):
         return self.value.upper()
 
     @classmethod
-    def parse(cls, value: str | "Timeframe") -> "Timeframe":
+    def parse(cls, value: str | Timeframe) -> Timeframe:
         """Case-insensitive lookup.
 
         Raises ``ValueError`` with the supported list, which the WebSocket

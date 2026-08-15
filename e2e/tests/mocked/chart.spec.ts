@@ -65,12 +65,22 @@ test.describe('chart rendering', () => {
     expect(state.hasVolumePane).toBe(true);
   });
 
-  test('draws no pane for an indicator that is not configured', async ({ terminal }) => {
-    // Panes are config-driven: dropping `type: trades` from indicators.yaml
-    // must remove the pane entirely, not leave an empty strip behind.
+  test('draws a pane only on the timeframes its indicator is configured for', async ({
+    terminal,
+  }) => {
+    // Panes are config-driven. MACD is enabled on 1m alone — on the 10s tape
+    // it whipsaws — so the pane has to appear and disappear with the
+    // timeframe rather than sitting there empty.
     await terminal.waitForChart();
-    const state = await terminal.chartState();
-    expect(state.hasTradesPane).toBe(false);
+    expect((await terminal.chartState()).hasMacdPane).toBe(false);
+
+    await terminal.selectTimeframe('1m');
+    await terminal.waitForChart();
+    expect((await terminal.chartState()).hasMacdPane).toBe(true);
+
+    await terminal.selectTimeframe('10s');
+    await terminal.waitForChart();
+    expect((await terminal.chartState()).hasMacdPane).toBe(false);
   });
 
   test('opens on the most recent bars rather than the whole history', async ({ terminal }) => {

@@ -31,6 +31,10 @@ class ScannerService:
         # the service still runs bare in tests.
         self._tv = tv
         self._stats_pending: set[str] = set()
+        # Strong references to the in-flight reference-stat warms. The event
+        # loop keeps only a weak one, so a task nobody holds can be collected
+        # mid-await and vanish without running its `finally`.
+        self._warming: set[asyncio.Task] = set()
         self._handlers: list[UpdateHandler] = []
         self._state = ScannerState(
             config=ScannerConfig(
@@ -74,12 +78,16 @@ class ScannerService:
 
     async def stop(self) -> None:
         await self._ibkr.stop_scanner()
+        for task in list(self._warming):
+            task.cancel()
+        self._warming.clear()
+        self._stats_pending.clear()
         self._ranks.reset()
         self._state.running = False
         self._state.rows = []
         await self._notify()
 
-    async def configure(self, **overrides: object) -> tuple[bool, str | None]:
+    async def configure(self, **overrides: object) -> tuple[bool, str | None]:  # noqa: PLR0911
         """Apply new filters and restart the scan.
 
         Returns ``(ok, message)``; ``message`` explains any refusal so the
@@ -166,7 +174,8 @@ class ScannerService:
         # Dollar volume breaks ties: at equal print rates the name moving
         # real money is the one worth the row. Trade counts from our own
         # print buffer are deliberately not used — they are unreliable in
-        # both directions (see app/services/momentum.py).
+        # both directions; see the note above the matching sort in
+        # `IBKRProvider._process_scanner`.
         rows.sort(key=lambda row: (row.trades_1m, row.dollar_vol_1m), reverse=True)
 
         velocity = self._ranks.observe([row.symbol for row in rows])
@@ -192,7 +201,9 @@ class ScannerService:
                 row.market_cap = stats.market_cap
             elif row.symbol not in self._stats_pending:
                 self._stats_pending.add(row.symbol)
-                asyncio.create_task(self._warm(row.symbol))
+                task = asyncio.create_task(self._warm(row.symbol))
+                self._warming.add(task)
+                task.add_done_callback(self._warming.discard)
 
     async def _warm(self, symbol: str) -> None:
         try:

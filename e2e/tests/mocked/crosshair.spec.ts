@@ -44,8 +44,8 @@ test.describe('crosshair readout', () => {
       ),
     );
     const [open, high, low, close] = values.map((text) => Number(text));
-    expect(high).toBeGreaterThanOrEqual(Math.max(open!, close!));
-    expect(low).toBeLessThanOrEqual(Math.min(open!, close!));
+    expect(high).toBeGreaterThanOrEqual(Math.max(open, close));
+    expect(low).toBeLessThanOrEqual(Math.min(open, close));
   });
 
   test('updates the indicator values as the crosshair moves', async ({ terminal }) => {

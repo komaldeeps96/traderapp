@@ -71,6 +71,29 @@ class MarketDataService:
         self._router.on_trade(self._handle_trade)
         self._router.on_bar(self._handle_bar)
 
+    async def stop(self) -> None:
+        """Cancel everything still in flight and wait for it to unwind.
+
+        Loads, backfills, repairs and warm-cache timers are all fire-and-forget
+        by design — nothing awaits them in the request path. That leaves them
+        for shutdown to collect: without this they are still pending when the
+        loop closes, which is both a stack of "Task was destroyed but it is
+        pending" warnings and a cancellation that never actually runs the
+        ``finally`` blocks those tasks rely on.
+        """
+        pending = [
+            task
+            for group in (self._loads, self._backfills, self._repairs, self._parked)
+            for task in group.values()
+            if not task.done()
+        ]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        for group in (self._loads, self._backfills, self._repairs, self._parked):
+            group.clear()
+
     def on_backfill(self, handler: BackfillHandler) -> None:
         """Called with the symbol after its background history lands."""
         self._backfill_handlers.append(handler)
@@ -163,7 +186,7 @@ class MarketDataService:
         self._backfills[symbol] = asyncio.create_task(self._backfill(symbol, base))
         return True
 
-    async def _backfill(self, symbol: str, fast_base: Timeframe) -> None:
+    async def _backfill(self, symbol: str, fast_base: Timeframe) -> None:  # noqa: PLR0912
         """Phase two: whatever phase one skipped, merged in quietly.
 
         The minute base is never fetched from IBKR here: its freshest

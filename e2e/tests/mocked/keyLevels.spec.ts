@@ -111,7 +111,7 @@ test.describe('confluence bands', () => {
     await terminal.waitForChart();
     const state = await terminal.chartState();
     expect(state.bands.length).toBeGreaterThan(0);
-    const band = state.bands[0]!;
+    const band = state.bands[0];
     expect(band.high).toBeGreaterThan(band.low);
     expect(band.color).toMatch(/^rgba\(/);
   });
@@ -308,7 +308,7 @@ test.describe('price label priority', () => {
     const snapshot = backend.lastSnapshot()!;
     // The pre-market high, as a price rather than a percentage — this is the
     // breakout moment, when the two labels genuinely land on each other.
-    const pmHigh = snapshot.series.pm_high![0]![1];
+    const pmHigh = snapshot.series.pm_high[0][1];
 
     await backend.send(makeNextBar(snapshot, { c: pmHigh, h: pmHigh, l: pmHigh - 0.05 }));
 
@@ -320,7 +320,7 @@ test.describe('price label priority', () => {
   test('gives the label back when the price moves away', async ({ terminal, backend }) => {
     await terminal.waitForChart();
     const snapshot = backend.lastSnapshot()!;
-    const pmHigh = snapshot.series.pm_high![0]![1];
+    const pmHigh = snapshot.series.pm_high[0][1];
 
     await backend.send(makeNextBar(snapshot, { c: pmHigh, h: pmHigh, l: pmHigh - 0.05 }));
     await expect
@@ -339,7 +339,7 @@ test.describe('price label priority', () => {
   test('only the colliding level stands down', async ({ terminal, backend }) => {
     await terminal.waitForChart();
     const snapshot = backend.lastSnapshot()!;
-    const pmHigh = snapshot.series.pm_high![0]![1];
+    const pmHigh = snapshot.series.pm_high[0][1];
 
     await backend.send(makeNextBar(snapshot, { c: pmHigh, h: pmHigh, l: pmHigh - 0.05 }));
 

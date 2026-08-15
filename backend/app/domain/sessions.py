@@ -24,12 +24,6 @@ class Session(str, Enum):
     AFTERHOURS = "afterhours"
 
 
-def ny_hour(epoch: float) -> float:
-    """Hours since New York midnight, as a float (09:30 -> 9.5)."""
-    ny = to_ny(epoch)
-    return ny.hour + ny.minute / 60.0 + ny.second / 3600.0
-
-
 def ny_date(epoch: float) -> date:
     return to_ny(epoch).date()
 
@@ -52,10 +46,6 @@ def session_of(epoch: float) -> Session:
     if REGULAR_CLOSE_HOUR <= hour < AFTERHOURS_CLOSE_HOUR:
         return Session.AFTERHOURS
     return Session.CLOSED
-
-
-def is_regular_hours(epoch: float) -> bool:
-    return session_of(epoch) is Session.REGULAR
 
 
 def is_extended_hours(epoch: float) -> bool:

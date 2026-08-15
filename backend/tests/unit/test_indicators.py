@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from app.domain.bars import Bar
-from datetime import date
-
 from app.domain.sessions import ny_date
 from app.indicators.functions import (
     compress_steps,
-    session_level_series,
-    session_levels,
     ema,
     ema_last,
     premarket_bounds,
@@ -20,6 +18,8 @@ from app.indicators.functions import (
     rolling_min,
     session_bounds,
     session_bounds_last,
+    session_level_series,
+    session_levels,
     session_vwap,
     session_vwap_last,
     sma,

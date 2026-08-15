@@ -40,7 +40,7 @@ class ScannerConfig:
     def to_dict(self) -> dict:
         return asdict(self)
 
-    def merged(self, **overrides: object) -> "ScannerConfig":
+    def merged(self, **overrides: object) -> ScannerConfig:
         """Apply the overrides that were supplied.
 
         ``None`` means "leave unchanged"; the sentinel ``"clear"`` relaxes a

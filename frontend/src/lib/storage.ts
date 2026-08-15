@@ -93,12 +93,3 @@ export function defaultVisibility(
   }
   return defaults;
 }
-
-export function clearPreferences(): void {
-  try {
-    localStorage.removeItem(VISIBILITY_KEY);
-    localStorage.removeItem(THEME_KEY);
-  } catch {
-    /* ignore */
-  }
-}

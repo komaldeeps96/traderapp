@@ -151,10 +151,13 @@ class TestValidation:
 
 
 class TestDerivedProperties:
-    def test_volume_and_trades_go_to_their_own_panes(self):
+    def test_volume_goes_to_its_own_pane(self):
         volume = IndicatorSpec.model_validate({**VALID_EMA, "type": "volume", "span": None})
-        trades = IndicatorSpec.model_validate({**VALID_EMA, "type": "trades", "span": None})
-        assert volume.pane is Pane.VOLUME and trades.pane is Pane.TRADES
+        assert volume.pane is Pane.VOLUME
+
+    def test_macd_goes_to_its_own_pane(self):
+        macd = IndicatorSpec.model_validate({**VALID_EMA, "type": "macd", "span": None})
+        assert macd.pane is Pane.MACD
 
     def test_lines_go_to_the_price_pane(self):
         assert IndicatorSpec.model_validate(VALID_EMA).pane is Pane.PRICE

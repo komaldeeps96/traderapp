@@ -47,7 +47,7 @@ describe('handleMessage bar gating', () => {
   it('drops a live bar that races ahead of the snapshot', () => {
     expect(useTerminalStore.getState().status).toBe('loading');
 
-    handleMessage(BAR as never);
+    handleMessage(BAR);
 
     expect(engine.applyBar).not.toHaveBeenCalled();
   });
@@ -57,7 +57,7 @@ describe('handleMessage bar gating', () => {
       .getState()
       .chartReady({ symbol: 'BANL', timeframe: '10s', barCount: 1, live: null });
 
-    handleMessage(BAR as never);
+    handleMessage(BAR);
 
     expect(engine.applyBar).toHaveBeenCalledOnce();
   });
@@ -71,7 +71,7 @@ describe('handleMessage bar gating', () => {
       .getState()
       .chartReady({ symbol: 'NVDA', timeframe: '10s', barCount: 1, live: null });
 
-    handleMessage(BAR as never);
+    handleMessage(BAR);
 
     expect(engine.applyBar).not.toHaveBeenCalled();
   });

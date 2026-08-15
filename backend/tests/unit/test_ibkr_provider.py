@@ -14,9 +14,10 @@ which genuinely needs a gateway.
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -26,7 +27,6 @@ from app.domain.timeframes import Timeframe
 from app.market.bar_builder import Trade
 from app.providers import ibkr as ibkr_module
 from app.providers.ibkr import TRADE_BUFFER_MAX_AGE, IBKRProvider, _clean
-
 
 # ── stand-ins for ib_async ─────────────────────────────────────────────
 
@@ -204,7 +204,7 @@ class TestWithoutTheLibrary:
     async def test_history_returns_nothing_while_unavailable(self):
         instance = IBKRProvider(IBKRSettings(), ScannerSettings())
         bars = await instance.fetch_bars(
-            "AAPL", Timeframe.M1, datetime.now(timezone.utc), datetime.now(timezone.utc)
+            "AAPL", Timeframe.M1, datetime.now(UTC), datetime.now(UTC)
         )
         assert bars == []
 
@@ -217,9 +217,7 @@ class TestCancelAckFilter:
     """The scanner cancel-ack is noise; every other 162 must still log."""
 
     @staticmethod
-    def record(message: str) -> "logging.LogRecord":
-        import logging
-
+    def record(message: str) -> logging.LogRecord:
         return logging.LogRecord("ib_async.wrapper", logging.ERROR, "", 0, message, None, None)
 
     def test_drops_the_cancel_acknowledgement(self):
@@ -256,11 +254,11 @@ class TestFetchBars:
     async def test_converts_the_library_bars(self, provider, ib):
         ib.historical = [
             FakeHistoricalBar(
-                datetime(2024, 3, 5, 14, 30, tzinfo=timezone.utc), 1.0, 2.0, 0.5, 1.5, 900, 12
+                datetime(2024, 3, 5, 14, 30, tzinfo=UTC), 1.0, 2.0, 0.5, 1.5, 900, 12
             )
         ]
-        start = datetime(2024, 3, 5, 14, 0, tzinfo=timezone.utc)
-        end = datetime(2024, 3, 5, 15, 0, tzinfo=timezone.utc)
+        start = datetime(2024, 3, 5, 14, 0, tzinfo=UTC)
+        end = datetime(2024, 3, 5, 15, 0, tzinfo=UTC)
 
         bars = await provider.fetch_bars("AAPL", Timeframe.M1, start, end)
 
@@ -277,7 +275,7 @@ class TestFetchBars:
         render as an invisible chart; the live builder never creates them,
         so history must arrive equally sparse.
         """
-        when = datetime(2024, 3, 5, 14, 30, tzinfo=timezone.utc)
+        when = datetime(2024, 3, 5, 14, 30, tzinfo=UTC)
         ib.historical = [
             FakeHistoricalBar(when, 5.6, 5.62, 5.6, 5.61, 384, 3),
             FakeHistoricalBar(when + timedelta(seconds=10), 5.61, 5.62, 5.61, 5.61, 0, 0),
@@ -287,56 +285,58 @@ class TestFetchBars:
         bars = await provider.fetch_bars(
             "BANL",
             Timeframe.S10,
-            datetime(2024, 3, 5, 14, tzinfo=timezone.utc),
-            datetime(2024, 3, 5, 15, tzinfo=timezone.utc),
+            datetime(2024, 3, 5, 14, tzinfo=UTC),
+            datetime(2024, 3, 5, 15, tzinfo=UTC),
         )
         assert [bar.volume for bar in bars] == [pytest.approx(384), pytest.approx(120)]
 
     async def test_keeps_zero_volume_daily_bars(self, provider, ib):
         """A full-day halt is information, not padding."""
         ib.historical = [
-            FakeHistoricalBar(datetime(2024, 3, 5, tzinfo=timezone.utc), 5, 5, 5, 5, 0, 0)
+            FakeHistoricalBar(datetime(2024, 3, 5, tzinfo=UTC), 5, 5, 5, 5, 0, 0)
         ]
         bars = await provider.fetch_bars(
             "HALT",
             Timeframe.D1,
-            datetime(2024, 2, 5, tzinfo=timezone.utc),
-            datetime(2024, 3, 6, tzinfo=timezone.utc),
+            datetime(2024, 2, 5, tzinfo=UTC),
+            datetime(2024, 3, 6, tzinfo=UTC),
         )
         assert len(bars) == 1
 
     async def test_treats_a_naive_timestamp_as_utc(self, provider, ib):
-        ib.historical = [FakeHistoricalBar(datetime(2024, 3, 5, 14, 30), 1, 1, 1, 1, 1, 1)]
+        # The naive datetime is the subject of the test, not an oversight.
+        naive = datetime(2024, 3, 5, 14, 30)  # noqa: DTZ001
+        ib.historical = [FakeHistoricalBar(naive, 1, 1, 1, 1, 1, 1)]
         bars = await provider.fetch_bars(
             "AAPL",
             Timeframe.M1,
-            datetime(2024, 3, 5, 14, tzinfo=timezone.utc),
-            datetime(2024, 3, 5, 15, tzinfo=timezone.utc),
+            datetime(2024, 3, 5, 14, tzinfo=UTC),
+            datetime(2024, 3, 5, 15, tzinfo=UTC),
         )
-        assert bars[0].time == int(datetime(2024, 3, 5, 14, 30, tzinfo=timezone.utc).timestamp())
+        assert bars[0].time == int(datetime(2024, 3, 5, 14, 30, tzinfo=UTC).timestamp())
 
     async def test_skips_a_bar_with_an_unusable_date(self, provider, ib):
         ib.historical = [FakeHistoricalBar("not a date", 1, 1, 1, 1, 1, 1)]
         bars = await provider.fetch_bars(
             "AAPL",
             Timeframe.M1,
-            datetime(2024, 3, 5, 14, tzinfo=timezone.utc),
-            datetime(2024, 3, 5, 15, tzinfo=timezone.utc),
+            datetime(2024, 3, 5, 14, tzinfo=UTC),
+            datetime(2024, 3, 5, 15, tzinfo=UTC),
         )
         assert bars == []
 
     async def test_asks_in_seconds_for_a_short_window(self, provider, ib):
-        end = datetime.now(timezone.utc)
+        end = datetime.now(UTC)
         await provider.fetch_bars("AAPL", Timeframe.M1, end.replace(microsecond=0), end)
         assert ib.history_calls[0]["durationStr"].endswith(" S")
 
     async def test_ten_second_bars_use_their_bar_size(self, provider, ib):
-        end = datetime(2024, 3, 5, 15, tzinfo=timezone.utc)
+        end = datetime(2024, 3, 5, 15, tzinfo=UTC)
         await provider.fetch_bars("AAPL", Timeframe.S10, end - timedelta(hours=1), end)
         assert ib.history_calls[0]["barSizeSetting"] == "10 secs"
 
     async def test_a_short_ten_second_window_is_one_request(self, provider, ib):
-        end = datetime(2024, 3, 5, 15, tzinfo=timezone.utc)
+        end = datetime(2024, 3, 5, 15, tzinfo=UTC)
         await provider.fetch_bars("AAPL", Timeframe.S10, end - timedelta(hours=3), end)
         assert len(ib.history_calls) == 1
         # A window ending in the past must carry its explicit end — an empty
@@ -345,7 +345,7 @@ class TestFetchBars:
         assert ib.history_calls[0]["endDateTime"] == end
 
     async def test_a_window_ending_now_uses_the_empty_end(self, provider, ib):
-        end = datetime.now(timezone.utc)
+        end = datetime.now(UTC)
         await provider.fetch_bars("AAPL", Timeframe.S10, end - timedelta(hours=3), end)
         assert ib.history_calls[0]["endDateTime"] == ""
 
@@ -355,7 +355,7 @@ class TestFetchBars:
         The walk goes newest-first with explicit end times, and no chunk may
         span more than the cap.
         """
-        end = datetime(2024, 3, 5, 20, tzinfo=timezone.utc)
+        end = datetime(2024, 3, 5, 20, tzinfo=UTC)
         await provider.fetch_bars("AAPL", Timeframe.S10, end - timedelta(hours=10), end)
 
         assert len(ib.history_calls) == 3
@@ -369,49 +369,49 @@ class TestFetchBars:
     async def test_chunks_merge_without_duplicates(self, provider, ib):
         """Chunk boundaries overlap by construction; a bar must land once."""
         ib.historical = [
-            FakeHistoricalBar(datetime(2024, 3, 5, 14, 30, 10, tzinfo=timezone.utc), 1, 2, 1, 2, 10, 3),
-            FakeHistoricalBar(datetime(2024, 3, 5, 14, 30, 0, tzinfo=timezone.utc), 1, 2, 1, 2, 10, 3),
+            FakeHistoricalBar(datetime(2024, 3, 5, 14, 30, 10, tzinfo=UTC), 1, 2, 1, 2, 10, 3),
+            FakeHistoricalBar(datetime(2024, 3, 5, 14, 30, 0, tzinfo=UTC), 1, 2, 1, 2, 10, 3),
         ]
-        end = datetime(2024, 3, 5, 20, tzinfo=timezone.utc)
+        end = datetime(2024, 3, 5, 20, tzinfo=UTC)
         bars = await provider.fetch_bars("AAPL", Timeframe.S10, end - timedelta(hours=10), end)
 
         assert len(bars) == 2
         assert [bar.time for bar in bars] == sorted(bar.time for bar in bars)
 
     async def test_asks_in_days_for_a_long_window(self, provider, ib):
-        end = datetime(2024, 3, 5, tzinfo=timezone.utc)
-        start = datetime(2024, 2, 1, tzinfo=timezone.utc)
+        end = datetime(2024, 3, 5, tzinfo=UTC)
+        start = datetime(2024, 2, 1, tzinfo=UTC)
         await provider.fetch_bars("AAPL", Timeframe.D1, start, end)
         assert ib.history_calls[0]["durationStr"].endswith(" D")
 
     async def test_maps_the_timeframe_to_a_bar_size(self, provider, ib):
-        end = datetime.now(timezone.utc)
+        end = datetime.now(UTC)
         await provider.fetch_bars("AAPL", Timeframe.M5, end, end)
         assert ib.history_calls[0]["barSizeSetting"] == "5 mins"
 
     async def test_includes_extended_hours(self, provider, ib):
         # Pre-market is where a small-cap gapper sets up; excluding it would
         # lose the pre-market high entirely.
-        end = datetime.now(timezone.utc)
+        end = datetime.now(UTC)
         await provider.fetch_bars("AAPL", Timeframe.M1, end, end)
         assert ib.history_calls[0]["useRTH"] is False
 
     async def test_an_upstream_failure_yields_no_bars(self, provider, ib):
         ib.historical_error = RuntimeError("no market data permissions")
         bars = await provider.fetch_bars(
-            "AAPL", Timeframe.M1, datetime.now(timezone.utc), datetime.now(timezone.utc)
+            "AAPL", Timeframe.M1, datetime.now(UTC), datetime.now(UTC)
         )
         assert bars == []
 
     async def test_an_unqualifiable_symbol_yields_no_bars(self, provider, ib):
         ib.qualify_failures.add("NOPE")
         bars = await provider.fetch_bars(
-            "NOPE", Timeframe.M1, datetime.now(timezone.utc), datetime.now(timezone.utc)
+            "NOPE", Timeframe.M1, datetime.now(UTC), datetime.now(UTC)
         )
         assert bars == []
 
     async def test_contracts_are_reused(self, provider, ib):
-        end = datetime.now(timezone.utc)
+        end = datetime.now(UTC)
         await provider.fetch_bars("AAPL", Timeframe.M1, end, end)
         first = provider._contracts["AAPL"]
         await provider.fetch_bars("AAPL", Timeframe.M1, end, end)
@@ -458,7 +458,7 @@ class TestTickByTick:
 
         provider.on_trade(handler)
 
-        moment = datetime(2024, 3, 5, 14, 30, tzinfo=timezone.utc)
+        moment = datetime(2024, 3, 5, 14, 30, tzinfo=UTC)
         ticker = FakeTicker()
         ticker.tickByTicks = [type("Tick", (), {"price": 12.5, "size": 100, "time": moment})()]
 
@@ -474,7 +474,7 @@ class TestTickByTick:
     async def test_drains_the_buffer_so_prints_are_not_replayed(self, on_loop):
         ticker = FakeTicker()
         ticker.tickByTicks = [
-            type("Tick", (), {"price": 1.0, "size": 1, "time": datetime.now(timezone.utc)})()
+            type("Tick", (), {"price": 1.0, "size": 1, "time": datetime.now(UTC)})()
         ]
         on_loop._on_tick("AAPL", ticker)
         assert ticker.tickByTicks == []
@@ -490,7 +490,7 @@ class TestTickByTick:
         provider.on_trade(handler)
         ticker = FakeTicker()
         ticker.tickByTicks = [
-            type("Tick", (), {"price": price, "size": size, "time": datetime.now(timezone.utc)})()
+            type("Tick", (), {"price": price, "size": size, "time": datetime.now(UTC)})()
         ]
 
         provider._on_tick("AAPL", ticker)
@@ -509,7 +509,7 @@ class TestTickConditions:
     def _tick(conditions="", *, past_limit=False, unreported=False):
         attribs = type("Attribs", (), {"pastLimit": past_limit, "unreported": unreported})()
         return type("Tick", (), {
-            "price": 12.5, "size": 100, "time": datetime.now(timezone.utc),
+            "price": 12.5, "size": 100, "time": datetime.now(UTC),
             "specialConditions": conditions, "tickAttribLast": attribs,
         })()
 
@@ -586,7 +586,7 @@ class TestScannerSubscription:
     async def test_percent_change_rides_the_filter_options(self, provider, ib):
         config = ScannerConfig(scan_code="TOP_PERC_GAIN", change_perc_above=10.0)
         assert await provider.start_scanner(config) is True
-        options = dict((o.tag, o.value) for o in ib.scanner_filter_options)
+        options = {o.tag: o.value for o in ib.scanner_filter_options}
         assert options["changePercAbove"] == "10.0"
 
     async def test_a_market_cap_ceiling_keeps_large_caps_out(self, provider, ib):
@@ -608,7 +608,7 @@ class TestScannerSubscription:
         """
         provider._scanner_settings = ScannerSettings(exclude_stock_types=["ETF", "CEF"])
         await provider.start_scanner(ScannerConfig(scan_code="MOST_ACTIVE"))
-        options = dict((o.tag, o.value) for o in ib.scanner_filter_options)
+        options = {o.tag: o.value for o in ib.scanner_filter_options}
         assert options["stkTypes"] == "exc:ETF,exc:CEF"
 
     async def test_the_dead_subscription_field_is_left_alone(self, provider, ib):

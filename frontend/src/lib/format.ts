@@ -137,10 +137,6 @@ export function formatSpread(value: number | null | undefined): string {
   return `$${value.toFixed(2)}`;
 }
 
-export function formatDay(epochSeconds: number): string {
-  return dayFormat.format(new Date(epochSeconds * 1000));
-}
-
 /** Percentage distance from `from` to `to`, or null if it cannot be computed. */
 export function percentDistance(from: number | null, to: number | null): number | null {
   if (from == null || to == null || !Number.isFinite(from) || !Number.isFinite(to) || from === 0) {

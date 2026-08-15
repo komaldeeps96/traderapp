@@ -8,7 +8,7 @@
 
 import { create } from 'zustand';
 
-import { defaultVisibility, loadVisibility, saveVisibility, type Theme } from '@/lib/storage';
+import { loadVisibility, saveVisibility, type Theme } from '@/lib/storage';
 import type {
   ApiUsageMessage,
   DataSource,
@@ -234,38 +234,3 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
   setTheme: (theme) => set({ theme }),
 }));
-
-/** Reset helper for tests. */
-export function resetTerminalStore(specs: IndicatorSpec[] = []): void {
-  useTerminalStore.setState({
-    connected: false,
-    source: 'none',
-    delayed: false,
-    ibkrConnected: false,
-    alpacaAvailable: false,
-    sourceNote: null,
-    symbol: '',
-    timeframe: '10s',
-    status: 'idle',
-    error: null,
-    barCount: 0,
-    live: null,
-    hovered: null,
-    snapshotEpoch: 0,
-    quote: null,
-    info: null,
-    apiUsage: null,
-    specs,
-    visibility: defaultVisibility(specs, '10s'),
-    scannerRows: [],
-    scannerConfig: null,
-    scannerRunning: false,
-    scannerAvailable: false,
-    scannerNote: null,
-    scanCodes: [],
-    regimeRunning: false,
-    regimeError: null,
-    regime: null,
-    theme: 'dark',
-  });
-}

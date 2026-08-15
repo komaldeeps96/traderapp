@@ -13,13 +13,12 @@ import contextlib
 import json
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from websockets.asyncio.client import connect as ws_connect
-from websockets.exceptions import ConnectionClosed
 
-from ..core.clock import UTC, parse_rfc3339, rfc3339
+from ..core.clock import parse_rfc3339, rfc3339
 from ..core.settings import AlpacaSettings
 from ..domain.bars import Bar
 from ..domain.quotes import Quote
@@ -166,7 +165,7 @@ class AlpacaProvider(MarketDataProvider):
         trades: list[Trade] = []
         page_token: str | None = None
         truncated = False
-        for page in range(self._settings.max_trade_pages):
+        for _page in range(self._settings.max_trade_pages):
             if page_token:
                 params["page_token"] = page_token
             payload = await self._get("/v2/stocks/trades", params)

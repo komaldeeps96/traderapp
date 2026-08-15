@@ -13,11 +13,19 @@
     "build": "npm run build --workspace frontend",
     "preview": "npm run preview --workspace frontend",
     "typecheck": "npm run typecheck --workspace frontend && npm run typecheck --workspace e2e",
-    "lint": "npm run typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "test:unit": "npm run test --workspace frontend",
     "test:e2e": "npm run test --workspace e2e",
     "test:e2e:ci": "npm run test:ci --workspace e2e",
     "test:e2e:ui": "npm run test:ui --workspace e2e",
     "test": "npm run test:unit && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^15.15.0",
+    "typescript-eslint": "^8.67.0"
   }
 }

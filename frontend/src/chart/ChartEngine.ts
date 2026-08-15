@@ -48,7 +48,6 @@ import type { MiniConfig } from './mini';
 import { paletteFor, type ChartPalette, type ThemeName } from './theme';
 
 const VOLUME_PANE_HEIGHT = 110;
-const TRADES_PANE_HEIGHT = 80;
 const MACD_PANE_HEIGHT = 90;
 const DEFAULT_VISIBLE_BARS = 240;
 // Headroom above the highest bar and below the lowest, as a fraction of the
@@ -57,6 +56,9 @@ const PRICE_SCALE_MARGINS = { top: 0.08, bottom: 0.08 };
 // How often the clock is read. The label only turns over once a second; this
 // is just often enough that it never shows a second that has already passed.
 const COUNTDOWN_POLL_MS = 250;
+// Axis and crosshair type. A mini chart drops a couple of points: its axis
+// carries the same numbers in a third of the width.
+const FONT_SIZE = { full: 11, mini: 9 } as const;
 // The axis label's own height, which the countdown has to clear to sit under
 // it. The library sizes it from the font, so this tracks the font too.
 const AXIS_LABEL_HEIGHT = (fontSize: number) => Math.round(fontSize * 1.7);
@@ -105,7 +107,6 @@ export class ChartEngine {
   private candles: ISeriesApi<'Candlestick'>;
   private extendedHours: ISeriesApi<'Area'>;
   private volume: ISeriesApi<'Histogram'> | null = null;
-  private trades: ISeriesApi<'Histogram'> | null = null;
   private macdLine: ISeriesApi<'Line'> | null = null;
   private macdSignal: ISeriesApi<'Line'> | null = null;
   private macdHist: ISeriesApi<'Histogram'> | null = null;
@@ -211,7 +212,7 @@ export class ChartEngine {
         textColor: palette.textMuted,
         fontFamily:
           "system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-        fontSize: this.mini ? 9 : 11,
+        fontSize: this.fontSize,
         panes: { separatorColor: palette.border, separatorHoverColor: palette.grid },
       },
       grid: {
@@ -315,6 +316,23 @@ export class ChartEngine {
     return this.theme === 'dark' ? spec.color_dark : spec.color;
   }
 
+  /**
+   * The axis font size, in one place.
+   *
+   * Three things have to agree on it: the chart options that set it, and the
+   * two places that derive the axis label's height from it to park the
+   * countdown under the price and to detect a level colliding with the pair.
+   * Disagreement is silent — the chip simply drifts off the label it belongs
+   * to — so they all read it from here.
+   */
+  private get fontSize(): number {
+    return this.mini ? FONT_SIZE.mini : FONT_SIZE.full;
+  }
+
+  private get axisLabelHeight(): number {
+    return AXIS_LABEL_HEIGHT(this.fontSize);
+  }
+
   // ── bar countdown ────────────────────────────────────────────────────
 
   private applyCountdownColors(): void {
@@ -347,7 +365,7 @@ export class ChartEngine {
       price: last.c,
       text: formatCountdown(this.timeframe, remaining),
       closing: isCandleClosing(this.timeframe, remaining),
-      labelHeight: AXIS_LABEL_HEIGHT(this.mini ? 9 : 11),
+      labelHeight: this.axisLabelHeight,
     });
   }
 
@@ -415,12 +433,6 @@ export class ChartEngine {
   }
 
   /**
-   * Colour and weight the key levels.
-   *
-   * Reapplied after every snapshot, because rebuilding the series resets them
-   * to their configured defaults.
-   */
-  /**
    * Shade the confluence zones behind the candles.
    *
    * A shelf of levels has a thickness; drawing it as one thicker line said
@@ -431,6 +443,12 @@ export class ChartEngine {
     this.bands.setBands(bands);
   }
 
+  /**
+   * Colour and weight the key levels.
+   *
+   * Reapplied after every snapshot, because rebuilding the series resets them
+   * to their configured defaults.
+   */
   setLevelStyles(styles: Record<string, LevelStyle>): void {
     this.levelStyles = styles;
     for (const [id, style] of Object.entries(styles)) {
@@ -470,14 +488,13 @@ export class ChartEngine {
 
     // The price label is centred on the price; the countdown sits directly
     // below it. A level's own box overlaps that pair anywhere in this span.
-    const height = AXIS_LABEL_HEIGHT(this.mini ? 9 : 11);
-    const values = this.latestValues();
+    const height = this.axisLabelHeight;
 
     for (const [id, style] of Object.entries(this.levelStyles)) {
       const series = this.indicatorSeries.get(id);
       if (!series || !style.labelVisible) continue;
 
-      const value = values[id];
+      const value = this.latestValue(id);
       const y = value === undefined ? null : series.priceToCoordinate(value);
       const overlaps = y !== null && y > priceY - height && y < priceY + 2 * height;
       if (overlaps === this.crowded.has(id)) continue;
@@ -510,7 +527,6 @@ export class ChartEngine {
     this.candles.setData([]);
     this.extendedHours.setData([]);
     this.volume?.setData([]);
-    this.trades?.setData([]);
     this.macdLine?.setData([]);
     this.macdSignal?.setData([]);
     this.macdHist?.setData([]);
@@ -530,7 +546,6 @@ export class ChartEngine {
     this.candles.update({ time, open: bar.o, high: bar.h, low: bar.l, close: bar.c });
     this.extendedHours.update({ time, value: bar.x ? 1 : 0 });
     this.volume?.update({ time, value: bar.v, color: this.volumeColor(bar) });
-    this.trades?.update({ time, value: bar.n, color: this.volumeColor(bar) });
 
     for (const [id, value] of Object.entries(values)) {
       // A non-finite value poisons a series: every later paint of its pane
@@ -589,7 +604,6 @@ export class ChartEngine {
       color: this.volumeColor(bar),
     }));
     this.volume?.setData(points.map((point, i) => ({ ...point, value: this.bars[i]!.v })));
-    this.trades?.setData(points.map((point, i) => ({ ...point, value: this.bars[i]!.n })));
   }
 
   private renderIndicators(series: SeriesMap): void {
@@ -698,9 +712,9 @@ export class ChartEngine {
     timeframe: Timeframe,
     visibility: Record<string, boolean>,
   ): void {
-    // The allow-list is the whole of what makes a mini chart minimal. MACD,
-    // the trades pane and every key level are built from this one map, so
-    // filtering it here removes all three and nothing below has to know.
+    // The allow-list is the whole of what makes a mini chart minimal. Both
+    // the MACD pane and every key level are built from this one map, so
+    // filtering it here removes them and nothing below has to know.
     const wanted = new Map(
       specs
         .filter((spec) => spec.timeframes[timeframe] !== undefined)
@@ -722,9 +736,6 @@ export class ChartEngine {
     const volumeSpec = wanted.get('volume');
     this.volume = this.ensureHistogram(this.volume, volumeSpec, volumeSpec ? nextPane : 0);
     if (volumeSpec) nextPane += 1;
-    const tradesSpec = wanted.get('trades');
-    this.trades = this.ensureHistogram(this.trades, tradesSpec, tradesSpec ? nextPane : 0);
-    if (tradesSpec) nextPane += 1;
     const macdSpec = [...wanted.values()].find((spec) => spec.pane === 'macd');
     this.ensureMacd(macdSpec, macdSpec ? nextPane : 0, visibility);
     if (macdSpec) nextPane += 1;
@@ -857,7 +868,6 @@ export class ChartEngine {
     const panes = this.chart.panes();
     const heights: number[] = [];
     if (this.volume) heights.push(this.mini?.volumePaneHeight ?? VOLUME_PANE_HEIGHT);
-    if (this.trades) heights.push(TRADES_PANE_HEIGHT);
     if (this.macdLine) heights.push(MACD_PANE_HEIGHT);
     heights.forEach((height, i) => panes[i + 1]?.setHeight(height));
   }
@@ -865,7 +875,6 @@ export class ChartEngine {
   setIndicatorVisible(id: string, visible: boolean): void {
     this.indicatorSeries.get(id)?.applyOptions({ visible });
     if (id === 'volume') this.volume?.applyOptions({ visible });
-    if (id === 'trades') this.trades?.applyOptions({ visible });
     if (id === 'macd') {
       this.macdLine?.applyOptions({ visible });
       this.macdSignal?.applyOptions({ visible });
@@ -927,18 +936,34 @@ export class ChartEngine {
     return values;
   }
 
+  /**
+   * The newest value of one series.
+   *
+   * Points are not stored in time order — a live `update` appends to whatever
+   * the snapshot left — so this is a scan rather than a peek at the end. It
+   * stays cheap because the caller that runs on a timer only asks about key
+   * levels, which are stored compressed at two points each.
+   */
+  latestValue(id: string): number | undefined {
+    const lookup = this.seriesValues.get(id);
+    if (!lookup) return undefined;
+    let bestTime = -Infinity;
+    let bestValue: number | undefined;
+    for (const [pointTime, value] of lookup) {
+      if (pointTime > bestTime) {
+        bestTime = pointTime;
+        bestValue = value;
+      }
+    }
+    return bestValue;
+  }
+
+  /** Every series' newest value. Once per snapshot — see `latestValue`. */
   latestValues(): Record<string, number> {
     const values: Record<string, number> = {};
-    for (const [id, lookup] of this.seriesValues) {
-      let bestTime = -Infinity;
-      let bestValue: number | undefined;
-      for (const [pointTime, value] of lookup) {
-        if (pointTime > bestTime) {
-          bestTime = pointTime;
-          bestValue = value;
-        }
-      }
-      if (bestValue !== undefined) values[id] = bestValue;
+    for (const id of this.seriesValues.keys()) {
+      const value = this.latestValue(id);
+      if (value !== undefined) values[id] = value;
     }
     return values;
   }
@@ -1058,24 +1083,22 @@ export class ChartEngine {
       ),
       visibleRange: this.visibleRange(),
       hasVolumePane: this.volume !== null,
-      hasTradesPane: this.trades !== null,
       hasMacdPane: this.macdLine !== null,
       dollarLineCount: this.dollarLines.length,
-      // The countdown is painted into the price axis, so the DOM cannot be
-      // asked whether it is there or what it says.
       // Levels that have stood down from the axis so the price label and its
       // countdown are not shuffled off the price.
       axisYieldedToPrice: [...this.crowded].sort(),
+      // The countdown is painted into the price axis, so the DOM cannot be
+      // asked whether it is there or what it says.
       countdown: this.countdown.state
         ? { text: this.countdown.state.text, closing: this.countdown.state.closing }
         : null,
       secondsVisible: this.timeframe === '10s',
-      // The sub-pane histograms live outside `indicatorSeries`, so they need
-      // reporting separately — otherwise a test asking about them reads
+      // The volume histogram lives outside `indicatorSeries`, so it needs
+      // reporting separately — otherwise a test asking about it reads
       // `undefined` and quietly passes.
       paneSeries: {
         volume: describe(this.volume),
-        trades: describe(this.trades),
       },
     };
   }

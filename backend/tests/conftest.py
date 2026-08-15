@@ -8,14 +8,12 @@ test-shaped is injected into the app itself.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.core.clock import NY_TZ, UTC
+from app.core.clock import NY_TZ
 from app.domain.bars import Bar
-from app.domain.timeframes import Timeframe
-
 
 # ── time helpers ───────────────────────────────────────────────────────
 

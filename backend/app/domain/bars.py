@@ -22,7 +22,7 @@ class Bar:
     volume: float = 0.0
     trades: float = 0.0
 
-    def merged_with(self, other: "Bar") -> "Bar":
+    def merged_with(self, other: Bar) -> Bar:
         """Fold a later bar covering the same period into this one."""
         return Bar(
             time=self.time,
@@ -34,7 +34,7 @@ class Bar:
             trades=self.trades + other.trades,
         )
 
-    def with_time(self, time: int) -> "Bar":
+    def with_time(self, time: int) -> Bar:
         return replace(self, time=time)
 
     def to_wire(self) -> dict[str, float]:
@@ -50,7 +50,7 @@ class Bar:
         }
 
     @classmethod
-    def from_wire(cls, data: dict) -> "Bar":
+    def from_wire(cls, data: dict) -> Bar:
         return cls(
             time=int(data["t"]),
             open=float(data["o"]),

@@ -6,8 +6,6 @@ it would send and feed back canned payloads, so no test dials out.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from app.services.tv import _COLUMNS, TVDataService

@@ -14,9 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
-from ..core.clock import UTC
 from ..core.settings import HistorySettings
 from ..domain.bars import Bar, merge_bars
 from ..domain.protocol import DataSource

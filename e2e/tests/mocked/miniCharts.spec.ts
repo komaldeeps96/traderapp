@@ -42,7 +42,6 @@ test.describe('mini charts', () => {
       expect(mini.seriesIds).toContain('ema9');
       expect(mini.seriesIds).toContain('ema20');
       expect(mini.hasVolumePane).toBe(true);
-      expect(mini.hasTradesPane).toBe(false);
       expect(mini.dollarLineCount).toBe(0);
       expect(mini.bands).toEqual([]);
     }

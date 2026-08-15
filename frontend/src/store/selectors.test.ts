@@ -31,7 +31,7 @@ function spec(overrides: Partial<IndicatorSpec> & Pick<IndicatorSpec, 'id'>): In
     group: 'key_levels',
     timeframes: { '1m': { enabled: true } },
     ...overrides,
-  } as IndicatorSpec;
+  };
 }
 
 const SPECS: IndicatorSpec[] = [
@@ -181,8 +181,8 @@ describe('clusterLevels', () => {
 
   it('reports the band price and its extent', () => {
     const band = cluster(0.39).find((b) => b.strength > 1)!;
-    expect(band!.low).toBeCloseTo(0.3999);
-    expect(band!.high).toBeCloseTo(0.4001);
+    expect(band.low).toBeCloseTo(0.3999);
+    expect(band.high).toBeCloseTo(0.4001);
     expect(band.value).toBeCloseTo(0.4);
   });
 
@@ -216,7 +216,7 @@ describe('clusterLevels', () => {
     // A ladder of levels each just inside the tolerance must not collapse into
     // one meaningless band spanning the whole range.
     const ladderSpecs = Array.from({ length: 6 }, (_, i) =>
-      spec({ id: `low_${i}`, label: `L${i}` } as { id: string; label: string }),
+      spec({ id: `low_${i}`, label: `L${i}` }),
     );
     const ladderValues = Object.fromEntries(
       ladderSpecs.map((s, i) => [s.id, 100 + i * 0.3]),

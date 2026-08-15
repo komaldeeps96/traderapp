@@ -9,12 +9,10 @@ whose whole point is avoiding that download.
 from __future__ import annotations
 
 import math
-
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.core.clock import UTC
 from app.core.settings import HistorySettings
 from app.domain.bars import Bar
 from app.domain.timeframes import Timeframe
@@ -189,7 +187,7 @@ class TestWindowShape:
     def test_the_first_paint_is_a_single_request(self):
         from app.providers.ibkr import _MAX_REQUEST_SECONDS
 
-        assert TENSEC_RECENT_SECONDS <= _MAX_REQUEST_SECONDS[Timeframe.S10]
+        assert _MAX_REQUEST_SECONDS[Timeframe.S10] >= TENSEC_RECENT_SECONDS
 
 
 class TestWindowCoversTheSession:
@@ -207,7 +205,7 @@ class TestWindowCoversTheSession:
         from app.domain.sessions import PREMARKET_OPEN_HOUR, REGULAR_CLOSE_HOUR
 
         session = (REGULAR_CLOSE_HOUR - PREMARKET_OPEN_HOUR) * 3600
-        assert TENSEC_WINDOW_SECONDS >= session, (
+        assert session <= TENSEC_WINDOW_SECONDS, (
             "the 10s window no longer reaches 04:00 from the closing bell; "
             "session VWAP and HOD/LOD will describe part of the day"
         )
@@ -227,7 +225,7 @@ class TestWindowCoversTheSession:
         )
 
         full_day = (AFTERHOURS_CLOSE_HOUR - PREMARKET_OPEN_HOUR) * 3600
-        assert TENSEC_WINDOW_SECONDS < full_day, (
+        assert full_day > TENSEC_WINDOW_SECONDS, (
             "the window now covers the whole extended session — delete this "
             "test and the caveat it records"
         )

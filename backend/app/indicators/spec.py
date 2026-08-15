@@ -29,13 +29,11 @@ class IndicatorType(str, Enum):
     SESSION_LEVEL = "session_level"
     DAILY_LEVEL = "daily_level"
     VOLUME = "volume"
-    TRADES = "trades"
 
 
 class Pane(str, Enum):
     PRICE = "price"
     VOLUME = "volume"
-    TRADES = "trades"
     MACD = "macd"
 
 
@@ -83,7 +81,7 @@ class IndicatorSpec(BaseModel):
     timeframes: dict[str, TimeframeOption] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _check_shape(self) -> "IndicatorSpec":
+    def _check_shape(self) -> IndicatorSpec:
         if self.type in (IndicatorType.EMA, IndicatorType.SMA) and not self.span:
             raise ValueError(f"indicator {self.id!r} of type {self.type.value} needs a span")
         if self.type in (IndicatorType.PREMARKET, IndicatorType.SESSION_BOUND) and self.bound is None:
@@ -92,11 +90,8 @@ class IndicatorSpec(BaseModel):
             if not self.level:
                 raise ValueError(f"indicator {self.id!r} needs a level")
             parse_level_key(self.level)  # raises with a precise message
-        if self.type is IndicatorType.SESSION_LEVEL:
-            if self.level not in SESSION_LEVEL_KINDS:
-                raise ValueError(
-                    f"indicator {self.id!r} needs one of {sorted(SESSION_LEVEL_KINDS)}"
-                )
+        if self.type is IndicatorType.SESSION_LEVEL and self.level not in SESSION_LEVEL_KINDS:
+            raise ValueError(f"indicator {self.id!r} needs one of {sorted(SESSION_LEVEL_KINDS)}")
 
         for name in self.timeframes:
             Timeframe.parse(name)  # raises on an unknown timeframe key
@@ -106,8 +101,6 @@ class IndicatorSpec(BaseModel):
     def pane(self) -> Pane:
         if self.type is IndicatorType.VOLUME:
             return Pane.VOLUME
-        if self.type is IndicatorType.TRADES:
-            return Pane.TRADES
         if self.type is IndicatorType.MACD:
             return Pane.MACD
         return Pane.PRICE
@@ -118,8 +111,8 @@ class IndicatorSpec(BaseModel):
 
     @property
     def draws_series(self) -> bool:
-        """Volume and trades are read straight off the bar, not as a series."""
-        return self.type not in (IndicatorType.VOLUME, IndicatorType.TRADES)
+        """Volume is read straight off the bar, not computed as a series."""
+        return self.type is not IndicatorType.VOLUME
 
     def option_for(self, timeframe: Timeframe) -> TimeframeOption | None:
         return self.timeframes.get(timeframe.value)
@@ -132,12 +125,6 @@ class IndicatorSpec(BaseModel):
         if option and option.span:
             return option.span
         return self.span
-
-    def label_for(self, timeframe: Timeframe) -> str:
-        option = self.option_for(timeframe)
-        if option and option.label:
-            return option.label
-        return self.label
 
     def to_client(self) -> dict:
         return {

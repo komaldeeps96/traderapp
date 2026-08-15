@@ -2,12 +2,14 @@ VENV := backend/.venv
 PY   := $(VENV)/bin/python
 
 .PHONY: help setup dev backend frontend test test-backend test-unit test-e2e \
-        test-e2e-ui build typecheck clean
+        test-e2e-ui build typecheck lint lint-backend lint-frontend check clean
 
 help:
 	@echo "setup         install backend and frontend dependencies"
 	@echo "backend       run the API on :8000"
 	@echo "frontend      run the dev server on :3000"
+	@echo "check         lint + typecheck + every suite — what CI runs"
+	@echo "lint          ruff and eslint"
 	@echo "test          run every suite"
 	@echo "test-backend  pytest"
 	@echo "test-unit     vitest"
@@ -35,6 +37,19 @@ backend:
 
 frontend:
 	npm run dev
+
+# The whole gate, in the order that fails fastest: linters, then types, then
+# the suites cheapest first. Same steps as CI, so a green `make check` means a
+# green pipeline.
+check: lint typecheck test
+
+lint: lint-backend lint-frontend
+
+lint-backend:
+	cd backend && .venv/bin/ruff check app tests
+
+lint-frontend:
+	npm run lint
 
 test: test-backend test-unit test-e2e
 

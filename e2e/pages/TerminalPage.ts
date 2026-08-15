@@ -25,7 +25,6 @@ export interface ChartState {
   axisLabels: Record<string, boolean>;
   visibleRange: { from: number; to: number } | null;
   hasVolumePane: boolean;
-  hasTradesPane: boolean;
   hasMacdPane: boolean;
   dollarLineCount: number;
   /** Key levels that stood down from the axis for the price label. */
@@ -242,13 +241,13 @@ export class TerminalPage {
   // ── introspection ────────────────────────────────────────────────────
 
   chartState(): Promise<ChartState> {
-    return this.page.evaluate(() => window.__traderapp!.chart() as unknown as ChartState);
+    return this.page.evaluate(() => window.__traderapp!.chart() as ChartState);
   }
 
   /** What a mini chart actually drew. Null when the column is not rendered. */
   miniChartState(timeframe: '1m' | '5m'): Promise<ChartState | null> {
     return this.page.evaluate(
-      (tf) => window.__traderapp!.miniChart(tf) as unknown as ChartState | null,
+      (tf) => window.__traderapp!.miniChart(tf) as ChartState | null,
       timeframe,
     );
   }
@@ -265,7 +264,7 @@ export class TerminalPage {
   }
 
   state(): Promise<TerminalState> {
-    return this.page.evaluate(() => window.__traderapp!.state() as unknown as TerminalState);
+    return this.page.evaluate(() => window.__traderapp!.state() as TerminalState);
   }
 
   theme(): Promise<string | null> {

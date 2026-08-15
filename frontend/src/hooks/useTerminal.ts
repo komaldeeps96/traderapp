@@ -68,12 +68,15 @@ export function useTerminal() {
     clientRef.current?.configureScanner(overrides);
   }, []);
 
+  // The charts are not repainted here. Each one subscribes to the store's
+  // theme and repaints itself, which is the only route the minis have — doing
+  // it here as well would leave the main chart's palette wired in two places
+  // and the others in one.
   const toggleTheme = useCallback(() => {
     const next: Theme = useTerminalStore.getState().theme === 'dark' ? 'light' : 'dark';
     applyTheme(next);
     saveTheme(next);
     useTerminalStore.getState().setTheme(next);
-    getEngine()?.setTheme(next);
   }, []);
 
   useEffect(() => {

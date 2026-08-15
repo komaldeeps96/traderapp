@@ -80,6 +80,10 @@ export async function installMockBackend(
   let snapshot: ReturnType<typeof makeSnapshot> | null = null;
   const received: Array<Record<string, unknown>> = [];
 
+  /** A string field off a parsed command, or the fallback if it is not one. */
+  const text = (value: unknown, fallback: string): string =>
+    typeof value === 'string' ? value : fallback;
+
   await json(page, '**/api/indicators', options.manyLevels ? MANY_INDICATORS : INDICATORS);
   await json(page, '**/api/timeframes', TIMEFRAMES);
   await json(page, '**/api/session', {
@@ -130,12 +134,12 @@ export async function installMockBackend(
           break;
 
         case 'subscribe': {
-          const symbol = String(command.symbol ?? '');
-          const timeframe = String(command.timeframe ?? '10s');
+          const symbol = text(command.symbol, '');
+          const timeframe = text(command.timeframe, '10s');
           // Extra timeframes on the same symbol — the mini charts. The real
           // server answers with one snapshot each, primary first.
           const extras = Array.isArray(command.extra_timeframes)
-            ? command.extra_timeframes.map(String)
+            ? command.extra_timeframes.map((entry) => text(entry, ''))
             : [];
 
           if (emptySymbols.includes(symbol)) {
@@ -220,7 +224,7 @@ export async function installMockBackend(
         if (match) return match;
         if (Date.now() > deadline) {
           throw new Error(
-            `no ${action!} command within ${timeoutMs}ms; saw: ${received
+            `no ${action} command within ${timeoutMs}ms; saw: ${received
               .map((entry) => entry.action)
               .join(', ')}`,
           );

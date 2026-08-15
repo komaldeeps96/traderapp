@@ -12,7 +12,9 @@ from ..domain.bars import Bar
 from ..domain.sessions import ny_date
 from ..domain.timeframes import Timeframe
 from .functions import (
+    EMPTY_SESSION_LEVELS,
     Number,
+    SessionLevels,
     compress_steps,
     ema,
     ema_last,
@@ -20,11 +22,9 @@ from .functions import (
     macd_last,
     premarket_bounds,
     premarket_bounds_last,
-    EMPTY_SESSION_LEVELS,
-    SessionLevels,
-    session_level_series,
     session_bounds,
     session_bounds_last,
+    session_level_series,
     session_vwap,
     session_vwap_last,
     sma,
@@ -53,14 +53,6 @@ class IndicatorEngine:
     def for_timeframe(self, timeframe: Timeframe) -> list[IndicatorSpec]:
         return list(self._by_timeframe.get(timeframe, []))
 
-    def level_keys_for(self, timeframe: Timeframe) -> set[LevelKey]:
-        """Every daily level the given timeframe draws."""
-        return {
-            spec.level_key
-            for spec in self._by_timeframe.get(timeframe, [])
-            if spec.type is IndicatorType.DAILY_LEVEL and spec.level_key
-        }
-
     def all_level_keys(self) -> set[LevelKey]:
         return {
             spec.level_key
@@ -68,7 +60,9 @@ class IndicatorEngine:
             if spec.type is IndicatorType.DAILY_LEVEL and spec.level_key
         }
 
-    def compute(
+    # A dispatch over the indicator types: the branch count is the number of
+    # types the config can name, not tangled logic.
+    def compute(  # noqa: PLR0912, PLR0915
         self,
         bars: list[Bar],
         timeframe: Timeframe,
@@ -186,7 +180,8 @@ class IndicatorEngine:
         points = [(bar.time, per_day[day]) for bar, day in zip(bars, days, strict=True)]
         return compress_steps(points)
 
-    def latest(
+    # The same dispatch as `compute`, current values only.
+    def latest(  # noqa: PLR0912
         self,
         bars: list[Bar],
         timeframe: Timeframe,

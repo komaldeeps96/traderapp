@@ -149,7 +149,9 @@ class DailyLevelIndex:
             return None
         return buckets[max(earlier)]
 
-    def value(self, key: LevelKey, day: date) -> Number:
+    # One return per level family. A lookup table would collapse them into a
+    # single expression and hide which family answered.
+    def value(self, key: LevelKey, day: date) -> Number:  # noqa: PLR0911
         """The value of ``key`` in effect on ``day``."""
         if key.kind in SPAN_KINDS:
             index = self._last_index_before(day)
@@ -175,11 +177,6 @@ class DailyLevelIndex:
             return {"high": agg.high, "low": agg.low, "close": agg.close}[field]
 
         return None
-
-    def values_for_days(
-        self, keys: list[LevelKey], days: list[date]
-    ) -> dict[LevelKey, dict[date, Number]]:
-        return {key: {day: self.value(key, day) for day in days} for key in keys}
 
 
 def parse_level_key(raw: str) -> LevelKey:

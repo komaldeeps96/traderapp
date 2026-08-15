@@ -24,7 +24,9 @@ ibkr = ["ib-async>=1.0"]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "pytest-cov>=6",
     "respx>=0.22",
+    "ruff>=0.8",
 ]
 
 [build-system]
@@ -33,6 +35,58 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# The default E/F set, plus the rules that catch what this codebase is actually
+# prone to: blocking calls in async paths (ASYNC), mutable defaults and other
+# traps (B), unused arguments (ARG), naive datetimes (DTZ) — market data is all
+# New York time, so a datetime without a zone is a bug — reaching into another
+# object's privates (SLF), and import/comprehension hygiene.
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "ASYNC", "DTZ", "ARG", "RUF", "PL", "SLF"]
+ignore = [
+    # Line length is a formatter's job. E501 also fires on comment prose that
+    # is deliberately set to the margin.
+    "E501",
+    # Numeric literals in market code are the domain: 9.5 is the open, 0.0020
+    # is the per-share commission. Naming them all would obscure more than it
+    # explains, and the ones worth naming already are.
+    "PLR2004",
+    # Argument count is what it is on a function assembling a wire message
+    # from a dozen fields. Both the total and the positional variant.
+    "PLR0913",
+    "PLR0917",
+    # Two module-level singletons — the settings cache and the container — are
+    # deliberate and documented at their definitions.
+    "PLW0603",
+    # `MarketDataProvider` defines optional hooks with empty bodies. A provider
+    # that does not stream should inherit a no-op, not be forced to write one,
+    # so these are deliberately concrete rather than abstract.
+    "B027",
+    # `class Foo(str, Enum)` -> `StrEnum` changes how members render in
+    # f-strings. The wire format depends on `.value`, so this is a real
+    # behaviour risk for no gain.
+    "UP042",
+    # Em and en dashes in comment and docstring prose are the house style.
+    # The rule guards against confusable characters in code; it cannot tell
+    # prose from an identifier, and here it only ever sees prose.
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests reach into private state deliberately — asserting on the mechanism is
+# how a unit test proves the mechanism is load-bearing — and import inside a
+# test body to keep a stand-in local to the case that uses it.
+"tests/**" = ["SLF001", "ARG001", "ARG002", "ARG005", "PLC0415"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+# Relative imports within `app` are the house style: they make the package
+# movable and keep the layer being crossed visible at the import site.
+ban-relative-imports = "parents"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

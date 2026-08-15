@@ -149,7 +149,10 @@ export function clusterLevels(
     groups.push([level]);
   }
 
-  const clusters = groups.map((members) => {
+  // The return type is annotated rather than inferred: `emphasis` starts at
+  // 'normal' and `markNearest` reassigns it, so without this the literal
+  // narrows to 'normal' and the reassignment does not typecheck.
+  const clusters = groups.map((members): LevelCluster => {
     const values = members.map((member) => member.value);
     const high = Math.max(...values);
     const low = Math.min(...values);
@@ -165,7 +168,7 @@ export function clusterLevels(
       high,
       side: sideOf(distancePercent),
       distancePercent,
-      emphasis: 'normal' as LevelEmphasis,
+      emphasis: 'normal',
     };
   });
 

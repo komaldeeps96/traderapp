@@ -236,3 +236,56 @@ class TestRevisionMonotonicity:
         # The minute base rides the background pass when the focus is 10s.
         await service.wait_for_backfill("RUN")
         assert service.bars("RUN", Timeframe.M1)
+
+
+class TestShutdown:
+    """Nothing is left running when the service stops.
+
+    Loads, backfills, repairs and warm-cache timers are all fire-and-forget:
+    no request path awaits them. Shutdown is therefore the only place that can
+    collect them, and a task still pending when the loop closes never runs the
+    ``finally`` block it relies on to clean up after itself.
+    """
+
+    async def test_cancels_a_parked_symbol_s_expiry_timer(self):
+        service = make_service()
+        await service.ensure_loaded("RUN")
+        await service.wait_for_backfill("RUN")
+        # Nobody watching: the symbol parks with a ten-minute expiry timer.
+        service.unload("RUN")
+        parked = service._parked["RUN"]
+        assert not parked.done()
+
+        await service.stop()
+
+        assert parked.cancelled()
+        assert service._parked == {}
+
+    async def test_cancels_a_backfill_that_is_still_running(self):
+        service = make_service()
+        await service.ensure_loaded("RUN", Timeframe.S10)
+        backfill = service._backfills["RUN"]
+
+        await service.stop()
+
+        assert backfill.done()
+        assert service._backfills == {}
+
+    async def test_leaves_no_pending_tasks_behind(self):
+        service = make_service()
+        await service.ensure_loaded("RUN")
+        service.schedule_recent_repair("RUN")
+        service.unload("RUN")
+
+        await service.stop()
+
+        outstanding = [
+            task
+            for group in (service._loads, service._backfills, service._repairs, service._parked)
+            for task in group.values()
+            if not task.done()
+        ]
+        assert outstanding == []
+
+    async def test_is_safe_with_nothing_in_flight(self):
+        await make_service().stop()

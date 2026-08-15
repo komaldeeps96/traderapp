@@ -12,10 +12,11 @@ import asyncio
 import contextlib
 import functools
 import logging
+import math
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from ..core.settings import IBKRSettings, ScannerSettings
 from ..domain.bars import Bar
@@ -236,7 +237,9 @@ class IBKRProvider(MarketDataProvider):
             and time.monotonic() - self._started_at < 15.0
         )
 
-    async def wait_available(self, timeout: float) -> bool:
+    # The caller is the failover path, which budgets this wait explicitly
+    # rather than wrapping the call in its own `asyncio.timeout`.
+    async def wait_available(self, timeout: float) -> bool:  # noqa: ASYNC109
         """Wait briefly for the connection; False when it does not come."""
         if self.is_available:
             return True
@@ -244,7 +247,7 @@ class IBKRProvider(MarketDataProvider):
             return False
         try:
             await asyncio.wait_for(self._connected_event.wait(), timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
         return self.is_available
 
@@ -295,7 +298,7 @@ class IBKRProvider(MarketDataProvider):
             # skew, but only when the caller actually wants now — a window
             # ending in the past (the 10s background slice) must say so, or
             # TWS silently serves the most recent bars instead.
-            ends_now = (datetime.now(timezone.utc) - end).total_seconds() < 60
+            ends_now = (datetime.now(UTC) - end).total_seconds() < 60
             bars = await self._request_bars(
                 symbol, contract, timeframe, "" if ends_now else end, duration
             )
@@ -369,7 +372,7 @@ class IBKRProvider(MarketDataProvider):
             timestamp = item.date
             if isinstance(timestamp, datetime):
                 epoch = int(
-                    timestamp.replace(tzinfo=timestamp.tzinfo or timezone.utc).timestamp()
+                    timestamp.replace(tzinfo=timestamp.tzinfo or UTC).timestamp()
                 )
             else:
                 continue
@@ -490,7 +493,7 @@ class IBKRProvider(MarketDataProvider):
                 getattr(attribs, "pastLimit", False) or getattr(attribs, "unreported", False)
             )
             moment = getattr(tick, "time", None)
-            epoch = moment.timestamp() if moment else datetime.now(timezone.utc).timestamp()
+            epoch = moment.timestamp() if moment else datetime.now(UTC).timestamp()
             self._schedule(
                 self._emit_trade(
                     symbol,
@@ -810,6 +813,6 @@ def _clean(value: object) -> float | None:
         number = float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
-    if number != number:  # NaN
+    if math.isnan(number):
         return None
     return number

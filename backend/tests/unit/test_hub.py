@@ -51,7 +51,7 @@ def make_hub() -> tuple[SubscriptionHub, MarketDataService]:
 async def hub():
     hub, market = make_hub()
     yield hub, market
-    for connection in list(hub._connections.values()):  # noqa: SLF001 — teardown
+    for connection in list(hub._connections.values()):
         await hub.unregister(connection)
 
 

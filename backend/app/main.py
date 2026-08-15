@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +13,7 @@ from .api.rest import router as api_router
 from .api.ws import websocket_endpoint
 from .core.logging import setup_logging
 from .core.settings import BACKEND_ROOT, Settings, get_settings
-from .services.container import AppContainer, get_container, set_container
+from .services.container import AppContainer, set_container
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     setup_logging(resolved.log_level)
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(_app: FastAPI):
         container = AppContainer(resolved)
         set_container(container)
         await container.start()
@@ -79,7 +78,7 @@ app = create_app()
 
 
 def main() -> None:
-    import uvicorn
+    import uvicorn  # noqa: PLC0415 — only needed when run as a script
 
     settings = get_settings()
     uvicorn.run(

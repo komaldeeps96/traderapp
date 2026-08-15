@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from app.domain.timeframes import Timeframe
 from app.market.bar_builder import BarBuilder, Trade, build_bars
 from app.market.conditions import TradeKind, classify_conditions
-from app.domain.timeframes import Timeframe
 from tests.conftest import ny_epoch
 
 

@@ -9,7 +9,7 @@ export const TIMEFRAMES = ['10s', '1m', '5m', '15m', '1h', '1d', '1w'] as const;
 export type Timeframe = (typeof TIMEFRAMES)[number];
 
 export type DataSource = 'ibkr' | 'alpaca' | 'none';
-export type Pane = 'price' | 'volume' | 'trades' | 'macd';
+export type Pane = 'price' | 'volume' | 'macd';
 export type LineStyleName = 'solid' | 'dashed' | 'dotted';
 
 export interface WireBar {
@@ -223,8 +223,7 @@ export interface IndicatorSpec {
     | 'session_bound'
     | 'session_level'
     | 'daily_level'
-    | 'volume'
-    | 'trades';
+    | 'volume';
   label: string;
   color: string;
   color_dark: string;
@@ -263,9 +262,4 @@ export interface ScannerConfigResponse {
   running: boolean;
   available: boolean;
   note: string | null;
-}
-
-
-export function isTimeframe(value: string): value is Timeframe {
-  return (TIMEFRAMES as readonly string[]).includes(value);
 }

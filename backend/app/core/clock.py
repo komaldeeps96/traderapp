@@ -6,11 +6,10 @@ wall-clock time happens only where market sessions are decided.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 NY_TZ = ZoneInfo("America/New_York")
-UTC = timezone.utc
 
 
 def now() -> datetime:
@@ -30,10 +29,6 @@ def to_utc(dt: datetime) -> datetime:
 
 def to_ny(epoch: float) -> datetime:
     return datetime.fromtimestamp(epoch, tz=UTC).astimezone(NY_TZ)
-
-
-def epoch_of(dt: datetime) -> int:
-    return int(to_utc(dt).timestamp())
 
 
 def parse_rfc3339(value: str) -> datetime:

@@ -25,7 +25,7 @@ export interface IndicatorSpec {
   label: string;
   color: string;
   color_dark: string;
-  pane: 'price' | 'volume' | 'trades' | 'macd';
+  pane: 'price' | 'volume' | 'macd';
   line_width: number;
   line_style: 'solid' | 'dashed' | 'dotted';
   price_line: boolean;
@@ -297,7 +297,7 @@ function ema(values: number[], span: number): Array<number | null> {
   let current = values.slice(0, span).reduce((a, b) => a + b, 0) / span;
   out[span - 1] = current;
   for (let i = span; i < values.length; i += 1) {
-    current = alpha * values[i]! + (1 - alpha) * current;
+    current = alpha * values[i] + (1 - alpha) * current;
     out[i] = current;
   }
   return out;
@@ -305,7 +305,7 @@ function ema(values: number[], span: number): Array<number | null> {
 
 export function makeSeries(bars: WireBar[], manyLevels = false): Record<string, SeriesPoint[]> {
   const closes = bars.map((bar) => bar.c);
-  const first = bars[0]!;
+  const first = bars[0];
   const last = bars.at(-1)!;
 
   const series: Record<string, SeriesPoint[]> = {};
@@ -315,7 +315,7 @@ export function makeSeries(bars: WireBar[], manyLevels = false): Record<string, 
     ['ema45', 45],
   ] as const) {
     series[id] = ema(closes, span)
-      .map((value, i) => (value == null ? null : ([bars[i]!.t, round(value)] as SeriesPoint)))
+      .map((value, i) => (value == null ? null : ([bars[i].t, round(value)] as SeriesPoint)))
       .filter((point): point is SeriesPoint => point !== null);
   }
 
@@ -341,7 +341,7 @@ export function makeSeries(bars: WireBar[], manyLevels = false): Record<string, 
   let cursor = 0;
   const toPoints = (values: Array<number | null>) =>
     values
-      .map((value, i) => (value == null ? null : ([bars[i]!.t, round4(value)] as SeriesPoint)))
+      .map((value, i) => (value == null ? null : ([bars[i].t, round4(value)] as SeriesPoint)))
       .filter((point): point is SeriesPoint => point !== null);
   const signalValues = macdValues.map((value) => {
     if (value == null) return null;

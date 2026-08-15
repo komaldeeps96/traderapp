@@ -293,16 +293,42 @@ backend on 8000, the Vite dev server, and the production `dist/` bundle all
 survive a test run untouched.
 
 ```bash
-# Backend: 472 unit + integration tests
-cd backend && .venv/bin/python -m pytest
-cd backend && .venv/bin/python -m pytest --cov=app
+# Backend: unit + integration
+cd backend && .venv/bin/python -m pytest -m "not live"
+cd backend && .venv/bin/python -m pytest -m "not live" --cov=app
 
-# Frontend: 126 unit tests
+# Frontend: unit
 npm run test:unit
 
-# Browser: 425 runs across three engines + visual + full stack; servers start themselves
+# Browser: three engines + visual + full stack; servers start themselves
 npm run test:e2e
+
+# Everything, including the linters
+make check
 ```
+
+Counts are deliberately not quoted here — they go stale on the commit after
+the one that writes them. `make check` prints the current numbers.
+
+### Linting
+
+`make lint` runs both, and CI runs them before the suites.
+
+| Tool | Covers | Config |
+|---|---|---|
+| `ruff` | `backend/app`, `backend/tests` | `backend/pyproject.toml` |
+| `eslint` | `frontend/src`, `e2e` | `eslint.config.js` |
+
+Neither repeats what a type checker already does. `tsc` runs with
+`noUncheckedIndexedAccess` and `noUnusedLocals`, so ESLint is configured for
+what types structurally cannot see — floating promises, stale React hook
+dependency arrays, dead assertions. Ruff covers the same ground on the Python
+side plus naive datetimes, which in a market-data codebase are always a bug.
+
+Where a rule is deliberately turned off, the reason is in the config next to
+it rather than left to be rediscovered. A `# noqa` in the source carries its
+reason on the same line; ruff's `RUF100` fails the build if one stops being
+necessary, so they cannot accumulate.
 
 Three layers, each mocking at a boundary rather than inside the app:
 

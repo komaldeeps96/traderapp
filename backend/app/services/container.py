@@ -13,8 +13,8 @@ from ..core.settings import Settings, get_settings
 from ..domain.protocol import (
     DataSource,
     api_usage_message,
-    scanner_message,
     regime_message,
+    scanner_message,
     status_message,
 )
 from ..indicators.engine import IndicatorEngine
@@ -28,8 +28,8 @@ from ..services.broadcaster import ChartBroadcaster
 from ..services.hub import SubscriptionHub
 from ..services.market_data import MarketDataService
 from ..services.quotes import QuoteService
-from ..services.scanner import ScannerService
 from ..services.regime import RegimeService
+from ..services.scanner import ScannerService
 from ..services.state import StateStore
 from ..services.symbol_info import SymbolInfoService
 from ..services.tv import TVDataService
@@ -91,6 +91,9 @@ class AppContainer:
         await self.scanner.stop()
         await self.regime.stop()
         await self.router.stop()
+        # Last: the router is quiet by now, so nothing can schedule a new load
+        # while this is collecting the outstanding ones.
+        await self.market_data.stop()
 
     # ── status fan-out ─────────────────────────────────────────────────
 

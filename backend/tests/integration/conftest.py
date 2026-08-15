@@ -20,8 +20,8 @@ from app.core.settings import (
     CONFIG_DIR,
     AlpacaSettings,
     IBKRSettings,
-    ScannerSettings,
     RegimeSettings,
+    ScannerSettings,
     Settings,
 )
 from app.main import create_app

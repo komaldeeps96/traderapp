@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.core.clock import UTC
 from app.core.settings import AlpacaSettings
 from app.domain.bars import Bar
 from app.domain.timeframes import Timeframe

@@ -151,7 +151,7 @@ class WireBar(TypedDict, total=False):
     t: int  # epoch seconds, period open
     o: float
     h: float
-    l: float
+    l: float  # noqa: E741 — the wire field name, matching o/h/l/c/v
     c: float
     v: float
     n: float  # trade count

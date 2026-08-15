@@ -45,11 +45,11 @@ if (!globalThis.ResizeObserver) {
     observe() {}
     unobserve() {}
     disconnect() {}
-  } as unknown as typeof ResizeObserver;
+  };
 }
 
 if (!globalThis.matchMedia) {
-  globalThis.matchMedia = ((query: string) => ({
+  globalThis.matchMedia = (query: string) => ({
     matches: false,
     media: query,
     onchange: null,
@@ -58,5 +58,5 @@ if (!globalThis.matchMedia) {
     addListener: () => {},
     removeListener: () => {},
     dispatchEvent: () => false,
-  })) as unknown as typeof matchMedia;
+  });
 }
