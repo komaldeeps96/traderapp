@@ -2,12 +2,25 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TraderApp — Realtime Charts</title>
+    <meta name="color-scheme" content="light dark" />
+    <title>TraderApp Terminal</title>
+    <script>
+      // Apply the saved theme before first paint so the chart is created with
+      // the right colours and the page never flashes the wrong background.
+      // A terminal defaults to dark.
+      (function () {
+        try {
+          var saved = localStorage.getItem('traderapp.theme');
+          document.documentElement.dataset.theme = saved === 'light' ? 'light' : 'dark';
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      })();
+    </script>
   </head>
-  <body class="bg-white text-[#131722] antialiased overflow-hidden font-[-apple-system,BlinkMacSystemFont,'Trebuchet_MS',Roboto,Ubuntu,sans-serif] text-xs h-full">
-    <div id="root" class="h-full"></div>
-    <script type="module" src="/src/main.jsx"></script>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

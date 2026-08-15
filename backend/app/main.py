@@ -1,57 +1,95 @@
-import asyncio
+"""Application entrypoint."""
+
+from __future__ import annotations
+
 import logging
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
-from .core.constants import DEFAULT_TIMEFRAME, INDICATORS_CONFIG_PATH
-from .core.logging_config import setup_logging
-from .api.router import api_router
-from .api.endpoints.ws_handler import websocket_endpoint
-from .services.container import get_container
+from .api.rest import router as api_router
+from .api.ws import websocket_endpoint
+from .core.logging import setup_logging
+from .core.settings import BACKEND_ROOT, Settings, get_settings
+from .services.container import AppContainer, get_container, set_container
 
-# Setup core backend logging configurations for TraderApp dashboard
-setup_logging()
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="TraderApp Backend")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(api_router)
-app.websocket("/ws")(websocket_endpoint)
+FRONTEND_DIST = BACKEND_ROOT.parent / "frontend" / "dist"
 
 
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Starting up TraderApp backend...")
+def create_app(settings: Settings | None = None) -> FastAPI:
+    """Build the application.
 
-    container = get_container()
-    container.init_indicators(INDICATORS_CONFIG_PATH)
-    container.aggregator.start_periodic_refresh()
+    Accepting settings here is what lets the integration tests construct a
+    complete, real app — same routes, same services — pointed at a stubbed
+    upstream instead of the live market.
+    """
+    resolved = settings or get_settings()
+    setup_logging(resolved.log_level)
 
-    await container.ibkr_provider.connect()
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        container = AppContainer(resolved)
+        set_container(container)
+        await container.start()
+        try:
+            yield
+        finally:
+            await container.stop()
+            set_container(None)
 
-    ticker = container.state_manager.get_active_ticker()
-    if ticker:
-        logger.info(f"Loading initial active ticker: {ticker}")
-        timeframe = container.state_manager.get_active_timeframe()
-        await container.state_manager.save_state(ticker, timeframe or DEFAULT_TIMEFRAME)
-        container.aggregator.set_active_timeframe(timeframe or DEFAULT_TIMEFRAME)
-        container.aggregator.set_active_ticker(ticker)
-        await container.ibkr_provider.fetch_recent_1m_bars(ticker)
-        await container.ibkr_provider.subscribe_realtime(ticker)
-        asyncio.create_task(container.alpaca_provider.fetch_1d_data(ticker))
-        asyncio.create_task(container.alpaca_provider.fetch_1m_data(ticker))
+    app = FastAPI(title=resolved.app_name, version="1.0.0", lifespan=lifespan)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=resolved.cors_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(api_router)
+
+    @app.websocket("/ws")
+    async def ws(websocket: WebSocket) -> None:
+        await websocket_endpoint(websocket)
+
+    _mount_frontend(app)
+    return app
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("Shutting down...")
-    container = get_container()
-    await container.ibkr_provider.disconnect()
+def _mount_frontend(app: FastAPI) -> None:
+    """Serve the built UI from the API server when it has been built.
+
+    Mounted last so it never shadows /api or /ws. In development the frontend
+    runs on its own Vite server instead and this does nothing.
+    """
+    index = FRONTEND_DIST / "index.html"
+    if not index.exists():
+        return
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
+    logger.info("Serving frontend from %s", FRONTEND_DIST)
+
+
+app = create_app()
+
+
+def main() -> None:
+    import uvicorn
+
+    settings = get_settings()
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level=settings.log_level.lower(),
+    )
+
+
+if __name__ == "__main__":
+    main()

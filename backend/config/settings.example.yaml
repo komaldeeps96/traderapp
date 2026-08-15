@@ -1,0 +1,65 @@
+# Copy to settings.yaml and fill in. settings.yaml is gitignored.
+#
+# Every value here can also come from the environment, which wins over this
+# file. Nested keys use a double underscore:
+#
+#   TRADERAPP_ALPACA__KEY_ID=...
+#   TRADERAPP_IBKR__ENABLED=false
+#   TRADERAPP_LOG_LEVEL=DEBUG
+
+log_level: INFO
+default_symbol: AAPL
+# The terminal trades from the 10-second chart; it is the default everywhere.
+default_timeframe: 10s
+
+alpaca:
+  key_id: ''
+  secret_key: ''
+  # iex         free, real-time, IEX exchange only
+  # delayed_sip free, whole tape, delayed 15 minutes
+  # sip         paid, whole tape, real time
+  feed: iex
+  # 10-second history on Alpaca is rebuilt from the raw trade tape, paged
+  # newest-first; the cap bounds how far a very heavy tape is walked.
+  # max_trade_pages: 40
+
+ibkr:
+  # The app prefers IBKR for live data and falls back to Alpaca automatically
+  # whenever TWS is not reachable, so leaving this on costs nothing.
+  enabled: true
+  host: 127.0.0.1
+  port: 7496
+  client_id: 1
+
+history:
+  # Minute history is one Alpaca request (newest ~10k bars); the days value
+  # only bounds the requested window. The 10-second base loads the last 8
+  # hours from IBKR natively — the recent 4h up front, the older 4h as a
+  # background backfill — with Alpaca's trade tape as the recent-slice
+  # fallback when TWS is down.
+  intraday_days: 5
+  daily_years: 3
+
+scanner:
+  # The trade-rate scanner is IBKR-only; there is no Alpaca equivalent to
+  # fall back to. Market-cap band and percent-change filters are set from
+  # the UI at runtime.
+  enabled: true
+  scan_code: TOP_TRADE_RATE
+  above_price: 1.0
+  below_price: 20.0
+  above_volume: 100000
+
+screener:
+  # The TradingView screener needs no credentials and no TWS. Defaults are
+  # the small-cap momentum screen: $2-$20, up 10%+, 5x the 10-day average
+  # volume, float under 20M shares. All of it is adjustable from the UI.
+  enabled: true
+  refresh_seconds: 15
+  price_min: 2.0
+  price_max: 20.0
+  change_min: 10.0
+  volume_min: 100000
+  rel_vol_min: 5.0
+  float_max: 20000000
+  rows: 30

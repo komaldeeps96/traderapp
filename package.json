@@ -1,0 +1,23 @@
+{
+  "name": "traderapp",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Real-time stock charting terminal — FastAPI backend, React + lightweight-charts frontend",
+  "workspaces": [
+    "frontend",
+    "e2e"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace frontend",
+    "preview": "npm run preview --workspace frontend",
+    "typecheck": "npm run typecheck --workspace frontend && npm run typecheck --workspace e2e",
+    "lint": "npm run typecheck",
+    "test:unit": "npm run test --workspace frontend",
+    "test:e2e": "npm run test --workspace e2e",
+    "test:e2e:ci": "npm run test:ci --workspace e2e",
+    "test:e2e:ui": "npm run test:ui --workspace e2e",
+    "test": "npm run test:unit && npm run test:e2e"
+  }
+}

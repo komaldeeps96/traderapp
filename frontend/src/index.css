@@ -1,0 +1,133 @@
+@import 'tailwindcss';
+
+/* Theme follows the `data-theme` attribute stamped on <html> before first
+   paint, so a reload never flashes the wrong background. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme {
+  --color-surface: #ffffff;
+  --color-panel: #fafaf9;
+  --color-elevated: #ffffff;
+  --color-line: #e1e0d9;
+  --color-line-strong: #c3c2b7;
+
+  --color-ink: #0b0b0b;
+  --color-ink-2: #52514e;
+  /* The muted step carries 9-11px labels, so it is chosen for 4.5:1 against
+     both surfaces rather than for how quiet it looks. */
+  --color-ink-3: #6d6b66;
+
+  --color-up: #1a7f37;
+  --color-down: #cf222e;
+  /* Between fine and stop: the request-budget meters' middle state. */
+  --color-warn: #9a6700;
+  --color-accent: #2a78d6;
+  /* Accent as text, and accent as a solid fill behind white text, each need a
+     darker step than accent as a tint. */
+  --color-accent-text: #1c5cab;
+  --color-accent-solid: #1c5cab;
+
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+/* Dark is the default — this is a terminal — and the palette is selected for
+   it rather than derived from the light one.
+ *
+ * THE NEUTRALS ARE COOL, DELIBERATELY
+ * The dark grounds sit at hue 224° (blue). The text steps used to be lifted
+ * straight from the light palette — `--color-ink-2` was literally light
+ * mode's `--color-line-strong` — which put 45-60° yellow-greys on a blue
+ * ground. Nearly opposite hues, so they read dingy rather than quiet, and the
+ * effect got worse the smaller the type. They are now hue-matched to the
+ * ground at low chroma, so a grey reads as grey.
+ *
+ * The muted steps also gained contrast: they carry 9-11px labels, where the
+ * old values sat close enough to the 4.5:1 floor to be a squint. Measured
+ * against all three grounds — surface, panel and elevated.
+ */
+[data-theme='dark'] {
+  --color-surface: #131722;
+  --color-panel: #0e1119;
+  --color-elevated: #1a1f2c;
+  --color-line: #1e222d;
+  --color-line-strong: #39414f;
+
+  --color-ink: #ffffff;
+  /* 11.0:1 at worst — secondary text and the numbers beside it. */
+  --color-ink-2: #ccd4e0;
+  /* 6.8:1 at worst, up from 5.7:1. The 9-10px column headers and hints. */
+  --color-ink-3: #9ca7ba;
+
+  --color-up: #3fb950;
+  --color-down: #f85149;
+  --color-warn: #d29922;
+  --color-accent: #3987e5;
+  --color-accent-text: #7cb3f0;
+  --color-accent-solid: #1c5cab;
+}
+
+/* Terminal density: native controls stay compact inside 10px layouts. */
+select,
+input,
+button {
+  font-family: inherit;
+}
+select {
+  padding: 1px 2px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Columns of numbers only line up with tabular figures. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 999px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* The library's attribution logo; the chart is embedded, not white-labelled
+   for redistribution. */
+#tv-attr-logo {
+  display: none !important;
+}
+
+:where(button, input, select, a):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

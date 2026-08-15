@@ -1,314 +1,529 @@
+# Chart indicators.
+#
+# Adding an indicator is a change to this file — no code. The schema is
+# validated at startup (app/indicators/spec.py), so a typo fails loudly.
+#
+# WHY THE KEY LEVELS ARE ALL ON BY DEFAULT
+# ----------------------------------------
+# For small-cap momentum the levels *are* the setup, not decoration. The
+# pre-market high is the breakout trigger on a gapper; the previous close is
+# what the gap is measured from; the 13/26/52-week highs are where a runner
+# meets real supply. The sidebar lists every level sorted by price with its
+# distance from the last trade, so the question "what is the nearest level
+# above me, and how far?" is answered at a glance. Turning them off by default
+# would break that.
+#
+# COLOUR SYSTEM
+# -------------
+# The moving averages and VWAP carry categorical hues, validated for
+# colour-vision-deficiency separation against both chart surfaces under the
+# strict all-pairs rule (any two lines can cross anywhere).
+#
+# VWAP used to sit in the neutral family and was indistinguishable from the
+# key levels beside it — measured at dE 10.8 light and 9.9 dark, where under
+# 15 reads as the same colour. Moving it to a bright blue takes that to 56.8
+# and 46.8. It is a benchmark price, not a level, and now looks like one.
+
+#
+# Every key level is one solid neutral line. They used to be tiered by weight
+# and dash pattern — 2px dotted for the pre-market range, 2px dashed for the
+# previous close, and so on — which made a handful of them conspicuously
+# unlike the rest for a distinction the eye had to be taught.
+#
+# The tiering was also mostly fiction. Key levels are restyled every frame by
+# the confluence pass (frontend selectors.ts, buildLevelStyles), which
+# overwrites colour, weight and the axis label from cluster strength and
+# proximity. Only line_style survived it, so dash patterns were the one
+# configured property that still reached the chart — and the widths and
+# colours below had no effect at all.
+#
+# What differentiates a level now is what it is worth: the nearest band
+# overhead draws violet, the nearest beneath amber, everything else recedes to
+# grey, and stacked levels thicken into one band. Those two hues avoid the
+# candle red/green and the three EMA hues, and sit on the blue-yellow axis so
+# they stay apart under red-green colour blindness.
+#
+# Key levels set last_value: true, so each is labelled on the price axis and
+# identity never rests on colour alone. The moving averages and VWAP do not:
+# they move with price, so their tags crowd the axis around the last trade —
+# exactly where the levels that matter are read. Their colours are in the
+# sidebar.
+#
+# 'level' values: sma:N | ema:N | high:N | low:N (N = daily bars), or one of
+# prev_{day,week,month}_{high,low,close}.
+
+_anchors:
+  intraday: &intraday
+    10s: { enabled: true }
+    1m: { enabled: true }
+    5m: { enabled: true }
+    15m: { enabled: true }
+    1h: { enabled: true }
+
 indicators:
-  # --- 1m/1d EMAs ---
+  # ── Moving averages ────────────────────────────────────────────────
+  # On the 10s chart each EMA runs with its 1-minute span times six (six
+  # 10-second bars per minute), so the line tracks the same 1-minute EMA the
+  # rest of the day is planned around: 9 -> 54, 20 -> 120, 45 -> 270. Same
+  # id, same colour, same toggle across timeframes.
   - id: ema9
     type: ema
     label: EMA 9
-    color: '#3b82f6'
+    span: 9
+    color: '#2a78d6'
+    color_dark: '#3987e5'
+    line_width: 1
+    last_value: false
+    group: moving_averages
     timeframes:
-      1m: { span: 9, default_enabled: true }
-      1d: { span: 9, default_enabled: true }
+      10s: { enabled: true, span: 54, label: EMA 54 }
+      1m: { enabled: true }
+      5m: { enabled: true }
+      15m: { enabled: true }
+      1h: { enabled: true }
+      1d: { enabled: true }
 
   - id: ema20
     type: ema
     label: EMA 20
-    color: '#eab308'
+    span: 20
+    color: '#eb6834'
+    color_dark: '#d95926'
+    line_width: 1
+    last_value: false
+    group: moving_averages
     timeframes:
-      1m: { span: 20, default_enabled: true }
-      1d: { span: 20, default_enabled: true }
+      10s: { enabled: true, span: 120, label: EMA 120 }
+      1m: { enabled: true }
+      5m: { enabled: true }
+      15m: { enabled: true }
+      1h: { enabled: true }
+      1d: { enabled: true }
 
   - id: ema45
     type: ema
     label: EMA 45
-    color: '#ec4899'
+    span: 45
+    color: '#1baf7a'
+    color_dark: '#199e70'
+    line_width: 1
+    last_value: false
+    group: moving_averages
     timeframes:
-      1m: { span: 45, default_enabled: true }
+      10s: { enabled: true, span: 270, label: EMA 270 }
+      1m: { enabled: true }
+      5m: { enabled: true }
+      15m: { enabled: true }
+      1h: { enabled: true }
 
   - id: ema50
     type: ema
     label: EMA 50
-    color: '#ec4899'
+    span: 50
+    color: '#1baf7a'
+    color_dark: '#199e70'
+    line_width: 1
+    last_value: true
+    group: moving_averages
     timeframes:
-      1d: { span: 50, default_enabled: false }
+      1d: { enabled: true }
 
-  # --- VWAP (intraday only) ---
+  # ── Session benchmark ──────────────────────────────────────────────
   - id: vwap
     type: vwap
     label: VWAP
-    color: '#7B1FA2'
-    timeframes:
-      1m:  { default_enabled: true }
-
-  # --- Daily overlays (intraday only) ---
-  - id: d_sma20
-    type: daily
-    label: 1D SMA 20
-    span: 20
-    color: '#000000'
+    color: '#00b7ff'
+    color_dark: '#38bdf8'
     line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m:  { default_enabled: true }
+    last_value: false
+    group: session
+    timeframes: *intraday
 
-  - id: d_sma50
-    type: daily
-    label: 1D SMA 50
-    span: 50
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m:  { default_enabled: true }
-
-  - id: d_sma200
-    type: daily
-    label: 1D SMA 200
-    span: 200
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m:  { default_enabled: true }
-
-  - id: d_ema20
-    type: daily
-    label: 1D EMA 20
-    span: 20
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m:  { default_enabled: true }
-
-  - id: d_ema50
-    type: daily
-    label: 1D EMA 50
-    span: 50
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m:  { default_enabled: true }
-
-  - id: d_ema200
-    type: daily
-    label: 1D EMA 200
-    span: 200
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m:  { default_enabled: true }
-
-  - id: d_high52
-    type: daily
-    label: 52W High
-    span: 252
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m:  { default_enabled: true }
-
-  - id: d_low52
-    type: daily
-    label: 52W Low
-    span: 252
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m:  { default_enabled: true }
-
+  # ── Breakout trigger: the pre-market range ─────────────────────────
   - id: pm_high
-    type: daily
-    label: Pre-Market High
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+    type: premarket
+    label: PM High
+    bound: high
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
   - id: pm_low
-    type: daily
-    label: Pre-Market Low
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+    type: premarket
+    label: PM Low
+    bound: low
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  - id: d_prev_day_high
-    type: daily
-    label: Prev Day High
-    color: '#000000'
-    line_width: 1
-    line_style: dashed
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+  # ── Session boundaries: where each part of the day began ───────────
+  # PM Open is the first pre-market print; RTH Open the 09:30 print, and
+  # it is undefined before then rather than drawn flat across the
+  # pre-market. AH High is the *previous* session's after-hours extreme —
+  # twenty hours back, so it comes from the minute base, not the 10s window.
+  - id: pm_open
+    type: session_level
+    label: PM Open
+    level: pm_open
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  - id: d_prev_day_low
-    type: daily
-    label: Prev Day Low
-    color: '#000000'
-    line_width: 1
-    line_style: dashed
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+  - id: rth_open
+    type: session_level
+    label: RTH Open
+    level: rth_open
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  - id: d_prev_day_close
-    type: daily
+  - id: ah_high
+    type: session_level
+    label: AH High
+    level: ah_high
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
+
+  # ── Today's range: the momentum premise and the profit target ──────
+  # The scanner fires on a new high of day, the crowd converges on it, and
+  # "retest of the high of day" is the usual target — so unlike every other
+  # key level here, these two are meant to move as the day trades.
+  - id: hod
+    type: session_bound
+    label: HOD
+    bound: high
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
+
+  - id: lod
+    type: session_bound
+    label: LOD
+    bound: low
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
+
+  # ── Gap reference: the previous session ────────────────────────────
+  - id: prev_day_close
+    type: daily_level
     label: Prev Day Close
-    color: '#000000'
-    line_width: 1
-    line_style: dashed
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+    level: prev_day_close
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  - id: d_prev_week_high
-    type: daily
+  - id: prev_day_high
+    type: daily_level
+    label: Prev Day High
+    level: prev_day_high
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
+
+  - id: prev_day_low
+    type: daily_level
+    label: Prev Day Low
+    level: prev_day_low
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
+
+  # ── Swing levels ───────────────────────────────────────────────────
+  - id: prev_week_high
+    type: daily_level
     label: Prev Week High
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+    level: prev_week_high
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  - id: d_prev_week_low
-    type: daily
+  - id: prev_week_low
+    type: daily_level
     label: Prev Week Low
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+    level: prev_week_low
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  - id: d_prev_week_close
-    type: daily
+  - id: prev_week_close
+    type: daily_level
     label: Prev Week Close
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+    level: prev_week_close
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  - id: d_prev_month_high
-    type: daily
+  - id: prev_month_high
+    type: daily_level
     label: Prev Month High
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+    level: prev_month_high
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  - id: d_prev_month_low
-    type: daily
+  - id: prev_month_low
+    type: daily_level
     label: Prev Month Low
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+    level: prev_month_low
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  - id: d_prev_month_close
-    type: daily
+  - id: prev_month_close
+    type: daily_level
     label: Prev Month Close
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+    level: prev_month_close
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  - id: d_high26
-    type: daily
-    label: 26W High
-    span: 130
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+  - id: prev_quarter_high
+    type: daily_level
+    label: Prev Qtr High
+    level: prev_quarter_high
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  - id: d_low26
-    type: daily
-    label: 26W Low
-    span: 130
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+  - id: prev_quarter_low
+    type: daily_level
+    label: Prev Qtr Low
+    level: prev_quarter_low
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  - id: d_high13
-    type: daily
+  - id: prev_quarter_close
+    type: daily_level
+    label: Prev Qtr Close
+    level: prev_quarter_close
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
+
+  - id: prev_year_high
+    type: daily_level
+    label: Prev Year High
+    level: prev_year_high
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
+
+  - id: prev_year_low
+    type: daily_level
+    label: Prev Year Low
+    level: prev_year_low
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
+
+  - id: prev_year_close
+    type: daily_level
+    label: Prev Year Close
+    level: prev_year_close
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
+
+  # ── Where a runner meets supply ────────────────────────────────────
+  - id: high_13w
+    type: daily_level
     label: 13W High
-    span: 65
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+    level: high:65
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  - id: d_low13
-    type: daily
+  - id: low_13w
+    type: daily_level
     label: 13W Low
-    span: 65
-    color: '#000000'
-    line_width: 1
-    line_style: solid
-    price_line_visible: true
-    last_value_visible: true
-    timeframes:
-      1m: { default_enabled: true }
+    level: low:65
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
 
-  # --- Volume ---
+  - id: high_26w
+    type: daily_level
+    label: 26W High
+    level: high:130
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
+
+  - id: low_26w
+    type: daily_level
+    label: 26W Low
+    level: low:130
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
+
+  - id: high_52w
+    type: daily_level
+    label: 52W High
+    level: high:252
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
+
+  - id: low_52w
+    type: daily_level
+    label: 52W Low
+    level: low:252
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *intraday
+
+  # ── Daily moving averages projected onto intraday ──────────────────
+  - id: d_sma20
+    type: daily_level
+    label: 1D SMA 20
+    level: sma:20
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: daily_ma
+    timeframes: *intraday
+
+  - id: d_sma50
+    type: daily_level
+    label: 1D SMA 50
+    level: sma:50
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: daily_ma
+    timeframes: *intraday
+
+  - id: d_sma200
+    type: daily_level
+    label: 1D SMA 200
+    level: sma:200
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: daily_ma
+    timeframes: *intraday
+
+  - id: d_ema20
+    type: daily_level
+    label: 1D EMA 20
+    level: ema:20
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: daily_ma
+    timeframes: *intraday
+
+  - id: d_ema50
+    type: daily_level
+    label: 1D EMA 50
+    level: ema:50
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: daily_ma
+    timeframes: *intraday
+
+  - id: d_ema200
+    type: daily_level
+    label: 1D EMA 200
+    level: ema:200
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: daily_ma
+    timeframes: *intraday
+
+  # ── Sub-panes ──────────────────────────────────────────────────────
+  # Volume bars take the candle's own up/down colour, so the pane needs no
+  # hue of its own.
+  #
+  # A trade-count pane is also supported and is deliberately not enabled —
+  # the count is already in the toolbar readout as "T". To bring the pane
+  # back, add an entry with `type: trades` alongside this one; no code change
+  # is needed.
   - id: volume
     type: volume
     label: Volume
-    color: '#6b7280'
+    color: '#898781'
+    group: panes
     timeframes:
-      1m:  { default_enabled: true }
-      1d:  { default_enabled: true }
+      10s: { enabled: true }
+      1m: { enabled: true }
+      5m: { enabled: true }
+      15m: { enabled: true }
+      1h: { enabled: true }
+      1d: { enabled: true }
+      1w: { enabled: true }
+
+  # MACD 12/26/9 on close, 1-minute only — deliberately: on the 10s chart it
+  # whipsaws, on the 5m it lags, and the settings stay at platform defaults
+  # so the crossovers land where every other trader sees them. Read as a
+  # red-light/green-light: histogram negative means the trend is exhausted.
+  - id: macd
+    type: macd
+    label: MACD 12·26·9
+    color: '#2a78d6'
+    color_dark: '#3987e5'
+    group: panes
+    timeframes:
+      1m: { enabled: true }

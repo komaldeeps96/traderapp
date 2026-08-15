@@ -1,0 +1,23 @@
+{
+  "name": "@traderapp/e2e",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:ci": "playwright test --project=chromium --project=firefox --project=webkit --project=mobile --project=fullstack",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed",
+    "test:mocked": "playwright test --project=chromium-mocked",
+    "test:fullstack": "playwright test --project=fullstack",
+    "report": "playwright show-report",
+    "install-browsers": "playwright install --with-deps chromium firefox webkit",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

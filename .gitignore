@@ -1,24 +1,61 @@
-# Secrets
-backend/config/config.yaml
-backend/config/state.yaml
-
-
-# Python
-backend/venv/
+# ── Python ─────────────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
 
-# Node
-frontend/node_modules/
-frontend/dist/
+# ── Node ───────────────────────────────────────────────
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
 
-# Logs
+# ── Playwright ─────────────────────────────────────────
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+# ── Secrets & local state ──────────────────────────────
+.env
+.env.local
+backend/config/settings.yaml
+backend/config/state.yaml
+backend/.logs/
 .logs/
 
-# OS
+# ── Editors / OS ───────────────────────────────────────
 .DS_Store
+.idea/
+.vscode/
+*.swp
 
-# Screenshots and Debug Images
+# ── Backtesting data and models ────────────────────────
+backtesting/
+
+# ── Misc tooling ───────────────────────────────────────
+opencode.json
+skills-lock.json
+.agents/
 screenshot/
-frontend/debug/
 .screenshot/
+
+# ── Pre-rewrite code, kept for reference. Safe to delete. ──
+legacy/
+*legacy-snapshot*.tar.gz
+
+# ── Coverage ──
+coverage/
+coverage-e2e/
+.coverage
+
+frontend/dist-e2e
+tmp/
+
+# Local tool settings, per-machine by definition.
+.claude/
