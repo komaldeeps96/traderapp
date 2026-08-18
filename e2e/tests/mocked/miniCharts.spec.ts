@@ -130,7 +130,17 @@ test.describe('mini charts', () => {
     await terminal.waitForMiniCharts();
 
     const before = (await terminal.chartState()).visibleRange!;
+    const miniWidth = async () => {
+      const range = (await terminal.miniChartState('5m'))!.visibleRange!;
+      return range.to - range.from;
+    };
+    const miniBefore = await miniWidth();
+
     await terminal.page.getByLabel('Zoom in 5m chart').click();
+    // Wait for the mini to actually move. Reading the main chart straight
+    // after the click proves nothing: a leak onto it would land on a later
+    // frame too, so the assertion would pass before the damage was done.
+    await expect.poll(miniWidth).toBeLessThan(miniBefore);
 
     const after = (await terminal.chartState()).visibleRange!;
     expect(after.to - after.from).toBeCloseTo(before.to - before.from, 5);

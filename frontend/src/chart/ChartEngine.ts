@@ -62,7 +62,11 @@ const FONT_SIZE = { full: 11, mini: 9 } as const;
 // The axis label's own height, which the countdown has to clear to sit under
 // it. The library sizes it from the font, so this tracks the font too.
 const AXIS_LABEL_HEIGHT = (fontSize: number) => Math.round(fontSize * 1.7);
+// One scroll click, as a fraction of the visible width.
 const NAV_STEP = 0.1;
+// Width multiplier for one zoom-in click; zooming out applies its
+// reciprocal, so the two are exact inverses.
+const ZOOM_FACTOR = 0.8;
 // Whole/half dollar gridlines cap out before they become wallpaper.
 const MAX_DOLLAR_LINES = 28;
 const INTRADAY_TIMEFRAMES: ReadonlySet<string> = new Set(['10s', '1m', '5m', '15m', '1h']);
@@ -974,11 +978,21 @@ export class ChartEngine {
     return this.chart.timeScale();
   }
 
-  private nudge(scale: number): void {
+  /**
+   * Scale the visible range about its centre. A factor below 1 zooms in.
+   *
+   * Multiplicative rather than trimming a fixed fraction off each edge, so
+   * that zooming out can undo zooming in exactly. Trimming a tenth from both
+   * sides takes the width to 0.8x and adding a tenth back takes it to 1.2x,
+   * so every in-and-out pair left the chart 4% tighter than it started and
+   * repeated tapping crept the view inwards with no way back but Reset.
+   */
+  private scaleRange(factor: number): void {
     const range = this.timeScale.getVisibleLogicalRange();
     if (!range) return;
-    const delta = (range.to - range.from) * scale;
-    this.timeScale.setVisibleLogicalRange({ from: range.from + delta, to: range.to - delta });
+    const centre = (range.from + range.to) / 2;
+    const half = ((range.to - range.from) * factor) / 2;
+    this.timeScale.setVisibleLogicalRange({ from: centre - half, to: centre + half });
   }
 
   private pan(scale: number): void {
@@ -989,11 +1003,11 @@ export class ChartEngine {
   }
 
   zoomIn(): void {
-    this.nudge(NAV_STEP);
+    this.scaleRange(ZOOM_FACTOR);
   }
 
   zoomOut(): void {
-    this.nudge(-NAV_STEP);
+    this.scaleRange(1 / ZOOM_FACTOR);
   }
 
   scrollLeft(): void {

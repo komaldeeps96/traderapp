@@ -9,19 +9,6 @@ function rangeWidth(terminal: TerminalPage) {
   };
 }
 
-/** Read the width once it has stopped changing, so queued clicks all land. */
-async function settledWidth(terminal: TerminalPage): Promise<number> {
-  const read = rangeWidth(terminal);
-  let previous = await read();
-  for (let attempt = 0; attempt < 25; attempt += 1) {
-    await terminal.page.waitForTimeout(40);
-    const current = await read();
-    if (current === previous) return current;
-    previous = current;
-  }
-  return previous;
-}
-
 test.describe('chart rendering', () => {
   test('loads the session symbol on open', async ({ terminal }) => {
     await terminal.waitForChart();
@@ -206,13 +193,30 @@ test.describe('chart navigation', () => {
   test('zooming out widens it', async ({ terminal }) => {
     await terminal.waitForChart();
     // Zoom in first so there is room to widen: the opening view already shows
-    // the whole fixture, and the time scale clamps past that.
+    // the whole fixture, and the time scale clamps past that. The zoom has to
+    // be observed landing before the width is read — the scale applies it on
+    // its own frame, so a read taken too early belongs to the previous view
+    // and the zoom out below then gets measured against the wrong baseline.
+    const opened = await rangeWidth(terminal)();
     await terminal.chartControls.getByRole('button', { name: 'Zoom in' }).click();
-    await terminal.chartControls.getByRole('button', { name: 'Zoom in' }).click();
-    const zoomed = await settledWidth(terminal);
+    await expect.poll(rangeWidth(terminal)).toBeLessThan(opened);
+    const zoomed = await rangeWidth(terminal)();
 
     await terminal.chartControls.getByRole('button', { name: 'Zoom out' }).click();
     await expect.poll(rangeWidth(terminal)).toBeGreaterThan(zoomed);
+  });
+
+  test('zooming out lands back exactly where zooming in started', async ({ terminal }) => {
+    // The two steps have to be inverses. They were not: zoom in trimmed a
+    // tenth off each edge for 0.8x, zoom out added a tenth back for 1.2x, so
+    // a round trip returned 0.96x and repeated tapping crept the view inwards.
+    await terminal.waitForChart();
+    const opened = await rangeWidth(terminal)();
+
+    await terminal.chartControls.getByRole('button', { name: 'Zoom in' }).click();
+    await expect.poll(rangeWidth(terminal)).toBeLessThan(opened);
+    await terminal.chartControls.getByRole('button', { name: 'Zoom out' }).click();
+    await expect.poll(rangeWidth(terminal)).toBeCloseTo(opened, 1);
   });
 
   test('scrolling moves the window without resizing it', async ({ terminal }) => {
