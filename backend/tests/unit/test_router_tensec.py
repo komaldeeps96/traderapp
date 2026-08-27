@@ -48,6 +48,9 @@ class StubProvider(MarketDataProvider):
     def is_available(self) -> bool:
         return self._available
 
+    async def set_status_symbols(self, symbols):
+        """The alpaca-only status channel; a no-op for a scripted stub."""
+
     async def fetch_bars(self, symbol, timeframe, start, end):
         self.calls.append((timeframe, start, end))
         if isinstance(self.bars, dict):

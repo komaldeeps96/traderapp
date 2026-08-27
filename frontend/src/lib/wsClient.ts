@@ -15,7 +15,7 @@
  * a server.
  */
 
-import type { ClientCommand, ServerMessage, Timeframe } from '@/types/protocol';
+import type { ClientCommand, ScannerTierId, ServerMessage, Timeframe } from '@/types/protocol';
 
 export type MessageHandler = (message: ServerMessage) => void;
 export type StatusHandler = (connected: boolean) => void;
@@ -148,12 +148,15 @@ export class WsClient {
     this.send({ action: 'unsubscribe' });
   }
 
-  configureScanner(params: Omit<Extract<ClientCommand, { action: 'scanner.configure' }>, 'action'>): void {
-    this.send({ action: 'scanner.configure', ...params });
+  configureScanner(
+    scannerId: ScannerTierId,
+    params: Omit<Extract<ClientCommand, { action: 'scanner.configure' }>, 'action' | 'scanner_id'>,
+  ): void {
+    this.send({ action: 'scanner.configure', scanner_id: scannerId, ...params });
   }
 
-  stopScanner(): void {
-    this.send({ action: 'scanner.stop' });
+  stopScanner(scannerId: ScannerTierId): void {
+    this.send({ action: 'scanner.stop', scanner_id: scannerId });
   }
 
   onMessage(handler: MessageHandler): () => void {

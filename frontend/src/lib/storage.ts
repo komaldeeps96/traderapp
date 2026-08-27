@@ -5,10 +5,21 @@
  * an older build, must not stop the terminal from starting.
  */
 
+import {
+  DEFAULT_MINI_TIMEFRAMES,
+  MINI_SLOT_COUNT,
+  MINI_TIMEFRAME_CHOICES,
+} from '@/chart/mini';
 import type { IndicatorSpec, Timeframe } from '@/types/protocol';
 
 const THEME_KEY = 'traderapp.theme';
 const VISIBILITY_KEY = 'traderapp.indicators';
+const ZOOM_KEY = 'traderapp.zoom';
+const MINI_TF_KEY = 'traderapp.miniTimeframes';
+
+// A saved zoom outside these bounds is a corrupt value, not a preference.
+const ZOOM_MIN_BARS = 10;
+const ZOOM_MAX_BARS = 5000;
 
 export type Theme = 'light' | 'dark';
 
@@ -80,6 +91,48 @@ export function saveVisibility(timeframe: Timeframe, visibility: Record<string, 
   const store = readJson<VisibilityStore>(VISIBILITY_KEY, {});
   store[timeframe] = visibility;
   writeJson(VISIBILITY_KEY, store);
+}
+
+/**
+ * Which timeframe each mini-chart slot shows. Validated per slot, so a stale
+ * or hand-edited entry costs that one slot its saved choice, not both.
+ */
+export function loadMiniTimeframes(): Timeframe[] {
+  const saved = readJson<unknown[]>(MINI_TF_KEY, []);
+  return Array.from({ length: MINI_SLOT_COUNT }, (_, slot) => {
+    const value = Array.isArray(saved) ? saved[slot] : undefined;
+    if (typeof value === 'string' && (MINI_TIMEFRAME_CHOICES as readonly string[]).includes(value)) {
+      return value as Timeframe;
+    }
+    return DEFAULT_MINI_TIMEFRAMES[slot] ?? '1m';
+  });
+}
+
+export function saveMiniTimeframes(timeframes: readonly Timeframe[]): void {
+  writeJson(MINI_TF_KEY, [...timeframes]);
+}
+
+type ZoomStore = Record<string, number>;
+
+/**
+ * Chart zoom is remembered per slot and timeframe (`main:10s`, `mini:1m`):
+ * the width you read a 10-second tape at is never the width you want on the
+ * daily, and the minis are deliberately tighter than the main chart.
+ */
+export function loadZoom(key: string): number | null {
+  const saved = readJson<ZoomStore>(ZOOM_KEY, {})[key];
+  if (typeof saved !== 'number' || !Number.isFinite(saved)) return null;
+  if (saved < ZOOM_MIN_BARS || saved > ZOOM_MAX_BARS) return null;
+  return Math.round(saved);
+}
+
+export function saveZoom(key: string, visibleBars: number): void {
+  if (!Number.isFinite(visibleBars)) return;
+  const width = Math.round(visibleBars);
+  if (width < ZOOM_MIN_BARS || width > ZOOM_MAX_BARS) return;
+  const store = readJson<ZoomStore>(ZOOM_KEY, {});
+  store[key] = width;
+  writeJson(ZOOM_KEY, store);
 }
 
 export function defaultVisibility(

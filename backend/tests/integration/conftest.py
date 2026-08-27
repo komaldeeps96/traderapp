@@ -107,11 +107,12 @@ def client(settings, alpaca_api) -> TestClient:
 
 @pytest.fixture
 def ws(client):
-    """A connected client that has consumed the four opening frames."""
+    """A connected client that has consumed the seven opening frames."""
     with client.websocket_connect("/ws") as socket:
         socket.receive_json()  # status
-        socket.receive_json()  # scanner
-        socket.receive_json()  # screener
+        for _ in range(4):
+            socket.receive_json()  # scanner, one per market-cap tier
+        socket.receive_json()  # regime
         socket.receive_json()  # api budget
         yield socket
 

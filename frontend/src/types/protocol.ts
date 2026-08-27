@@ -5,7 +5,7 @@
  * carries thousands of both; the compact shape roughly halves the payload.
  */
 
-export const TIMEFRAMES = ['10s', '1m', '5m', '15m', '1h', '1d', '1w'] as const;
+export const TIMEFRAMES = ['10s', '1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w'] as const;
 export type Timeframe = (typeof TIMEFRAMES)[number];
 
 export type DataSource = 'ibkr' | 'alpaca' | 'none';
@@ -91,6 +91,8 @@ export interface InfoMessage {
   market_cap: number | null;
   shares_outstanding: number | null;
   avg_vol_10d: number | null;
+  /** Split-adjusted all-time high since listing, from TradingView. */
+  all_time_high: number | null;
   description: string;
   exchange: string;
   sector: string;
@@ -104,8 +106,45 @@ export interface InfoMessage {
   halt_up: number | null;
   halt_down: number | null;
   halt_active: boolean;
+  /** Days since the first daily bar; null once old enough not to matter. */
+  listed_days: number | null;
+  /** IBKR shortable magnitude: >2.5 easy, 1.5–2.5 locate, <1.5 none. */
+  shortable: number | null;
+  shortable_shares: number | null;
+  /** Trading is halted right now. */
+  halted: boolean;
+  /** Halt transitions counted since the New York open. */
+  halts_today: number;
+  /** Old shares per new share of the latest reverse split, e.g. 10 = 1:10. */
+  reverse_split_ratio: number | null;
+  reverse_split_days: number | null;
+  /** Yahoo's float, the second opinion against float_shares. */
+  yahoo_float: number | null;
+  /** Share of the current leg given back, 0–100. Null with no active leg. */
+  pullback_depth_pct: number | null;
+  /** Mean pullback-bar volume over mean rally-bar volume. */
+  pullback_vol_ratio: number | null;
+  /** Minutes since the leg high. */
+  pullback_bars: number | null;
+  /** The leg itself as a percentage of its trough. */
+  pullback_leg_pct: number | null;
   generated_at: number;
 }
+
+// The four market-cap-tiered scanners, mirroring
+// backend/app/domain/scanner.py's SCANNER_TIERS. Labels are duplicated here
+// (not fetched) so a tier's header renders correctly before the first WS
+// `scanner` frame lands — the same tolerance for small, stable literal
+// duplication already exists between the backend's SCAN_CODES and its
+// e2e-fixture copy.
+export const SCANNER_TIER_IDS = ['small_cap', 'mid_cap', 'large_cap', 'mega_cap'] as const;
+export type ScannerTierId = (typeof SCANNER_TIER_IDS)[number];
+export const SCANNER_TIER_LABELS: Record<ScannerTierId, string> = {
+  small_cap: 'Small Cap',
+  mid_cap: 'Mid Cap',
+  large_cap: 'Large Cap',
+  mega_cap: 'Mega Cap',
+};
 
 export interface ScannerRow {
   rank: number;
@@ -143,6 +182,8 @@ export interface ScannerConfig {
 
 export interface ScannerMessage {
   type: 'scanner';
+  scanner_id: ScannerTierId;
+  label: string;
   rows: ScannerRow[];
   config: ScannerConfig;
   running: boolean;
@@ -198,16 +239,16 @@ export type ClientCommand =
   | { action: 'unsubscribe' }
   | {
       action: 'scanner.configure';
+      scanner_id: ScannerTierId;
       scan_code?: string;
-      above_price?: number;
-      below_price?: number;
+      above_price?: Clearable;
+      below_price?: Clearable;
       above_volume?: number;
       market_cap_above?: Clearable;
       market_cap_below?: Clearable;
       change_perc_above?: Clearable;
-      number_of_rows?: number;
     }
-  | { action: 'scanner.stop' }
+  | { action: 'scanner.stop'; scanner_id: ScannerTierId }
   | { action: 'ping' };
 
 // ── REST payloads ──────────────────────────────────────────────────────
@@ -228,6 +269,8 @@ export interface IndicatorSpec {
   color: string;
   color_dark: string;
   pane: Pane;
+  /** Computed and streamed for the readout strip, but never painted. */
+  readout_only: boolean;
   line_width: number;
   line_style: LineStyleName;
   price_line: boolean;
@@ -256,10 +299,8 @@ export interface SessionInfo {
   default_timeframe: Timeframe;
 }
 
-export interface ScannerConfigResponse {
+export interface ScannerTiersResponse {
   scan_codes: Array<{ code: string; label: string }>;
-  config: ScannerConfig;
-  running: boolean;
-  available: boolean;
+  tiers: Array<{ id: ScannerTierId; label: string }>;
   note: string | null;
 }

@@ -24,6 +24,7 @@ function fakeEngine(barCount = 1) {
     barCount: vi.fn(() => barCount),
     previousClose: vi.fn(() => null),
     latestValues: vi.fn(() => ({})),
+    sessionVolumeAt: vi.fn(() => null),
   };
 }
 
@@ -83,6 +84,56 @@ describe('handleMessage bar gating', () => {
  * main chart that happens to be on 1m, and what keeps a 1-minute frame off the
  * main chart when it is on the 10-second tape.
  */
+describe('handleMessage scanner rows', () => {
+  const row = (symbol: string, over: Partial<import('@/types/protocol').ScannerRow> = {}) => ({
+    rank: 0,
+    symbol,
+    exchange: 'NASDAQ',
+    price: 2.34,
+    pct_change: 34,
+    volume: 1e6,
+    trades_1m: 100,
+    trades_5m: 400,
+    dollar_vol_1m: 1e5,
+    dollar_vol_5m: 4e5,
+    trades_day: null,
+    dollar_vol_day: null,
+    rank_delta: null,
+    entered: false,
+    float_shares: null,
+    market_cap: null,
+    ...over,
+  });
+
+  const config = {
+    scan_code: 'TOP_TRADE_RATE',
+    above_price: null,
+    below_price: null,
+    above_volume: null,
+    market_cap_above: null,
+    market_cap_below: null,
+    change_perc_above: null,
+    number_of_rows: 15,
+  };
+
+  it('keeps one row per symbol, first occurrence winning', () => {
+    // The table keys rows by symbol; a duplicate key makes React leave
+    // orphaned DOM rows behind, so uniqueness is enforced at the store.
+    handleMessage({
+      type: 'scanner',
+      scanner_id: 'small_cap',
+      label: 'Small Cap',
+      rows: [row('YJ', { rank: 0 }), row('TNON'), row('YJ', { rank: 2, exchange: 'NYSE' })],
+      config,
+      running: true,
+    });
+
+    const rows = useTerminalStore.getState().scanners.small_cap.rows;
+    expect(rows.map((r) => r.symbol)).toEqual(['YJ', 'TNON']);
+    expect(rows[0]?.exchange).toBe('NASDAQ');
+  });
+});
+
 describe('handleMessage mini routing', () => {
   let main: ReturnType<typeof fakeEngine>;
   let minute: ReturnType<typeof fakeEngine>;
@@ -105,8 +156,11 @@ describe('handleMessage mini routing', () => {
     minute = fakeEngine(0);
     fiveMinute = fakeEngine(0);
     setEngine(main as unknown as ChartEngine);
-    setMiniEngine('1m', minute as unknown as ChartEngine);
-    setMiniEngine('5m', fiveMinute as unknown as ChartEngine);
+    // Slot 0 shows 1m and slot 1 shows 5m — the shipped defaults.
+    useTerminalStore.getState().setMiniTimeframe(0, '1m');
+    useTerminalStore.getState().setMiniTimeframe(1, '5m');
+    setMiniEngine(0, minute as unknown as ChartEngine);
+    setMiniEngine(1, fiveMinute as unknown as ChartEngine);
     useTerminalStore.getState().requestChart('BANL', '10s');
     useTerminalStore
       .getState()
@@ -135,6 +189,25 @@ describe('handleMessage mini routing', () => {
 
     expect(main.applySnapshot).toHaveBeenCalledOnce();
     expect(minute.applySnapshot).toHaveBeenCalledOnce();
+  });
+
+  it('a retimed slot receives its new timeframe and not its old one', () => {
+    useTerminalStore.getState().setMiniTimeframe(1, '15m');
+
+    handleMessage(snapshot('BANL', '5m') as never);
+    expect(fiveMinute.applySnapshot).not.toHaveBeenCalled();
+
+    handleMessage(snapshot('BANL', '15m') as never);
+    expect(fiveMinute.applySnapshot).toHaveBeenCalledOnce();
+  });
+
+  it('two slots on the same timeframe both draw the one message', () => {
+    useTerminalStore.getState().setMiniTimeframe(1, '1m');
+
+    handleMessage(snapshot('BANL', '1m') as never);
+
+    expect(minute.applySnapshot).toHaveBeenCalledOnce();
+    expect(fiveMinute.applySnapshot).toHaveBeenCalledOnce();
   });
 
   it('ignores a symbol the user has navigated away from', () => {

@@ -43,8 +43,52 @@ export function ChartControls() {
         <ChartButton onClick={() => getEngine()?.resetView()} label="Reset view" testId="reset-view" wide>
           Reset
         </ChartButton>
+        <MeasureToggle />
       </div>
     </div>
+  );
+}
+
+/**
+ * The measure tool's switch. While on, dragging on the chart selects a
+ * region and reads out its move, span and volume; panning is suspended for
+ * the duration. Escape is the fast exit, because the reflex after reading a
+ * measurement is to get the drag gesture back.
+ */
+function MeasureToggle() {
+  const [measuring, setMeasuring] = useState(false);
+
+  const setMode = useCallback((on: boolean) => {
+    getEngine()?.setMeasureMode(on);
+    setMeasuring(on);
+  }, []);
+
+  useEffect(() => {
+    if (!measuring) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMode(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [measuring, setMode]);
+
+  // A symbol or timeframe switch cleared the selection under us; drop the
+  // mode too, so the chart never silently keeps eating drag gestures.
+  const symbol = useTerminalStore((state) => state.symbol);
+  const timeframe = useTerminalStore((state) => state.timeframe);
+  useEffect(() => {
+    setMode(false);
+  }, [symbol, timeframe, setMode]);
+
+  return (
+    <ChartButton
+      onClick={() => setMode(!measuring)}
+      label="Measure"
+      testId="measure-toggle"
+      pressed={measuring}
+    >
+      ⤢
+    </ChartButton>
   );
 }
 

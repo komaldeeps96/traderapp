@@ -22,6 +22,55 @@ SCAN_CODES: tuple[dict[str, str], ...] = (
 
 VALID_SCAN_CODES = frozenset(entry["code"] for entry in SCAN_CODES)
 
+# What a tier shows when it does not ask for more. Four concurrent scanners
+# is a lot of screen and a lot of IBKR market-data lines, so depth is spent
+# where it earns its keep rather than raised across the board.
+DEFAULT_SCANNER_ROWS = 5
+
+# The four market-cap bands the terminal runs concurrently, one IBKR
+# scanner subscription each. Bands partition cleanly with no overlap: large
+# cap's ceiling is mega cap's floor. The size gate does the real filtering —
+# price and volume stay open on each tier so a low share price or a quiet
+# day doesn't discard a name the market cap has already qualified.
+#
+# ``rows`` is the depth of the panel, and it is a property of the tier for
+# the same reason the band is. Small cap is the tier this terminal exists
+# for — sub-$2B runners are the setup — so it gets twice the depth; the
+# other three are context, and five names of context is plenty.
+SCANNER_TIERS: tuple[dict[str, object], ...] = (
+    {
+        "id": "small_cap",
+        "label": "Small Cap",
+        "market_cap_above": 1_000_000,
+        "market_cap_below": 2_000_000_000,
+        "rows": 10,
+    },
+    {
+        "id": "mid_cap",
+        "label": "Mid Cap",
+        "market_cap_above": 2_000_000_000,
+        "market_cap_below": 10_000_000_000,
+        "rows": DEFAULT_SCANNER_ROWS,
+    },
+    {
+        "id": "large_cap",
+        "label": "Large Cap",
+        "market_cap_above": 10_000_000_000,
+        "market_cap_below": 200_000_000_000,
+        "rows": DEFAULT_SCANNER_ROWS,
+    },
+    {
+        "id": "mega_cap",
+        "label": "Mega Cap",
+        "market_cap_above": 200_000_000_000,
+        "market_cap_below": None,
+        "rows": DEFAULT_SCANNER_ROWS,
+    },
+)
+
+SCANNER_TIER_IDS = frozenset(str(tier["id"]) for tier in SCANNER_TIERS)
+SCANNER_TIER_BY_ID = {str(tier["id"]): tier for tier in SCANNER_TIERS}
+
 
 @dataclass(slots=True)
 class ScannerConfig:
@@ -35,7 +84,9 @@ class ScannerConfig:
     # Percent change on the day; applied as a subscription filter and again
     # to the returned rows, because IBKR filter support varies by scan code.
     change_perc_above: float | None = None
-    number_of_rows: int = 15
+    # Set from the tier, never from the client or the state file — see
+    # ScannerService.
+    number_of_rows: int = DEFAULT_SCANNER_ROWS
 
     def to_dict(self) -> dict:
         return asdict(self)

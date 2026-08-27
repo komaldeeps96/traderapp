@@ -2,7 +2,7 @@
 
 import type {
   IndicatorSpec,
-  ScannerConfigResponse,
+  ScannerTiersResponse,
   SessionInfo,
   TimeframeInfo,
 } from '@/types/protocol';
@@ -46,6 +46,6 @@ export const api = {
   indicators: (signal?: AbortSignal) => getJson<IndicatorSpec[]>('/api/indicators', signal),
   timeframes: (signal?: AbortSignal) => getJson<TimeframeInfo[]>('/api/timeframes', signal),
   session: (signal?: AbortSignal) => getJson<SessionInfo>('/api/session', signal),
-  scannerConfig: (signal?: AbortSignal) =>
-    getJson<ScannerConfigResponse>('/api/scanner/config', signal),
+  scannerTiers: (signal?: AbortSignal) =>
+    getJson<ScannerTiersResponse>('/api/scanner/tiers', signal),
 };

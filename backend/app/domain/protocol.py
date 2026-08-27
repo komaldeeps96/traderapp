@@ -26,10 +26,6 @@ from .timeframes import Timeframe
 # Long enough for real tickers (BRK.B, GOOGL) without being an open field.
 SYMBOL_PATTERN = r"^[A-Z][A-Z0-9.\-]{0,9}$"
 
-# Hard cap: each row costs a live IBKR market-data line, and fifteen is
-# already more than the workflow reads — the top handful is the trade.
-MAX_SCANNER_ROWS = 15
-
 # Every extra timeframe is another resample and another indicator pass per
 # broadcast tick. The UI asks for two; the cap is only there so a malformed
 # client cannot ask for a hundred.
@@ -102,21 +98,33 @@ class UnsubscribeCommand(_Command):
 # entirely with the literal string "clear".
 Clearable = float | Literal["clear"] | None
 
+# Same, but bounded like a price — above_price/below_price are clearable too;
+# a blank filter field must be able to relax the bound, not just leave it.
+ClearablePrice = Annotated[float, Field(ge=0, le=1_000_000)] | Literal["clear"] | None
+
+
+# Which scanner tier a command targets — e.g. "small_cap". Validated against
+# the known tier ids at the WS dispatch layer (app/api/ws.py), not here:
+# shape only, matching this file's existing precedent of not checking
+# scan_code validity in the model either.
+ScannerId = Annotated[str, Field(min_length=1, max_length=20)]
+
 
 class ConfigureScannerCommand(_Command):
     action: Literal["scanner.configure"]
+    scanner_id: ScannerId
     scan_code: str | None = Field(default=None, max_length=40)
-    above_price: float | None = Field(default=None, ge=0, le=1_000_000)
-    below_price: float | None = Field(default=None, ge=0, le=1_000_000)
+    above_price: ClearablePrice = None
+    below_price: ClearablePrice = None
     above_volume: int | None = Field(default=None, ge=0)
     market_cap_above: Clearable = None
     market_cap_below: Clearable = None
     change_perc_above: Clearable = None
-    number_of_rows: int | None = Field(default=None, ge=1, le=MAX_SCANNER_ROWS)
 
 
 class StopScannerCommand(_Command):
     action: Literal["scanner.stop"]
+    scanner_id: ScannerId
 
 
 class PingCommand(_Command):
@@ -214,6 +222,8 @@ class ApiUsageMessage(TypedDict):
 
 class ScannerMessage(TypedDict):
     type: Literal["scanner"]
+    scanner_id: str
+    label: str
     rows: list[dict]
     config: dict
     running: bool
@@ -311,8 +321,17 @@ def status_message(
     }
 
 
-def scanner_message(*, rows: list[dict], config: dict, running: bool) -> ScannerMessage:
-    return {"type": "scanner", "rows": rows, "config": config, "running": running}
+def scanner_message(
+    *, scanner_id: str, label: str, rows: list[dict], config: dict, running: bool
+) -> ScannerMessage:
+    return {
+        "type": "scanner",
+        "scanner_id": scanner_id,
+        "label": label,
+        "rows": rows,
+        "config": config,
+        "running": running,
+    }
 
 
 def quote_message(symbol: str, quote: Quote) -> QuoteMessage:

@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from ..domain.protocol import (
     ConfigureScannerCommand,
+    StopScannerCommand,
     SubscribeCommand,
     error_message,
     parse_command,
@@ -36,11 +37,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     connection = ClientConnection(websocket)
     await container.hub.register(connection)
 
-    # Opening frames: what the data source is doing, whatever the scanner
-    # and regime already have, and the request-budget meters — so a client
-    # joining mid-session is not staring at nothing.
+    # Opening frames: what the data source is doing, whatever each scanner
+    # tier and regime already have, and the request-budget meters — so a
+    # client joining mid-session is not staring at nothing.
     connection.send(container.status_payload())
-    connection.send(container.scanner_payload())
+    for scanner_id in container.scanners:
+        connection.send(container.scanner_payload(scanner_id))
     connection.send(container.regime_payload())
     connection.send(container.api_payload())
 
@@ -84,7 +86,7 @@ async def _dispatch(container: AppContainer, connection: ClientConnection, raw: 
         await _configure_scanner(container, connection, command)
 
     elif action == "scanner.stop":
-        await container.scanner.stop()
+        await _stop_scanner(container, connection, command)
 
 
 _pending_prefetches: set[asyncio.Task] = set()
@@ -146,7 +148,12 @@ async def _subscribe(
 async def _configure_scanner(
     container: AppContainer, connection: ClientConnection, command: ConfigureScannerCommand
 ) -> None:
-    ok, message = await container.scanner.configure(
+    scanner = container.scanners.get(command.scanner_id)
+    if scanner is None:
+        connection.send(error_message("scanner", f"Unknown scanner {command.scanner_id!r}."))
+        return
+
+    ok, message = await scanner.configure(
         scan_code=command.scan_code,
         above_price=command.above_price,
         below_price=command.below_price,
@@ -154,11 +161,24 @@ async def _configure_scanner(
         market_cap_above=command.market_cap_above,
         market_cap_below=command.market_cap_below,
         change_perc_above=command.change_perc_above,
-        number_of_rows=command.number_of_rows,
     )
     if not ok and message:
         connection.send(error_message("scanner", message))
-    connection.send(container.scanner_payload())
+    else:
+        # The filters applied; remember them so the next startup opens with
+        # the scan the user actually uses, not the YAML defaults.
+        await container.state.save_scanner(command.scanner_id, scanner.state.config.to_dict())
+    connection.send(container.scanner_payload(command.scanner_id))
+
+
+async def _stop_scanner(
+    container: AppContainer, connection: ClientConnection, command: StopScannerCommand
+) -> None:
+    scanner = container.scanners.get(command.scanner_id)
+    if scanner is None:
+        connection.send(error_message("scanner", f"Unknown scanner {command.scanner_id!r}."))
+        return
+    await scanner.stop()
 
 
 def _explain(exc: ValidationError) -> str:

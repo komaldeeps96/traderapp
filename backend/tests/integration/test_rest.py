@@ -38,13 +38,15 @@ class TestIndicators:
 
     def test_panes_are_declared(self, client):
         panes = {entry["pane"] for entry in client.get("/api/indicators").json()}
-        assert panes == {"price", "volume", "macd"}
+        # No macd: the shipped config dropped it, though the engine still
+        # knows how to build one if the YAML ever brings it back.
+        assert panes == {"price", "volume"}
 
 
 class TestTimeframes:
     def test_lists_every_timeframe(self, client):
         values = [entry["value"] for entry in client.get("/api/timeframes").json()]
-        assert values == ["10s", "1m", "5m", "15m", "1h", "1d", "1w"]
+        assert values == ["10s", "1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
 
     def test_marks_which_are_intraday(self, client):
         entries = {e["value"]: e["intraday"] for e in client.get("/api/timeframes").json()}
@@ -71,19 +73,19 @@ class TestSession:
         assert body["timeframe"] == "5m"
 
 
-class TestScannerConfig:
+class TestScannerTiers:
     def test_lists_the_scan_codes(self, client):
-        codes = {entry["code"] for entry in client.get("/api/scanner/config").json()["scan_codes"]}
+        codes = {entry["code"] for entry in client.get("/api/scanner/tiers").json()["scan_codes"]}
         assert "TOP_PERC_GAIN" in codes
 
-    def test_reports_the_scanner_as_unavailable_without_ibkr(self, client):
-        body = client.get("/api/scanner/config").json()
-        assert body["available"] is False
-        assert "IBKR" in body["note"]
+    def test_lists_the_four_market_cap_tiers(self, client):
+        tiers = client.get("/api/scanner/tiers").json()["tiers"]
+        assert {t["id"] for t in tiers} == {"small_cap", "mid_cap", "large_cap", "mega_cap"}
+        assert all("label" in t for t in tiers)
 
-    def test_returns_the_current_filters(self, client):
-        config = client.get("/api/scanner/config").json()["config"]
-        assert {"scan_code", "above_price", "below_price", "above_volume"} <= set(config)
+    def test_the_note_explains_ibkr_is_required(self, client):
+        body = client.get("/api/scanner/tiers").json()
+        assert "IBKR" in body["note"]
 
 
 class TestCors:

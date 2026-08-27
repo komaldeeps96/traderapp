@@ -54,6 +54,45 @@ def _full_specs() -> list[IndicatorSpec]:
     ]
 
 
+class TestWrvolSpec:
+    def wrvol_spec(self):
+        return spec(id="wrvol", type="wrvol", label="Windowed RVOL", span=None)
+
+    def test_series_ride_the_minute_base(self, bars):
+        engine = IndicatorEngine([self.wrvol_spec()])
+        # Two synthetic sessions of minute bars, a day apart.
+        day = 86_400
+        minutes = bars
+        shifted = [
+            type(b)(
+                time=b.time + day,
+                open=b.open,
+                high=b.high,
+                low=b.low,
+                close=b.close,
+                volume=b.volume,
+                trades=b.trades,
+            )
+            for b in bars
+        ]
+        series = engine.compute(shifted, Timeframe.M1, minute_bars=minutes + shifted)
+        assert "wrvol" in series
+        # Same volumes at the same time of day: the ratio is one.
+        assert series["wrvol"][-1][1] == pytest.approx(1.0)
+
+        latest = engine.latest(shifted, Timeframe.M1, minute_bars=minutes + shifted)
+        assert latest["wrvol"] == pytest.approx(1.0)
+
+    def test_without_the_minute_base_it_stays_silent(self, bars):
+        engine = IndicatorEngine([self.wrvol_spec()])
+        assert "wrvol" not in engine.compute(bars, Timeframe.M1)
+        assert "wrvol" not in engine.latest(bars, Timeframe.M1)
+
+    def test_readout_only_is_declared_to_the_client(self):
+        assert self.wrvol_spec().to_client()["readout_only"] is True
+        assert spec().to_client()["readout_only"] is False
+
+
 class TestCompute:
     def test_produces_a_series_per_active_indicator(self, bars, level_index):
         engine = IndicatorEngine(_full_specs())

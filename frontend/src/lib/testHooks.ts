@@ -8,7 +8,7 @@
  */
 
 import { getEngine, getMiniEngine } from '@/chart/engineRef';
-import type { MiniTimeframe } from '@/chart/mini';
+import type { Timeframe } from '@/types/protocol';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
 type ChartReport = ReturnType<NonNullable<ReturnType<typeof getEngine>>['inspect']>;
@@ -16,7 +16,7 @@ type ChartReport = ReturnType<NonNullable<ReturnType<typeof getEngine>>['inspect
 export interface TerminalTestHooks {
   chart: () => ChartReport | null;
   /** The same report for a mini chart, or null when the column is not shown. */
-  miniChart: (timeframe: MiniTimeframe) => ChartReport | null;
+  miniChart: (timeframe: Timeframe) => ChartReport | null;
   state: () => {
     symbol: string;
     timeframe: string;
@@ -41,7 +41,12 @@ export function installTestHooks(): void {
 
   window.__traderapp = {
     chart: () => getEngine()?.inspect() ?? null,
-    miniChart: (timeframe) => getMiniEngine(timeframe)?.inspect() ?? null,
+    // Addressed by timeframe, as the tests read them; the first slot showing
+    // that timeframe answers.
+    miniChart: (timeframe) => {
+      const slot = useTerminalStore.getState().miniTimeframes.indexOf(timeframe);
+      return slot >= 0 ? (getMiniEngine(slot)?.inspect() ?? null) : null;
+    },
     state: () => {
       const state = useTerminalStore.getState();
       return {

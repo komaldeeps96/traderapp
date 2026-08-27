@@ -7,6 +7,7 @@ application against stubbed HTTP instead of reaching for module-level globals.
 
 from __future__ import annotations
 
+import functools
 import logging
 
 from ..core.settings import Settings, get_settings
@@ -17,14 +18,18 @@ from ..domain.protocol import (
     scanner_message,
     status_message,
 )
+from ..domain.scanner import SCANNER_TIERS
 from ..indicators.engine import IndicatorEngine
 from ..indicators.spec import load_indicator_specs
 from ..market.store import BarStore
 from ..providers.alpaca import AlpacaProvider
 from ..providers.ibkr import IBKRProvider
 from ..providers.router import FeedRouter
+from ..providers.yahoo import YahooFloatProvider
 from ..services.api_budget import ApiBudget
 from ..services.broadcaster import ChartBroadcaster
+from ..services.corporate_actions import ReverseSplitService
+from ..services.halts import HaltTracker
 from ..services.hub import SubscriptionHub
 from ..services.market_data import MarketDataService
 from ..services.quotes import QuoteService
@@ -54,20 +59,44 @@ class AppContainer:
         self.quotes = QuoteService()
         self.router.on_quote(self.quotes.handle_quote)
         self.tv = TVDataService()
-        self.symbol_info = SymbolInfoService(self.store, self.tv)
+        self.halts = HaltTracker()
+        self.router.on_halt(self._on_halt)
+        self.splits = ReverseSplitService(self.alpaca.fetch_reverse_splits)
+        self.yahoo = YahooFloatProvider()
+        self.symbol_info = SymbolInfoService(
+            self.store,
+            self.tv,
+            borrow=self.router.borrow_status,
+            halts=self.halts.status,
+            splits=self.splits,
+            yahoo=self.yahoo,
+        )
         self.hub = SubscriptionHub(self.router, self.market_data)
         self.broadcaster = ChartBroadcaster(
             self.hub, self.market_data, self.quotes, self.symbol_info, self.api_budget
         )
-        self.scanner = ScannerService(self.ibkr, self.settings.scanner, self.tv)
+        # One ScannerService per market-cap tier, sharing this one IBKR
+        # connection. Each carries its own IBKR subscription, filters and
+        # persisted state — see ScannerService's docstring.
+        self.scanners: dict[str, ScannerService] = {
+            str(tier["id"]): ScannerService(self.ibkr, str(tier["id"]), self.settings.scanner, self.tv)
+            for tier in SCANNER_TIERS
+        }
         self.regime = RegimeService(self.tv, self.settings.regime)
         self.state = StateStore(
             self.settings.state_file,
             self.settings.default_symbol,
             self.settings.default_timeframe,
         )
+        # Filters dialled in last session beat the YAML defaults: the state
+        # file is only ever written by the terminal itself, and adopt_config
+        # validates it, so this cannot make a scanner unstartable.
+        for scanner_id, scanner in self.scanners.items():
+            saved_scanner = self.state.scanner_config(scanner_id)
+            if saved_scanner is not None:
+                scanner.adopt_config(saved_scanner)
+            scanner.on_update(functools.partial(self._broadcast_scanner, scanner_id))
 
-        self.scanner.on_update(self._broadcast_scanner)
         self.regime.on_update(self._broadcast_regime)
         self.router.on_status_change(self._on_source_change)
         self.market_data.on_backfill(self._on_backfill)
@@ -78,7 +107,8 @@ class AppContainer:
         await self.market_data.start()
         await self.router.start()
         await self.broadcaster.start()
-        await self.scanner.start()
+        for scanner in self.scanners.values():
+            await scanner.start()
         await self.regime.start()
         logger.info(
             "Ready — data source: %s%s",
@@ -88,9 +118,11 @@ class AppContainer:
 
     async def stop(self) -> None:
         await self.broadcaster.stop()
-        await self.scanner.stop()
+        for scanner in self.scanners.values():
+            await scanner.stop()
         await self.regime.stop()
         await self.router.stop()
+        await self.yahoo.close()
         # Last: the router is quiet by now, so nothing can schedule a new load
         # while this is collecting the outstanding ones.
         await self.market_data.stop()
@@ -106,9 +138,12 @@ class AppContainer:
             message=self.router.status_note(),
         )
 
-    def scanner_payload(self) -> dict:
-        state = self.scanner.state
+    def scanner_payload(self, scanner_id: str) -> dict:
+        scanner = self.scanners[scanner_id]
+        state = scanner.state
         return scanner_message(
+            scanner_id=scanner_id,
+            label=scanner.label,
             rows=[row.to_dict() for row in state.rows],
             config=state.config.to_dict(),
             running=state.running,
@@ -125,8 +160,8 @@ class AppContainer:
             error=state.error,
         )
 
-    async def _broadcast_scanner(self, _state) -> None:
-        self.hub.broadcast(self.scanner_payload())
+    async def _broadcast_scanner(self, scanner_id: str, _state) -> None:
+        self.hub.broadcast(self.scanner_payload(scanner_id))
 
     async def _broadcast_regime(self, _state) -> None:
         self.hub.broadcast(self.regime_payload())
@@ -134,13 +169,21 @@ class AppContainer:
     async def _on_source_change(self) -> None:
         """A provider connected or dropped: tell clients and re-check scanning."""
         self.hub.broadcast(self.status_payload())
-        await self.scanner.refresh_availability()
+        for scanner in self.scanners.values():
+            await scanner.refresh_availability()
         # The real-time source arriving means anything loaded from the
         # delayed fallback ends ~15 minutes short of the live stream. Repair
         # every loaded symbol's recent slice so no chart keeps that seam.
         if self.router.active_source is DataSource.IBKR:
             for symbol in self.market_data.loaded_symbols:
                 self.market_data.schedule_recent_repair(symbol)
+
+    async def _on_halt(self, symbol: str, halted: bool) -> None:
+        self.halts.mark(symbol, halted)
+        # A halt changes the info strip now, not at the next trade — and a
+        # halted tape prints no trades, so without this touch the strip
+        # would only learn about the halt at the resume.
+        self.market_data.touch(symbol)
 
     async def _on_backfill(self, symbol: str) -> None:
         """Background history landed: refresh every chart on the symbol.

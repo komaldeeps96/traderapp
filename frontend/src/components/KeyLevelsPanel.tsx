@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react';
+import { Fragment, useLayoutEffect, useRef } from 'react';
 
 import { formatPercent, formatPrice } from '@/lib/format';
 import { centredScrollTop } from '@/lib/scroll';
@@ -210,31 +210,48 @@ function BandRow({
       </td>
 
       <td className="min-w-0 py-1 pl-1 text-[10px] font-medium text-ink-2">
-        <span className="flex items-center gap-1.5">
-          {/* Weight mirrors the chart: a thicker bar means more levels agree. */}
-          <span
-            className={`shrink-0 rounded-full ${EMPHASIS_BAR[cluster.emphasis]}`}
-            style={{ width: 10, height: Math.min(4, cluster.strength) }}
-            aria-hidden
-          />
-          <span className="truncate">{stacked ? `${cluster.strength} levels` : lead.label}</span>
-          {stacked && (
+        <span className="flex items-start gap-1.5">
+          {/* Weight mirrors the chart: a thicker bar means more levels agree.
+              Centred inside a line-height box so it sits on the first line of
+              a member list that runs to three. */}
+          <span className="flex h-[13px] shrink-0 items-center" aria-hidden>
             <span
-              className="shrink-0 rounded bg-ink-3/15 px-1 text-[9px] font-bold text-ink-2"
-              data-testid={`band-strength-${cluster.key}`}
+              className={`rounded-full ${EMPHASIS_BAR[cluster.emphasis]}`}
+              style={{ width: 10, height: Math.min(4, cluster.strength) }}
+            />
+          </span>
+          {stacked ? (
+            /* The count leads and the names run straight on from it, wrapping
+               down as far as they need. Held to one truncated line under a
+               row that said only how many, the names — the whole reason to
+               look at a band — were the least readable thing in the panel.
+
+               The count is inline rather than a flex sibling so the lines
+               below it start at the column edge, and each name is its own
+               nowrap span so breaks fall on the separators: "Prev Day /
+               Close" split across two lines reads as two different levels. */
+            <span
+              className="min-w-0 flex-1 text-[9px] leading-[13px] text-ink-3"
+              data-testid={`band-members-${cluster.key}`}
+              title={cluster.members.map((member) => member.label).join(', ')}
             >
-              ×{cluster.strength}
+              <span
+                className="mr-1 rounded bg-ink-3/15 px-1 font-bold text-ink-2"
+                data-testid={`band-strength-${cluster.key}`}
+              >
+                ×{cluster.strength}
+              </span>
+              {cluster.members.map((member, index) => (
+                <Fragment key={member.id}>
+                  {index > 0 && ' · '}
+                  <span className="whitespace-nowrap">{member.label}</span>
+                </Fragment>
+              ))}
             </span>
+          ) : (
+            <span className="min-w-0 flex-1 break-words leading-[13px]">{lead.label}</span>
           )}
         </span>
-        {stacked && (
-          <span
-            className="mt-0.5 block overflow-hidden text-ellipsis whitespace-nowrap text-[9px] text-ink-3"
-            title={cluster.members.map((member) => member.label).join(', ')}
-          >
-            {cluster.members.map((member) => member.label).join(' · ')}
-          </span>
-        )}
       </td>
 
       <td className="tnum py-1 pr-2 text-right align-top font-mono text-[11px] font-semibold text-ink">

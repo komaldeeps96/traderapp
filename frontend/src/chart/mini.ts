@@ -1,8 +1,9 @@
 /**
  * The mini charts beside the main one.
  *
- * A 1-minute chart above a 5-minute chart, both following whatever symbol the
- * main chart is on. They exist so the immediate trend and the day's structure
+ * Two context charts following whatever symbol the main chart is on, each on
+ * a timeframe of its owner's choosing (1m over 5m by default, remembered
+ * across restarts). They exist so the immediate trend and the day's structure
  * stay visible while the main chart is down on the 10-second tape — reading a
  * runner means holding all three clocks at once.
  *
@@ -14,12 +15,16 @@
  * Every number worth adjusting lives here.
  */
 
-export const MINI_TIMEFRAMES = ['1m', '5m'] as const;
-export type MiniTimeframe = (typeof MINI_TIMEFRAMES)[number];
+import { TIMEFRAMES, type Timeframe } from '@/types/protocol';
 
-export function isMiniTimeframe(value: string): value is MiniTimeframe {
-  return (MINI_TIMEFRAMES as readonly string[]).includes(value);
-}
+/** How many mini charts the column holds. */
+export const MINI_SLOT_COUNT = 2;
+
+/** What each slot shows until its owner picks something else. */
+export const DEFAULT_MINI_TIMEFRAMES: readonly Timeframe[] = ['1m', '5m'];
+
+/** Every timeframe a mini may be set to — the full supported list. */
+export const MINI_TIMEFRAME_CHOICES: readonly Timeframe[] = TIMEFRAMES;
 
 /** The only indicators a mini chart draws. */
 export const MINI_INCLUDE = ['ema9', 'ema20', 'volume'] as const;
@@ -33,13 +38,14 @@ export interface MiniConfig {
   volumePaneHeight: number;
 }
 
-/** Bars in view when a mini is framed — one hour on the 1m, five on the 5m. */
+/** Bars in view when a mini is framed — an hour on the 1m, a session on 5m. */
 export const MINI_VISIBLE_BARS = 60;
 
-export const MINI_CONFIG: Record<MiniTimeframe, MiniConfig> = {
-  '1m': { include: MINI_INCLUDE, visibleBars: MINI_VISIBLE_BARS, volumePaneHeight: 52 },
-  '5m': { include: MINI_INCLUDE, visibleBars: MINI_VISIBLE_BARS, volumePaneHeight: 52 },
-};
+/** One shape for every timeframe: the zoom is remembered per timeframe
+ *  anyway, so the framing default only has to be sane, not tailored. */
+export function miniConfig(_timeframe: Timeframe): MiniConfig {
+  return { include: MINI_INCLUDE, visibleBars: MINI_VISIBLE_BARS, volumePaneHeight: 52 };
+}
 
 /** Width of the column, px — the budget the main chart gives up. Wide enough
  *  that a session of 5-minute bars is read rather than squinted at. */

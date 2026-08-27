@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from ..domain.scanner import SCAN_CODES
+from ..domain.scanner import SCAN_CODES, SCANNER_TIERS
 from ..domain.timeframes import Timeframe
 from ..services.container import AppContainer, get_container
+from ..services.scanner import UNAVAILABLE_NOTE
 
 router = APIRouter(prefix="/api")
 
@@ -55,14 +56,15 @@ async def session() -> dict:
     }
 
 
-@router.get("/scanner/config")
-async def scanner_config() -> dict:
-    container = _container()
-    state = container.scanner.state
+@router.get("/scanner/tiers")
+async def scanner_tiers() -> dict:
+    """Static, shared scanner metadata — the four tiers and the scan codes
+    they can run. Each tier's live config/rows/running state arrives instead
+    over the WebSocket's opening frames moments after connect, so it is not
+    duplicated here where it could drift out of sync.
+    """
     return {
         "scan_codes": [dict(entry) for entry in SCAN_CODES],
-        "config": state.config.to_dict(),
-        "running": state.running,
-        "available": container.scanner.available,
-        "note": container.scanner.note(),
+        "tiers": [{"id": tier["id"], "label": tier["label"]} for tier in SCANNER_TIERS],
+        "note": UNAVAILABLE_NOTE,
     }

@@ -21,8 +21,19 @@
 #
 # VWAP used to sit in the neutral family and was indistinguishable from the
 # key levels beside it — measured at dE 10.8 light and 9.9 dark, where under
-# 15 reads as the same colour. Moving it to a bright blue takes that to 56.8
-# and 46.8. It is a benchmark price, not a level, and now looks like one.
+# 15 reads as the same colour. It is a benchmark price, not a level, and has
+# carried a hue of its own since.
+#
+# That hue was a bright blue, which fixed the levels and broke the EMAs: the
+# fast EMA is blue too, and the pair measured dE 14.5 against the dark surface
+# — under the 15 floor, so two of the four lines on the chart read as the same
+# colour to anyone with full colour vision. VWAP is magenta now, which is the
+# one direction nothing else on this chart occupies: it clears the EMA blue at
+# dE 27/28 (light/dark), the violet and amber confluence bands at 20/20, the
+# neutral levels at 25/25 and the candle bodies at 17/22, with protan/deutan
+# separation of 12 or better on every one of those pairs. The bright blue also
+# sat below 3:1 against the light surface and outside the dark lightness band;
+# these steps clear both.
 
 #
 # Every key level is one solid neutral line. They used to be tiered by weight
@@ -46,8 +57,8 @@
 # Key levels set last_value: true, so each is labelled on the price axis and
 # identity never rests on colour alone. The moving averages and VWAP do not:
 # they move with price, so their tags crowd the axis around the last trade —
-# exactly where the levels that matter are read. Their colours are in the
-# sidebar.
+# exactly where the levels that matter are read. Their colours are named in
+# the legend over the top-left of the chart.
 #
 # 'level' values: sma:N | ema:N | high:N | low:N (N = daily bars), or one of
 # prev_{day,week,month}_{high,low,close}.
@@ -58,7 +69,9 @@ _anchors:
     1m: { enabled: true }
     5m: { enabled: true }
     15m: { enabled: true }
+    30m: { enabled: true }
     1h: { enabled: true }
+    4h: { enabled: true }
 
 indicators:
   # ── Moving averages ────────────────────────────────────────────────
@@ -80,7 +93,9 @@ indicators:
       1m: { enabled: true }
       5m: { enabled: true }
       15m: { enabled: true }
+      30m: { enabled: true }
       1h: { enabled: true }
+      4h: { enabled: true }
       1d: { enabled: true }
 
   - id: ema20
@@ -97,7 +112,9 @@ indicators:
       1m: { enabled: true }
       5m: { enabled: true }
       15m: { enabled: true }
+      30m: { enabled: true }
       1h: { enabled: true }
+      4h: { enabled: true }
       1d: { enabled: true }
 
   - id: ema45
@@ -114,7 +131,9 @@ indicators:
       1m: { enabled: true }
       5m: { enabled: true }
       15m: { enabled: true }
+      30m: { enabled: true }
       1h: { enabled: true }
+      4h: { enabled: true }
 
   - id: ema50
     type: ema
@@ -129,11 +148,29 @@ indicators:
       1d: { enabled: true }
 
   # ── Session benchmark ──────────────────────────────────────────────
+  # Windowed relative volume: today's 4am-to-here volume against the same
+  # window on prior sessions, off the 20-day minute base. Readout-only — a
+  # ratio has no business on a price pane; the top-panel strip reads it out
+  # per bar, 10-second charts included (stepping once a minute there).
+  - id: wrvol
+    type: wrvol
+    label: Windowed RVOL
+    color: '#898781'
+    group: session
+    timeframes:
+      10s: { enabled: true }
+      1m: { enabled: true }
+      5m: { enabled: true }
+      15m: { enabled: true }
+      30m: { enabled: true }
+      1h: { enabled: true }
+      4h: { enabled: true }
+
   - id: vwap
     type: vwap
     label: VWAP
-    color: '#00b7ff'
-    color_dark: '#38bdf8'
+    color: '#93126b'
+    color_dark: '#bc0b97'
     line_width: 1
     last_value: false
     group: session
@@ -511,19 +548,8 @@ indicators:
       1m: { enabled: true }
       5m: { enabled: true }
       15m: { enabled: true }
+      30m: { enabled: true }
       1h: { enabled: true }
+      4h: { enabled: true }
       1d: { enabled: true }
       1w: { enabled: true }
-
-  # MACD 12/26/9 on close, 1-minute only — deliberately: on the 10s chart it
-  # whipsaws, on the 5m it lags, and the settings stay at platform defaults
-  # so the crossovers land where every other trader sees them. Read as a
-  # red-light/green-light: histogram negative means the trend is exhausted.
-  - id: macd
-    type: macd
-    label: MACD 12·26·9
-    color: '#2a78d6'
-    color_dark: '#3987e5'
-    group: panes
-    timeframes:
-      1m: { enabled: true }

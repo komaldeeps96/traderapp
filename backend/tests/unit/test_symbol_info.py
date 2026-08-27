@@ -13,12 +13,12 @@ from app.services.tv import TVDataService
 from tests.conftest import make_bar, make_minute_series, ny_epoch
 
 
-def service_with(store: BarStore, stats: SymbolStats | None) -> SymbolInfoService:
+def service_with(store: BarStore, stats: SymbolStats | None, **deps) -> SymbolInfoService:
     tv = TVDataService(fetch=lambda q: {"totalCount": 0, "data": []})
     if stats is not None:
         stats.fetched_at = now_epoch()
         tv._stats_cache[stats.symbol] = stats
-    return SymbolInfoService(store, tv)
+    return SymbolInfoService(store, tv, **deps)
 
 
 def stats_for(symbol: str = "RUN") -> SymbolStats:
@@ -84,6 +84,120 @@ class TestBuild:
         assert info["float_shares"] == pytest.approx(5_000_000)
         assert info["day_volume"] == 0.0
         assert info["float_rotation"] is None
+
+
+class TestListingAge:
+    DAY = 86_400
+
+    def daily(self, store, first_days_ago: int) -> None:
+        start = now_epoch() - first_days_ago * self.DAY
+        bars = [make_bar(start + i * self.DAY, 10.0) for i in range(3)]
+        store.replace("RUN", Timeframe.D1, bars)
+
+    def test_a_young_history_reports_its_age(self, store):
+        self.daily(store, 23)
+        assert service_with(store, stats_for()).build("RUN")["listed_days"] == 23
+
+    def test_an_old_history_reports_nothing(self, store):
+        """Near the fetch window the age measures the fetch, not the listing."""
+        self.daily(store, 500)
+        assert service_with(store, stats_for()).build("RUN")["listed_days"] is None
+
+    def test_no_daily_history_reports_nothing(self, store):
+        assert service_with(store, stats_for()).build("RUN")["listed_days"] is None
+
+
+class TestBorrow:
+    def test_borrow_fields_ride_the_payload(self, store):
+        service = service_with(store, stats_for(), borrow=lambda s: (2.9, 1_500_000.0))
+        info = service.build("RUN")
+        assert (info["shortable"], info["shortable_shares"]) == (2.9, 1_500_000.0)
+
+    def test_without_a_lookup_the_fields_are_none(self, store):
+        info = service_with(store, stats_for()).build("RUN")
+        assert (info["shortable"], info["shortable_shares"]) == (None, None)
+
+    def test_a_symbol_the_lookup_has_not_seen_is_none(self, store):
+        service = service_with(store, stats_for(), borrow=lambda s: None)
+        info = service.build("RUN")
+        assert (info["shortable"], info["shortable_shares"]) == (None, None)
+
+
+class TestHaltState:
+    def test_defaults_to_calm_without_a_tracker(self, store):
+        info = service_with(store, stats_for()).build("RUN")
+        assert (info["halted"], info["halts_today"]) == (False, 0)
+
+    def test_rides_the_tracker(self, store):
+        info = service_with(store, stats_for(), halts=lambda s: (True, 3)).build("RUN")
+        assert (info["halted"], info["halts_today"]) == (True, 3)
+
+
+class TestReverseSplit:
+    class FakeSplits:
+        def __init__(self, split):
+            self._split = split
+
+        def peek(self, symbol):
+            return self._split
+
+    def test_absent_without_a_service(self, store):
+        info = service_with(store, stats_for()).build("RUN")
+        assert info["reverse_split_ratio"] is None
+        assert info["reverse_split_days"] is None
+
+    def test_ratio_and_recency_ride_the_payload(self, store):
+        from datetime import timedelta
+
+        from app.domain.sessions import ny_date
+        from app.services.corporate_actions import ReverseSplit
+
+        split = ReverseSplit(ratio=12.0, ex_date=ny_date(now_epoch()) - timedelta(days=45))
+        info = service_with(store, stats_for(), splits=self.FakeSplits(split)).build("RUN")
+        assert info["reverse_split_ratio"] == pytest.approx(12.0)
+        assert info["reverse_split_days"] == 45
+
+
+class TestYahooFloat:
+    class FakeYahoo:
+        def peek_float(self, symbol):
+            return 3_500_000.0
+
+    def test_absent_without_a_provider(self, store):
+        assert service_with(store, stats_for()).build("RUN")["yahoo_float"] is None
+
+    def test_rides_the_payload(self, store):
+        info = service_with(store, stats_for(), yahoo=self.FakeYahoo()).build("RUN")
+        assert info["yahoo_float"] == pytest.approx(3_500_000)
+
+
+class TestPullbackPayload:
+    def test_no_leg_means_null_fields(self, store):
+        flat = make_minute_series(ny_epoch(2024, 3, 5, 9, 30), [10.0] * 20)
+        store.replace("RUN", Timeframe.M1, flat)
+        info = service_with(store, stats_for()).build("RUN")
+        assert info["pullback_depth_pct"] is None
+        assert info["pullback_bars"] is None
+
+    def test_a_measured_pullback_rides_the_payload(self, store):
+        # A 10 -> 12 leg pulling back to 11.5. make_bar pads high/low by $1,
+        # so the peak high is 13.0, the trough low 9.0: leg 4.0, given back
+        # 13.0 - 11.5 = 1.5 -> 37.5%.
+        closes = [10.0, 11.0, 12.0, 11.7, 11.5]
+        store.replace("RUN", Timeframe.M1, make_minute_series(ny_epoch(2024, 3, 5, 9, 30), closes))
+        info = service_with(store, stats_for()).build("RUN")
+        assert info["pullback_depth_pct"] == pytest.approx(37.5)
+        assert info["pullback_bars"] == 2
+        assert info["pullback_leg_pct"] == pytest.approx(4.0 / 9.0 * 100.0)
+
+    def test_the_leg_does_not_straddle_the_overnight_gap(self, store):
+        # Yesterday closed at 20 after a run; today is flat at 10. The gap
+        # down is not a "pullback" from yesterday's high.
+        yesterday = make_minute_series(ny_epoch(2024, 3, 4, 15, 0), [18.0, 19.0, 20.0])
+        today = make_minute_series(ny_epoch(2024, 3, 5, 9, 30), [10.0] * 10)
+        store.replace("RUN", Timeframe.M1, yesterday + today)
+        info = service_with(store, stats_for()).build("RUN")
+        assert info["pullback_depth_pct"] is None
 
 
 class TestHaltBands:

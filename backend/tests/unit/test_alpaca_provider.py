@@ -24,6 +24,7 @@ from app.providers.alpaca import (
     _channels,
     _decode,
     _parse_bar,
+    _parse_status,
 )
 
 
@@ -39,9 +40,11 @@ class Recorder:
         self.trades: list[tuple[str, Trade]] = []
         self.bars: list[tuple[str, Timeframe, Bar]] = []
         self.status_changes = 0
+        self.halts: list[tuple[str, bool]] = []
         provider.on_trade(self._trade)
         provider.on_bar(self._bar)
         provider.on_status_change(self._status)
+        provider.on_halt(self._halt)
 
     async def _trade(self, symbol: str, trade: Trade) -> None:
         self.trades.append((symbol, trade))
@@ -51,6 +54,9 @@ class Recorder:
 
     async def _status(self) -> None:
         self.status_changes += 1
+
+    async def _halt(self, symbol: str, halted: bool) -> None:
+        self.halts.append((symbol, halted))
 
 
 class FakeSocket:
@@ -128,6 +134,55 @@ class TestChannels:
 
 
 # ── live frames ────────────────────────────────────────────────────────
+
+
+class TestParseStatus:
+    @pytest.mark.parametrize(
+        ("frame", "expected"),
+        [
+            ({"sc": "H", "sm": "Trading Halt"}, True),
+            ({"sc": "P", "sm": "Pause"}, True),
+            ({"sc": "V", "sm": "Volatility Trading Pause"}, True),
+            # The resume announcement contains the word "trading" too; the
+            # halt check must win on the halt message, not on this one.
+            ({"sc": "T", "sm": "Trading Resumption"}, False),
+            ({"sc": "", "sm": "Resume"}, False),
+            ({"sc": "Z", "sm": "Something New"}, None),
+            ({}, None),
+        ],
+    )
+    def test_reads_the_code_then_the_message(self, frame, expected):
+        assert _parse_status(frame) is expected
+
+
+class TestStatusFrames:
+    async def test_a_halt_frame_reaches_the_halt_handler(self):
+        provider = make_provider()
+        events = Recorder(provider)
+        await provider._handle_frame(
+            json.dumps([{"T": "s", "S": "FGI", "sc": "H", "sm": "Trading Halt", "rc": "LUDP"}])
+        )
+        assert events.halts == [("FGI", True)]
+
+    async def test_a_resume_frame_reaches_it_too(self):
+        provider = make_provider()
+        events = Recorder(provider)
+        await provider._handle_frame(
+            json.dumps([{"T": "s", "S": "FGI", "sc": "T", "sm": "Trading Resumption"}])
+        )
+        assert events.halts == [("FGI", False)]
+
+    async def test_an_unrecognised_status_is_dropped(self):
+        provider = make_provider()
+        events = Recorder(provider)
+        await provider._handle_frame(json.dumps([{"T": "s", "S": "FGI", "sc": "Z", "sm": "?"}]))
+        assert events.halts == []
+
+    async def test_a_status_without_a_symbol_is_dropped(self):
+        provider = make_provider()
+        events = Recorder(provider)
+        await provider._handle_frame(json.dumps([{"T": "s", "sc": "H", "sm": "Trading Halt"}]))
+        assert events.halts == []
 
 
 class TestHandleFrame:

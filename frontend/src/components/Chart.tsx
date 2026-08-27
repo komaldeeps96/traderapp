@@ -28,6 +28,7 @@ export function Chart() {
       // Read straight from storage: the store may not have hydrated yet, and
       // creating the chart with the wrong palette causes a visible flash.
       theme: loadTheme(),
+      zoomSlot: 'main',
       onCrosshairMove: (time) => {
         pendingRef.current = time;
         // The crosshair fires on every mouse move; collapsing to one update
@@ -112,5 +113,6 @@ function publishHover(time: number | null): void {
     bar,
     previousClose: engine.previousClose(time),
     values: engine.valuesAt(time),
+    sessionVolume: engine.sessionVolumeAt(time),
   });
 }

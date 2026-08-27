@@ -57,7 +57,9 @@ _BAR_SIZE = {
     Timeframe.M1: "1 min",
     Timeframe.M5: "5 mins",
     Timeframe.M15: "15 mins",
+    Timeframe.M30: "30 mins",
     Timeframe.H1: "1 hour",
+    Timeframe.H4: "4 hours",
     Timeframe.D1: "1 day",
     Timeframe.W1: "1 week",
 }
@@ -76,6 +78,16 @@ TRADE_WINDOW_5M = 300
 TRADE_BUFFER_MAX_AGE = 360
 
 ScannerHandler = Callable[[list[ScannerRow]], Awaitable[None]]
+
+# One market-data stream can serve every scanner tier that wants the
+# symbol. ib_async's own client-side ticker cache is keyed by contract hash
+# alone (wrapper.startTicker), and a second reqMktData call on a contract
+# already tracked *overwrites* the reqId a later cancelMktData would act on
+# — cancelling whichever tier subscribed most recently rather than the one
+# that asked to stop, and leaking the other's line on the TWS side forever.
+# Refcounting ownership here, rather than letting each tier open its own
+# line, is what keeps a symbol near a market-cap boundary — briefly visible
+# to two tiers at once — from tripping that.
 
 
 class _CancelAckFilter(logging.Filter):
@@ -100,6 +112,22 @@ def _import_ib():
     return IB, Stock, ScannerSubscription
 
 
+def _duration_string(span: int) -> str:
+    """TWS duration string for a window of ``span`` seconds.
+
+    Days stop being the right unit once a window runs to years: the daily
+    base now asks for four decades so that one Alpaca page comes back full,
+    and TWS rejects a duration of fourteen thousand days where it accepts
+    the same window written in years.
+    """
+    if span <= 86_400:
+        return f"{span} S"
+    days = max(1, span // 86_400)
+    if days <= 365:
+        return f"{days} D"
+    return f"{-(-days // 365)} Y"
+
+
 class IBKRProvider(MarketDataProvider):
     name = "ibkr"
 
@@ -121,17 +149,32 @@ class IBKRProvider(MarketDataProvider):
         self._connect_lock = asyncio.Lock()
         self._contracts: dict[str, object] = {}
         self._streams: dict[str, object] = {}
+        # Latest shortable reads per focused symbol, from generic tick 236 on
+        # the quote line: (tier, shares). Tier is IBKR's 0-3 magnitude —
+        # above 2.5 easy to borrow, 1.5-2.5 locate required, below 1.5 none.
+        self._borrow: dict[str, tuple[float | None, float | None]] = {}
+        # Last halt state emitted per symbol, so the halted tick — which
+        # rides every quote update — only fans out on a transition.
+        self._halt_state: dict[str, bool] = {}
         self._symbols: set[str] = set()
         self._pending: set[asyncio.Future] = set()
 
-        self._scanner_handlers: list[ScannerHandler] = []
-        self._scanner_data = None
-        self._scanner_config: ScannerConfig | None = None
-        self._scanner_last_emit = 0.0
-        self._scanner_started_at: float | None = None
+        # Keyed by scanner_id — one entry per concurrently-running tier.
+        self._scanner_handlers: dict[str, list[ScannerHandler]] = {}
+        self._scanner_data: dict[str, object] = {}
+        self._scanner_config: dict[str, ScannerConfig] = {}
+        self._scanner_last_emit: dict[str, float] = {}
+        self._scanner_started_at: dict[str, float | None] = {}
+        self._scanner_raw: dict[str, list] = {}
+        self._scanner_refresh_tasks: dict[str, asyncio.Task] = {}
+        # Two separately-constructed functools.partial objects are never
+        # `==`, so the exact callback each tier's updateEvent was given has
+        # to be kept around to detach it again symmetrically.
+        self._scanner_update_cbs: dict[str, Callable] = {}
+        # NOT keyed by scanner_id: one market-data line per symbol, shared
+        # across every tier that currently wants it. See the module-level
+        # comment by ScannerHandler for why.
         self._scanner_streams: dict[str, dict] = {}
-        self._scanner_raw: list = []
-        self._scanner_refresh_task: asyncio.Task | None = None
 
     # ── lifecycle ──────────────────────────────────────────────────────
 
@@ -164,7 +207,8 @@ class IBKRProvider(MarketDataProvider):
                 await self._reconnect_task
             self._reconnect_task = None
 
-        await self.stop_scanner()
+        for scanner_id in list(self._scanner_data):
+            await self.stop_scanner(scanner_id)
         if self._ib is not None:
             with contextlib.suppress(Exception):
                 self._ib.disconnectedEvent -= self._on_disconnected
@@ -293,7 +337,7 @@ class IBKRProvider(MarketDataProvider):
         chunk_limit = _MAX_REQUEST_SECONDS.get(timeframe)
 
         if chunk_limit is None or span <= chunk_limit:
-            duration = f"{span} S" if span <= 86_400 else f"{max(1, span // 86_400)} D"
+            duration = _duration_string(span)
             # An empty endDateTime means "now" to TWS and sidesteps clock
             # skew, but only when the caller actually wants now — a window
             # ending in the past (the 10s background slice) must say so, or
@@ -424,7 +468,9 @@ class IBKRProvider(MarketDataProvider):
             # quote for the bid/ask/spread readout.
             quote_ticker = None
             try:
-                quote_ticker = self._ib.reqMktData(contract, genericTickList="", snapshot=False)
+                # 236 = shortable: delivers the borrow tier (tick 46) and
+                # the locate pool size (tick 89) on the same line.
+                quote_ticker = self._ib.reqMktData(contract, genericTickList="236", snapshot=False)
                 quote_ticker.updateEvent += functools.partial(self._on_quote, symbol)
             except Exception as exc:
                 logger.debug("IBKR quote subscription failed for %s: %s", symbol, exc)
@@ -438,6 +484,8 @@ class IBKRProvider(MarketDataProvider):
 
     def _cancel_stream(self, symbol: str) -> None:
         stream = self._streams.pop(symbol, None)
+        self._borrow.pop(symbol, None)
+        self._halt_state.pop(symbol, None)
         if not stream:
             return
         with contextlib.suppress(Exception):
@@ -448,7 +496,27 @@ class IBKRProvider(MarketDataProvider):
             with contextlib.suppress(Exception):
                 self._ib.cancelMktData(stream["contract"])
 
+    def borrow_status(self, symbol: str) -> tuple[float | None, float | None] | None:
+        """Latest (tier, shortable shares) for a streamed symbol, if seen."""
+        return self._borrow.get(symbol)
+
     def _on_quote(self, symbol: str, ticker) -> None:
+        # Borrow reads ride the same line but are not gated on a valid book —
+        # tick 236 lands whether or not the BBO is populated yet.
+        tier = _clean(getattr(ticker, "shortable", None))
+        shares = _clean(getattr(ticker, "shortableShares", None))
+        if tier is not None or shares is not None:
+            self._borrow[symbol] = (tier, shares)
+
+        # IBKR's halted magnitude: -1 unknown, 0 trading, 1 general halt,
+        # 2 volatility halt. Emitted only on a change of state.
+        halted_raw = _clean(getattr(ticker, "halted", None))
+        if halted_raw is not None and halted_raw >= 0:
+            is_halted = halted_raw >= 1
+            if self._halt_state.get(symbol) != is_halted:
+                self._halt_state[symbol] = is_halted
+                self._schedule(self._emit_halt(symbol, is_halted))
+
         bid = _clean(getattr(ticker, "bid", None))
         ask = _clean(getattr(ticker, "ask", None))
         if not bid or not ask or bid <= 0 or ask <= 0:
@@ -517,14 +585,14 @@ class IBKRProvider(MarketDataProvider):
 
     # ── scanner ────────────────────────────────────────────────────────
 
-    def on_scanner(self, handler: ScannerHandler) -> None:
-        self._scanner_handlers.append(handler)
+    def on_scanner(self, scanner_id: str, handler: ScannerHandler) -> None:
+        self._scanner_handlers.setdefault(scanner_id, []).append(handler)
 
-    async def start_scanner(self, config: ScannerConfig) -> bool:
+    async def start_scanner(self, scanner_id: str, config: ScannerConfig) -> bool:
         if not self.is_available or self._scanner_subscription_cls is None:
             return False
 
-        await self.stop_scanner()
+        await self.stop_scanner(scanner_id)
         subscription = self._scanner_subscription_cls(
             numberOfRows=config.number_of_rows,
             instrument=self._scanner_settings.instrument,
@@ -568,21 +636,28 @@ class IBKRProvider(MarketDataProvider):
 
         kwargs = {"scannerSubscriptionFilterOptions": filter_options} if filter_options else {}
         try:
-            self._scanner_last_emit = 0.0
-            self._scanner_data = self._ib.reqScannerSubscription(subscription, **kwargs)
-            self._scanner_data.updateEvent += self._on_scanner_update
+            self._scanner_last_emit[scanner_id] = 0.0
+            data = self._ib.reqScannerSubscription(subscription, **kwargs)
+            callback = functools.partial(self._on_scanner_update, scanner_id)
+            data.updateEvent += callback
+            self._scanner_data[scanner_id] = data
+            self._scanner_update_cbs[scanner_id] = callback
         except Exception as exc:
-            logger.warning("IBKR scanner failed to start: %s", exc)
-            self._scanner_data = None
+            logger.warning("IBKR scanner[%s] failed to start: %s", scanner_id, exc)
+            self._scanner_data.pop(scanner_id, None)
             return False
-        self._scanner_config = config
-        self._scanner_started_at = time.monotonic()
-        if self._scanner_refresh_task is None or self._scanner_refresh_task.done():
-            self._scanner_refresh_task = asyncio.create_task(self._scanner_refresh_loop())
+        self._scanner_config[scanner_id] = config
+        self._scanner_started_at[scanner_id] = time.monotonic()
+        task = self._scanner_refresh_tasks.get(scanner_id)
+        if task is None or task.done():
+            self._scanner_refresh_tasks[scanner_id] = asyncio.create_task(
+                self._scanner_refresh_loop(scanner_id)
+            )
 
         logger.info(
-            "IBKR scanner subscribed: %s (price %s-%s, vol>%s, mcap %s-%s, chg>%s, %d rows) "
+            "IBKR scanner[%s] subscribed: %s (price %s-%s, vol>%s, mcap %s-%s, chg>%s, %d rows) "
             "— waiting on first results",
+            scanner_id,
             config.scan_code,
             config.above_price,
             config.below_price,
@@ -594,34 +669,42 @@ class IBKRProvider(MarketDataProvider):
         )
         return True
 
-    async def stop_scanner(self) -> None:
-        if self._scanner_refresh_task is not None:
-            self._scanner_refresh_task.cancel()
+    async def stop_scanner(self, scanner_id: str) -> None:
+        task = self._scanner_refresh_tasks.pop(scanner_id, None)
+        if task is not None:
+            task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await self._scanner_refresh_task
-            self._scanner_refresh_task = None
-        if self._scanner_data is not None:
-            data, self._scanner_data = self._scanner_data, None
+                await task
+        data = self._scanner_data.pop(scanner_id, None)
+        callback = self._scanner_update_cbs.pop(scanner_id, None)
+        if data is not None:
             with contextlib.suppress(Exception):
-                data.updateEvent -= self._on_scanner_update
+                if callback is not None:
+                    data.updateEvent -= callback
                 self._ib.cancelScannerSubscription(data)
-        self._scanner_raw = []
-        for symbol in list(self._scanner_streams):
-            self._cancel_scanner_stream(symbol)
+        self._scanner_raw.pop(scanner_id, None)
+        owned = [
+            symbol
+            for symbol, stream in self._scanner_streams.items()
+            if scanner_id in stream["owners"]
+        ]
+        for symbol in owned:
+            self._release_scanner_stream(scanner_id, symbol)
 
-    def _on_scanner_update(self, rows) -> None:
+    def _on_scanner_update(self, scanner_id: str, rows) -> None:
         # IBKR pushes a fresh ranking only every ~30 seconds. The membership
         # is remembered here; emission is throttled, and the refresh loop
         # re-reads the live tickers in between so the columns never wait for
         # the next ranking to fill in.
-        self._scanner_raw = list(rows)
+        self._scanner_raw[scanner_id] = list(rows)
         now = time.monotonic()
-        if now - self._scanner_last_emit < self._scanner_settings.min_refresh_seconds:
+        last_emit = self._scanner_last_emit.get(scanner_id, 0.0)
+        if now - last_emit < self._scanner_settings.min_refresh_seconds:
             return
-        self._scanner_last_emit = now
-        self._schedule(self._process_scanner(self._scanner_raw))
+        self._scanner_last_emit[scanner_id] = now
+        self._schedule(self._process_scanner(scanner_id, self._scanner_raw[scanner_id]))
 
-    async def _scanner_refresh_loop(self) -> None:
+    async def _scanner_refresh_loop(self, scanner_id: str) -> None:
         """Re-read the per-row tickers between IBKR's ranking pushes.
 
         The scan decides membership roughly twice a minute; prices, rates
@@ -632,25 +715,37 @@ class IBKRProvider(MarketDataProvider):
         interval = self._scanner_settings.min_refresh_seconds
         while True:
             await asyncio.sleep(interval)
-            if not self._scanner_raw or self._scanner_data is None:
+            raw = self._scanner_raw.get(scanner_id)
+            if not raw or scanner_id not in self._scanner_data:
                 continue
             now = time.monotonic()
-            if now - self._scanner_last_emit < interval:
+            if now - self._scanner_last_emit.get(scanner_id, 0.0) < interval:
                 continue
-            self._scanner_last_emit = now
+            self._scanner_last_emit[scanner_id] = now
             try:
-                await self._process_scanner(self._scanner_raw)
+                await self._process_scanner(scanner_id, raw)
             except Exception:
-                logger.exception("scanner refresh failed")
+                logger.exception("scanner[%s] refresh failed", scanner_id)
 
-    async def _process_scanner(self, raw_rows: list) -> None:
-        self._sync_scanner_streams(raw_rows)
+    async def _process_scanner(self, scanner_id: str, raw_rows: list) -> None:
+        self._sync_scanner_streams(scanner_id, raw_rows)
         now = time.time()
         rows: list[ScannerRow] = []
+        seen: set[str] = set()
+        config = self._scanner_config.get(scanner_id)
+        threshold = config.change_perc_above if config else None
 
         for entry in raw_rows:
             contract = entry.contractDetails.contract
             symbol = contract.symbol
+            # A scan can return one symbol under two contracts. Everything
+            # downstream is keyed per symbol — the stream table above, the
+            # rank-velocity map, the frontend's table rows — and both entries
+            # read the same ticker anyway, so the second is the same row at a
+            # worse rank. Emitting it doubled symbols on the scanner panel.
+            if symbol in seen:
+                continue
+            seen.add(symbol)
             stream = self._scanner_streams.get(symbol)
             ticker = stream["ticker"] if stream else None
 
@@ -674,9 +769,6 @@ class IBKRProvider(MarketDataProvider):
 
             # Re-apply the percent filter: subscription filterOptions are
             # honoured inconsistently across scan codes.
-            threshold = (
-                self._scanner_config.change_perc_above if self._scanner_config else None
-            )
             if threshold is not None and pct_change is not None and pct_change < threshold:
                 continue
 
@@ -719,21 +811,27 @@ class IBKRProvider(MarketDataProvider):
         # the market-data line, which is unreliable in both directions.
         rows.sort(key=lambda row: (row.trades_1m, row.dollar_vol_1m), reverse=True)
 
-        if self._scanner_started_at is not None:
-            elapsed = time.monotonic() - self._scanner_started_at
-            self._scanner_started_at = None
+        started_at = self._scanner_started_at.get(scanner_id)
+        if started_at is not None:
+            elapsed = time.monotonic() - started_at
+            self._scanner_started_at[scanner_id] = None
             logger.info(
-                "IBKR scanner first results: %d rows, %.1fs after subscribe", len(rows), elapsed
+                "IBKR scanner[%s] first results: %d rows, %.1fs after subscribe",
+                scanner_id,
+                len(rows),
+                elapsed,
             )
 
-        for handler in self._scanner_handlers:
+        for handler in self._scanner_handlers.get(scanner_id, []):
             try:
                 await handler(rows)
             except Exception:
-                logger.exception("scanner handler failed")
+                logger.exception("scanner[%s] handler failed", scanner_id)
 
-    def _sync_scanner_streams(self, raw_rows: list) -> None:
-        """One market data line per visible row.
+    def _sync_scanner_streams(self, scanner_id: str, raw_rows: list) -> None:
+        """One market data line per visible row, shared across every tier
+        that currently wants the symbol (see the module comment by
+        ScannerHandler for why streams aren't one-per-tier).
 
         Rows that survive a refresh keep their trade buffer — that continuity
         is the whole point of a sliding window.
@@ -743,12 +841,18 @@ class IBKRProvider(MarketDataProvider):
             for entry in raw_rows
         }
 
-        for symbol in list(self._scanner_streams):
-            if symbol not in wanted:
-                self._cancel_scanner_stream(symbol)
+        owned = [
+            symbol
+            for symbol, stream in self._scanner_streams.items()
+            if scanner_id in stream["owners"] and symbol not in wanted
+        ]
+        for symbol in owned:
+            self._release_scanner_stream(scanner_id, symbol)
 
         for symbol, contract in wanted.items():
-            if symbol in self._scanner_streams:
+            stream = self._scanner_streams.get(symbol)
+            if stream is not None:
+                stream["owners"].add(scanner_id)
                 continue
             try:
                 # 233 = per-trade prints (RTVolume), 293 = day trade count,
@@ -765,6 +869,7 @@ class IBKRProvider(MarketDataProvider):
                 "contract": contract,
                 "ticker": ticker,
                 "trades": deque(),
+                "owners": {scanner_id},
             }
 
     def _on_scanner_tick(self, symbol: str, ticker) -> None:
@@ -783,10 +888,21 @@ class IBKRProvider(MarketDataProvider):
         while trades and trades[0][0] < cutoff:
             trades.popleft()
 
-    def _cancel_scanner_stream(self, symbol: str) -> None:
-        stream = self._scanner_streams.pop(symbol, None)
+    def _release_scanner_stream(self, scanner_id: str, symbol: str) -> None:
+        """Drop one tier's claim on a symbol's market-data line.
+
+        Only actually cancels once every owning tier has let go — the
+        refcounting that keeps a symbol straddling two tiers' market-cap
+        bands from each fighting the other over reqMktData/cancelMktData on
+        the same contract.
+        """
+        stream = self._scanner_streams.get(symbol)
         if stream is None:
             return
+        stream["owners"].discard(scanner_id)
+        if stream["owners"]:
+            return
+        del self._scanner_streams[symbol]
         # Shared line: keep it if the chart's quote readout still uses it.
         chart_stream = self._streams.get(symbol)
         if chart_stream is not None and chart_stream.get("quote_ticker") is not None:

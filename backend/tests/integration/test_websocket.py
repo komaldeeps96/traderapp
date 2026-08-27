@@ -12,10 +12,22 @@ class TestHandshake:
         with client.websocket_connect("/ws") as socket:
             assert socket.receive_json()["type"] == "status"
 
-    def test_then_sends_the_scanner_state(self, client):
+    def test_then_sends_one_scanner_frame_per_market_cap_tier(self, client):
         with client.websocket_connect("/ws") as socket:
-            socket.receive_json()
-            assert socket.receive_json()["type"] == "scanner"
+            socket.receive_json()  # status
+            frames = [socket.receive_json() for _ in range(4)]
+            assert all(frame["type"] == "scanner" for frame in frames)
+            assert {frame["scanner_id"] for frame in frames} == {
+                "small_cap",
+                "mid_cap",
+                "large_cap",
+                "mega_cap",
+            }
+            # Each carries its own filters — the current config, not just a
+            # frame count. Every scanner_id is distinct above, so any one
+            # tier's shape stands in for the rest.
+            config = frames[0]["config"]
+            assert {"scan_code", "above_price", "below_price", "above_volume"} <= set(config)
 
     def test_status_names_the_active_source(self, client):
         with client.websocket_connect("/ws") as socket:
@@ -286,17 +298,56 @@ class TestUnsubscribe:
 
 class TestScannerCommands:
     def test_refuses_to_configure_without_ibkr(self, ws):
-        ws.send_json({"action": "scanner.configure", "scan_code": "MOST_ACTIVE"})
+        ws.send_json(
+            {"action": "scanner.configure", "scanner_id": "small_cap", "scan_code": "MOST_ACTIVE"}
+        )
         assert "IBKR" in receive_until(ws, "error")["message"]
 
     def test_rejects_an_unknown_scan_code(self, ws):
-        ws.send_json({"action": "scanner.configure", "scan_code": "NONSENSE"})
+        ws.send_json(
+            {"action": "scanner.configure", "scanner_id": "small_cap", "scan_code": "NONSENSE"}
+        )
         assert "scan code" in receive_until(ws, "error")["message"].lower()
 
+    def test_rejects_an_unknown_scanner_id(self, ws):
+        ws.send_json({"action": "scanner.configure", "scanner_id": "nope", "scan_code": "MOST_ACTIVE"})
+        assert "nope" in receive_until(ws, "error")["message"]
+
+    def test_stop_also_rejects_an_unknown_scanner_id(self, ws):
+        ws.send_json({"action": "scanner.stop", "scanner_id": "nope"})
+        assert "nope" in receive_until(ws, "error")["message"]
+
     def test_rejects_an_inverted_price_range(self, ws):
-        ws.send_json({"action": "scanner.configure", "above_price": 50, "below_price": 5})
+        ws.send_json(
+            {
+                "action": "scanner.configure",
+                "scanner_id": "small_cap",
+                "above_price": 50,
+                "below_price": 5,
+            }
+        )
         assert "price" in receive_until(ws, "error")["message"].lower()
 
     def test_always_echoes_the_scanner_state(self, ws):
-        ws.send_json({"action": "scanner.configure", "scan_code": "MOST_ACTIVE"})
-        assert receive_until(ws, "scanner")["type"] == "scanner"
+        ws.send_json(
+            {"action": "scanner.configure", "scanner_id": "small_cap", "scan_code": "MOST_ACTIVE"}
+        )
+        echoed = receive_until(ws, "scanner", scanner_id="small_cap")
+        assert echoed["type"] == "scanner"
+
+    def test_filters_on_one_tier_do_not_disturb_another(self, ws):
+        """The whole point of four scanners: independent state per tier."""
+        ws.send_json(
+            {"action": "scanner.configure", "scanner_id": "small_cap", "scan_code": "MOST_ACTIVE"}
+        )
+        receive_until(ws, "scanner", scanner_id="small_cap")
+
+        ws.send_json({"action": "scanner.configure", "scanner_id": "mid_cap", "scan_code": "HALTED"})
+        mid = receive_until(ws, "scanner", scanner_id="mid_cap")
+        assert mid["config"]["scan_code"] == "HALTED"
+
+        # A no-op re-query of small_cap: still MOST_ACTIVE, unaffected by
+        # mid_cap's change moments ago.
+        ws.send_json({"action": "scanner.configure", "scanner_id": "small_cap"})
+        small = receive_until(ws, "scanner", scanner_id="small_cap")
+        assert small["config"]["scan_code"] == "MOST_ACTIVE"

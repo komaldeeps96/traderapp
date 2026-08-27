@@ -120,26 +120,50 @@ class TestOtherCommands:
 
     def test_parses_scanner_configure(self):
         command = parse_command(
-            {"action": "scanner.configure", "scan_code": "TOP_PERC_GAIN", "above_price": 2.5}
+            {
+                "action": "scanner.configure",
+                "scanner_id": "small_cap",
+                "scan_code": "TOP_PERC_GAIN",
+                "above_price": 2.5,
+            }
         )
+        assert command.scanner_id == "small_cap"
         assert command.scan_code == "TOP_PERC_GAIN"
         assert command.above_price == pytest.approx(2.5)
 
     def test_scanner_fields_are_optional(self):
-        assert parse_command({"action": "scanner.configure"}).scan_code is None
+        command = parse_command({"action": "scanner.configure", "scanner_id": "small_cap"})
+        assert command.scan_code is None
+
+    def test_scanner_id_is_required(self):
+        with pytest.raises(ValidationError):
+            parse_command({"action": "scanner.configure", "scan_code": "TOP_PERC_GAIN"})
 
     def test_rejects_a_negative_price(self):
         with pytest.raises(ValidationError):
-            parse_command({"action": "scanner.configure", "above_price": -1})
+            parse_command(
+                {"action": "scanner.configure", "scanner_id": "small_cap", "above_price": -1}
+            )
 
-    def test_rejects_an_absurd_row_count(self):
-        with pytest.raises(ValidationError):
-            parse_command({"action": "scanner.configure", "number_of_rows": 10_000})
+    def test_price_bounds_accept_the_clear_sentinel(self):
+        command = parse_command(
+            {
+                "action": "scanner.configure",
+                "scanner_id": "small_cap",
+                "above_price": "clear",
+                "below_price": "clear",
+            }
+        )
+        assert command.above_price == "clear"
+        assert command.below_price == "clear"
 
-    def test_rejects_more_than_fifteen_rows(self):
-        # Each row is a live market-data line; fifteen is the ceiling.
+    def test_parses_scanner_stop(self):
+        command = parse_command({"action": "scanner.stop", "scanner_id": "mid_cap"})
+        assert command.scanner_id == "mid_cap"
+
+    def test_scanner_stop_requires_an_id(self):
         with pytest.raises(ValidationError):
-            parse_command({"action": "scanner.configure", "number_of_rows": 16})
+            parse_command({"action": "scanner.stop"})
 
     @pytest.mark.parametrize("payload", [{}, {"action": "nope"}, [], "hello", 42, None])
     def test_rejects_malformed_payloads(self, payload):
@@ -206,8 +230,16 @@ class TestOutboundMessages:
         assert message["alpaca_available"] is True
 
     def test_scanner_message_shape(self):
-        message = scanner_message(rows=[{"symbol": "XYZ"}], config={"scan_code": "X"}, running=True)
+        message = scanner_message(
+            scanner_id="small_cap",
+            label="Small Cap",
+            rows=[{"symbol": "XYZ"}],
+            config={"scan_code": "X"},
+            running=True,
+        )
         assert message["type"] == "scanner" and message["running"] is True
+        assert message["scanner_id"] == "small_cap"
+        assert message["label"] == "Small Cap"
 
     def test_error_message_shape(self):
         message = error_message("no_data", "nothing here")

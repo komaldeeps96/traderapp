@@ -2,11 +2,15 @@ import { useEffect, useState, type FormEvent } from 'react';
 
 import { formatCompact, formatMoney, formatPercent, formatPrice } from '@/lib/format';
 import { useTerminalStore } from '@/store/useTerminalStore';
-import type { ClientCommand } from '@/types/protocol';
+import type { ClientCommand, ScannerConfig, ScannerTierId } from '@/types/protocol';
 
-type ScannerOverrides = Omit<Extract<ClientCommand, { action: 'scanner.configure' }>, 'action'>;
+type ScannerOverrides = Omit<
+  Extract<ClientCommand, { action: 'scanner.configure' }>,
+  'action' | 'scanner_id'
+>;
 
 interface ScannerPanelProps {
+  scannerId: ScannerTierId;
   onSelect: (symbol: string) => void;
   onConfigure: (config: ScannerOverrides) => void;
 }
@@ -15,14 +19,29 @@ const INPUT =
   'w-full rounded-sm border border-line bg-elevated px-1 py-0.5 text-[10px] text-ink outline-none focus:border-accent';
 
 /**
- * The IBKR trade-rate scanner.
+ * Prints per minute above which a row flashes green.
+ *
+ * A thousand a minute is about seventeen a second — a rate a name only
+ * reaches when something is actually happening to it, and well clear of the
+ * couple of hundred a busy-but-ordinary runner prints. The list is already
+ * ordered by this number, so the highlight is not saying where to look; it is
+ * saying the top of the list has crossed from busy into worth dropping what
+ * you are doing. The styling lives in index.css, under `.scanner-row-hot`.
+ */
+export const HOT_TRADE_RATE = 1000;
+
+/**
+ * One IBKR trade-rate scanner, filtered to a single market-cap tier.
  *
  * The edge it carries is the tape: trades-per-minute and dollar
  * volume over sliding windows, straight from live prints. IBKR-only, with no
- * fallback, so when TWS is absent the panel says so plainly.
+ * fallback, so when TWS is absent the panel says so plainly. Four of these
+ * run side by side — small/mid/large/mega cap — each with its own filters
+ * and persisted state; see App.tsx.
  */
-export function ScannerPanel({ onSelect, onConfigure }: ScannerPanelProps) {
-  const rows = useTerminalStore((state) => state.scannerRows);
+export function ScannerPanel({ scannerId, onSelect, onConfigure }: ScannerPanelProps) {
+  const tier = useTerminalStore((state) => state.scanners[scannerId]);
+  const { label, rows, config } = tier;
   // Availability tracks the LIVE connection state from status frames, not
   // the REST snapshot taken at page load — a page opened during a backend
   // restart would otherwise cache "unavailable" and disable the filters
@@ -33,29 +52,48 @@ export function ScannerPanel({ onSelect, onConfigure }: ScannerPanelProps) {
   const [showFilters, setShowFilters] = useState(false);
 
   return (
-    <section className="flex min-h-0 flex-col border-b border-line" data-testid="scanner">
+    // `shrink-0` is what makes a tier's depth mean anything. As a shrinkable
+    // flex child every panel got squeezed to roughly the same height whatever
+    // it was asked to show, so the deeper small-cap panel simply grew its own
+    // scrollbar and still showed five and a half names. Sized to its content
+    // instead, the column above it does the scrolling — see App.tsx.
+    <section
+      className="flex min-h-0 shrink-0 flex-col border-b border-line"
+      data-testid={`scanner-${scannerId}`}
+    >
       <div className="flex shrink-0 items-center gap-2 px-2 pb-1 pt-1.5">
-        <h2 className="text-[10px] font-bold uppercase tracking-wider text-ink-3">
-          Trade-rate scanner
-        </h2>
+        <h2 className="text-[10px] font-bold uppercase tracking-wider text-ink-3">{label}</h2>
         <button
           type="button"
           onClick={() => setShowFilters((v) => !v)}
           aria-expanded={showFilters}
-          data-testid="scanner-filter-toggle"
+          data-testid={`scanner-${scannerId}-filter-toggle`}
           className="ml-auto rounded-sm border border-line px-1 text-[9px] font-bold uppercase text-ink-3 hover:text-ink"
         >
           {showFilters ? 'Hide' : 'Filters'}
         </button>
-        <span className="tnum text-[9px] font-semibold text-ink-3" data-testid="scanner-count">
+        <span
+          className="tnum text-[9px] font-semibold text-ink-3"
+          data-testid={`scanner-${scannerId}-count`}
+        >
           {rows.length} rows
         </span>
       </div>
 
-      {showFilters && <ScannerFilters onConfigure={onConfigure} disabled={!available} />}
+      {showFilters && (
+        <ScannerFilters
+          scannerId={scannerId}
+          config={config}
+          onConfigure={onConfigure}
+          disabled={!available}
+        />
+      )}
 
       {!available ? (
-        <p className="px-2 py-2 text-[10px] leading-snug text-ink-3" data-testid="scanner-note">
+        <p
+          className="px-2 py-2 text-[10px] leading-snug text-ink-3"
+          data-testid={`scanner-${scannerId}-note`}
+        >
           {note ?? 'Market scanner is unavailable.'}
         </p>
       ) : (
@@ -90,48 +128,68 @@ export function ScannerPanel({ onSelect, onConfigure }: ScannerPanelProps) {
                   </td>
                 </tr>
               )}
-              {rows.map((row) => (
-                <tr
-                  key={row.symbol}
-                  data-testid={`scanner-row-${row.symbol}`}
-                  className={`cursor-pointer border-t border-line/60 hover:bg-elevated ${
-                    row.symbol === activeSymbol ? 'bg-accent/10' : ''
-                  }`}
-                  onClick={() => onSelect(row.symbol)}
-                >
-                  <th scope="row" className="py-0.5 pl-2 text-left text-[10px] font-bold text-ink">
-                    <button type="button" className="hover:text-accent">
-                      {row.symbol}
-                    </button>
-                    <RankMove delta={row.rank_delta} entered={row.entered} />
-                  </th>
-                  <td className="tnum py-0.5 pr-1 text-right font-mono text-[10px] text-ink-2">
-                    {formatPrice(row.price)}
-                  </td>
-                  <td
-                    className={`tnum py-0.5 pr-1 text-right font-mono text-[10px] font-semibold ${
-                      (row.pct_change ?? 0) >= 0 ? 'text-up' : 'text-down'
+              {rows.map((row) => {
+                const hot = row.trades_1m > HOT_TRADE_RATE;
+                const active = row.symbol === activeSymbol;
+                return (
+                  <tr
+                    key={row.symbol}
+                    data-testid={`scanner-${scannerId}-row-${row.symbol}`}
+                    data-hot={hot ? 'true' : undefined}
+                    className={`cursor-pointer border-t border-line/60 hover:bg-elevated ${
+                      hot ? 'scanner-row-hot' : active ? 'bg-accent/10' : ''
                     }`}
+                    onClick={() => onSelect(row.symbol)}
                   >
-                    {formatPercent(row.pct_change, 0)}
-                  </td>
-                  <td className="tnum py-0.5 pr-1 text-right font-mono text-[9px] text-ink-3">
-                    {formatCompact(row.volume, 1)}
-                  </td>
-                  <td className="tnum py-0.5 pr-1 text-right font-mono text-[9px] text-ink-3">
-                    {row.float_shares == null ? '·' : formatCompact(row.float_shares, 1)}
-                  </td>
-                  <td className="tnum py-0.5 pr-1 text-right font-mono text-[9px] text-ink-3">
-                    {row.market_cap == null ? '·' : formatMoney(row.market_cap)}
-                  </td>
-                  <td className="tnum py-0.5 pr-1 text-right font-mono text-[9px] text-ink-3">
-                    {formatCompact(row.trades_1m)}
-                  </td>
-                  <td className="tnum py-0.5 pr-2 text-right font-mono text-[9px] text-ink-3">
-                    {formatMoney(row.dollar_vol_1m)}
-                  </td>
-                </tr>
-              ))}
+                    {/* The bar, not a tint, is what marks the loaded symbol: a
+                        row can be both loaded and flashing, and the green wins
+                        the background. Transparent when it is neither, so the
+                        column never shifts by the two pixels. */}
+                    <th
+                      scope="row"
+                      className={`border-l-2 py-0.5 pl-1.5 text-left text-[10px] font-bold text-ink ${
+                        active ? 'border-l-accent' : 'border-l-transparent'
+                      }`}
+                    >
+                      <button type="button" className="hover:text-accent">
+                        {row.symbol}
+                      </button>
+                      <RankMove delta={row.rank_delta} entered={row.entered} />
+                    </th>
+                    <td className="tnum py-0.5 pr-1 text-right font-mono text-[10px] text-ink-2">
+                      {formatPrice(row.price)}
+                    </td>
+                    <td
+                      className={`tnum py-0.5 pr-1 text-right font-mono text-[10px] font-semibold ${
+                        (row.pct_change ?? 0) >= 0 ? 'text-up' : 'text-down'
+                      }`}
+                    >
+                      {formatPercent(row.pct_change, 0)}
+                    </td>
+                    <td className="tnum py-0.5 pr-1 text-right font-mono text-[9px] text-ink-3">
+                      {formatCompact(row.volume, 1)}
+                    </td>
+                    <td className="tnum py-0.5 pr-1 text-right font-mono text-[9px] text-ink-3">
+                      {row.float_shares == null ? '·' : formatCompact(row.float_shares, 1)}
+                    </td>
+                    <td className="tnum py-0.5 pr-1 text-right font-mono text-[9px] text-ink-3">
+                      {row.market_cap == null ? '·' : formatMoney(row.market_cap)}
+                    </td>
+                    {/* Emphasised on a flashing row so the reason for the
+                        flash is in the row, not just in the trader's head. */}
+                    <td
+                      className={`tnum py-0.5 pr-1 text-right font-mono text-[9px] ${
+                        hot ? 'font-bold text-up' : 'text-ink-3'
+                      }`}
+                    >
+                      {formatCompact(row.trades_1m)}
+                    </td>
+                    <td className="tnum py-0.5 pr-2 text-right font-mono text-[9px] text-ink-3">
+                      {formatMoney(row.dollar_vol_1m)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -141,13 +199,16 @@ export function ScannerPanel({ onSelect, onConfigure }: ScannerPanelProps) {
 }
 
 function ScannerFilters({
+  scannerId,
+  config,
   onConfigure,
   disabled,
 }: {
+  scannerId: ScannerTierId;
+  config: ScannerConfig | null;
   onConfigure: (config: ScannerOverrides) => void;
   disabled: boolean;
 }) {
-  const config = useTerminalStore((state) => state.scannerConfig);
   const scanCodes = useTerminalStore((state) => state.scanCodes);
   const [draft, setDraft] = useState({
     scan_code: 'TOP_TRADE_RATE',
@@ -184,8 +245,8 @@ function ScannerFilters({
     };
     onConfigure({
       scan_code: draft.scan_code,
-      above_price: num(draft.above_price),
-      below_price: num(draft.below_price),
+      above_price: num(draft.above_price) ?? 'clear',
+      below_price: num(draft.below_price) ?? 'clear',
       above_volume: num(draft.above_volume, 1e3),
       change_perc_above: num(draft.change_perc_above) ?? 'clear',
       market_cap_above: num(draft.market_cap_above, 1e6) ?? 'clear',
@@ -201,18 +262,22 @@ function ScannerFilters({
         inputMode="decimal"
         value={draft[key]}
         disabled={disabled}
-        data-testid={`scanner-${key}`}
+        data-testid={`scanner-${scannerId}-${key}`}
         onChange={(event) => setDraft((d) => ({ ...d, [key]: event.target.value }))}
       />
     </label>
   );
 
   return (
-    <form onSubmit={submit} className="flex shrink-0 flex-col gap-1 px-2 pb-1.5" data-testid="scanner-filters">
+    <form
+      onSubmit={submit}
+      className="flex shrink-0 flex-col gap-1 px-2 pb-1.5"
+      data-testid={`scanner-${scannerId}-filters`}
+    >
       <label className="flex flex-col gap-0.5">
         <span className="sr-only">Scan</span>
         <select
-          id="scan-code"
+          id={`scan-code-${scannerId}`}
           className={INPUT}
           value={draft.scan_code}
           disabled={disabled}
@@ -237,7 +302,7 @@ function ScannerFilters({
       <button
         type="submit"
         disabled={disabled}
-        data-testid="scanner-apply"
+        data-testid={`scanner-${scannerId}-apply`}
         className="rounded-sm bg-accent-solid py-0.5 text-[10px] font-semibold text-white disabled:opacity-40"
       >
         Apply

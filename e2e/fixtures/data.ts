@@ -26,6 +26,7 @@ export interface IndicatorSpec {
   color: string;
   color_dark: string;
   pane: 'price' | 'volume' | 'macd';
+  readout_only?: boolean;
   line_width: number;
   line_style: 'solid' | 'dashed' | 'dotted';
   price_line: boolean;
@@ -39,7 +40,9 @@ const INTRADAY = {
   '1m': { enabled: true },
   '5m': { enabled: true },
   '15m': { enabled: true },
+  '30m': { enabled: true },
   '1h': { enabled: true },
+  '4h': { enabled: true },
 };
 
 const ALL = { ...INTRADAY, '1d': { enabled: true }, '1w': { enabled: true } };
@@ -106,8 +109,15 @@ export const INDICATORS: IndicatorSpec[] = [
     last_value: false,
     timeframes: { ...INTRADAY, '10s': { enabled: true, label: 'EMA 270' } },
   }),
-  line('vwap', 'VWAP', 'session', '#00b7ff', '#38bdf8', {
+  line('vwap', 'VWAP', 'session', '#93126b', '#bc0b97', {
     type: 'vwap',
+    last_value: false,
+  }),
+  // Readout-only: streamed for the strip, never painted. Matches the real
+  // config's windowed RVOL.
+  line('wrvol', 'Windowed RVOL', 'session', '#898781', '#898781', {
+    type: 'daily_level',
+    readout_only: true,
     last_value: false,
   }),
   line('pm_high', 'PM High', 'key_levels', '#52514e', '#c3c2b7', {
@@ -171,12 +181,23 @@ export const SCAN_CODES = [
   { code: 'HOT_BY_VOLUME', label: 'Hot by Volume' },
 ];
 
+// Mirrors backend/app/domain/scanner.py's SCANNER_TIERS.
+export const SCANNER_TIERS = [
+  { id: 'small_cap', label: 'Small Cap' },
+  { id: 'mid_cap', label: 'Mid Cap' },
+  { id: 'large_cap', label: 'Large Cap' },
+  { id: 'mega_cap', label: 'Mega Cap' },
+] as const;
+export type ScannerTierId = (typeof SCANNER_TIERS)[number]['id'];
+
 export const TIMEFRAMES = [
   { value: '10s', label: '10S', intraday: true },
   { value: '1m', label: '1M', intraday: true },
   { value: '5m', label: '5M', intraday: true },
   { value: '15m', label: '15M', intraday: true },
+  { value: '30m', label: '30M', intraday: true },
   { value: '1h', label: '1H', intraday: true },
+  { value: '4h', label: '4H', intraday: true },
   { value: '1d', label: '1D', intraday: false },
   { value: '1w', label: '1W', intraday: false },
 ];
@@ -190,8 +211,12 @@ export function stepFor(timeframe: string): number {
       return 300;
     case '15m':
       return 900;
+    case '30m':
+      return 1800;
     case '1h':
       return 3600;
+    case '4h':
+      return 14_400;
     case '1d':
       return 86_400;
     case '1w':
@@ -327,6 +352,9 @@ export function makeSeries(bars: WireBar[], manyLevels = false): Record<string, 
     cumulativeVolume += bar.v;
     return [bar.t, round(cumulativePv / cumulativeVolume)] as SeriesPoint;
   });
+
+  // Windowed RVOL: a recognisable ramp, deterministic for assertions.
+  series.wrvol = bars.map((bar, i) => [bar.t, round(1 + i * 0.01)] as SeriesPoint);
 
   // MACD triple, only consumed when the timeframe carries the pane.
   const fast = ema(closes, 12);
@@ -480,9 +508,16 @@ export function makeScannerRows(count = 6) {
   });
 }
 
-export function makeScannerMessage(rows = makeScannerRows(), running = true) {
+export function makeScannerMessage(
+  scannerId: ScannerTierId,
+  rows = makeScannerRows(),
+  running = true,
+) {
+  const label = SCANNER_TIERS.find((tier) => tier.id === scannerId)?.label ?? scannerId;
   return {
     type: 'scanner' as const,
+    scanner_id: scannerId,
+    label,
     rows,
     config: {
       scan_code: 'TOP_TRADE_RATE',
@@ -492,7 +527,7 @@ export function makeScannerMessage(rows = makeScannerRows(), running = true) {
       market_cap_above: null,
       market_cap_below: null,
       change_perc_above: null,
-      number_of_rows: 15,
+      number_of_rows: 5,
     },
     running,
   };
@@ -521,6 +556,7 @@ export function makeInfo(symbol = 'AAPL', overrides: Partial<Record<string, unkn
     market_cap: 62_000_000,
     shares_outstanding: 12_000_000,
     avg_vol_10d: 1_900_000,
+    all_time_high: 22.0,
     description: 'Fixture Industries',
     exchange: 'NASDAQ',
     sector: 'Electronic Technology',
@@ -534,6 +570,18 @@ export function makeInfo(symbol = 'AAPL', overrides: Partial<Record<string, unkn
     halt_up: 11.0,
     halt_down: 9.0,
     halt_active: false,
+    listed_days: null,
+    shortable: 2.9,
+    shortable_shares: 1_500_000,
+    halted: false,
+    halts_today: 0,
+    reverse_split_ratio: null,
+    reverse_split_days: null,
+    yahoo_float: null,
+    pullback_depth_pct: null,
+    pullback_vol_ratio: null,
+    pullback_bars: null,
+    pullback_leg_pct: null,
     generated_at: SESSION_START + 240 * 10,
     ...overrides,
   };

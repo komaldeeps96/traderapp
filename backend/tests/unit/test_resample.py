@@ -28,9 +28,33 @@ class TestBucketStart:
         moment = ny_epoch(2024, 3, 5, 9, 44)
         assert bucket_start(moment, Timeframe.M15) == ny_epoch(2024, 3, 5, 9, 30)
 
+    def test_thirty_minute_buckets_align_to_the_half_hour(self):
+        moment = ny_epoch(2024, 3, 5, 9, 44)
+        assert bucket_start(moment, Timeframe.M30) == ny_epoch(2024, 3, 5, 9, 30)
+
     def test_hour_buckets_align_to_the_hour(self):
         moment = ny_epoch(2024, 3, 5, 10, 37)
         assert bucket_start(moment, Timeframe.H1) == ny_epoch(2024, 3, 5, 10, 0)
+
+    def test_four_hour_buckets_split_the_new_york_day(self):
+        # 08:00-12:00 holds the open; the pre-market gets 04:00-08:00 of its
+        # own rather than being folded in with it.
+        assert bucket_start(ny_epoch(2024, 3, 5, 10, 37), Timeframe.H4) == ny_epoch(
+            2024, 3, 5, 8, 0
+        )
+        assert bucket_start(ny_epoch(2024, 3, 5, 7, 59), Timeframe.H4) == ny_epoch(
+            2024, 3, 5, 4, 0
+        )
+        assert bucket_start(ny_epoch(2024, 3, 5, 15, 59), Timeframe.H4) == ny_epoch(
+            2024, 3, 5, 12, 0
+        )
+
+    def test_four_hour_buckets_hold_that_split_through_the_winter(self):
+        # The reason these are anchored to the local day: on UTC boundaries a
+        # four-hour bar opens at 04:00 New York in July and 03:00 in January,
+        # so the pre-market bar would move under the trader twice a year.
+        january = ny_epoch(2024, 1, 10, 10, 37)
+        assert bucket_start(january, Timeframe.H4) == ny_epoch(2024, 1, 10, 8, 0)
 
     def test_a_bar_on_the_boundary_opens_its_own_bucket(self):
         moment = ny_epoch(2024, 3, 5, 9, 30)

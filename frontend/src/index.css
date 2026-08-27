@@ -112,6 +112,35 @@ body {
   background: transparent;
 }
 
+/* A scanner row whose tape has gone vertical — see HOT_TRADE_RATE.
+ *
+ * The tint is what carries the meaning; the pulse only points at it. That is
+ * why both ends of the keyframe sit on the same quiet green: the reduced-
+ * motion rule below freezes the animation, and what it freezes on has to be
+ * a legible highlighted row rather than whichever half of a flash it landed
+ * in. The peak is kept shallow for the same reason the resting tint is — the
+ * 9px numbers in those cells still have to be read at a glance.
+ *
+ * Deliberately unlayered, so it outranks the row's `hover:` and active-symbol
+ * utilities: a name printing this hard should not stop looking urgent because
+ * the pointer happens to be resting on it. The active row keeps its own mark
+ * on the symbol cell instead, which survives the green.
+ */
+@keyframes scanner-row-hot {
+  0%,
+  100% {
+    background-color: color-mix(in srgb, var(--color-up) 14%, transparent);
+  }
+  50% {
+    background-color: color-mix(in srgb, var(--color-up) 30%, transparent);
+  }
+}
+
+.scanner-row-hot {
+  background-color: color-mix(in srgb, var(--color-up) 14%, transparent);
+  animation: scanner-row-hot 1.1s ease-in-out infinite;
+}
+
 /* The library's attribution logo; the chart is embedded, not white-labelled
    for redistribution. */
 #tv-attr-logo {

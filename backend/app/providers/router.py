@@ -68,6 +68,10 @@ class FeedRouter(MarketDataProvider):
             provider.on_quote(self._emit_quote)
             provider.on_bar(self._emit_bar)
             provider.on_status_change(self._on_provider_status)
+            # Halts fan through unrouted: both sources feed the same
+            # idempotent tracker, so a double report costs nothing and a
+            # single-source blind spot would.
+            provider.on_halt(self._emit_halt)
 
     # ── lifecycle ──────────────────────────────────────────────────────
 
@@ -101,6 +105,10 @@ class FeedRouter(MarketDataProvider):
         if source is DataSource.ALPACA:
             return self._alpaca.is_delayed
         return False
+
+    def borrow_status(self, symbol: str) -> tuple[float | None, float | None] | None:
+        """IBKR-only: shortable tier and locate pool for a streamed symbol."""
+        return self._ibkr.borrow_status(symbol)
 
     @property
     def ibkr_connected(self) -> bool:
@@ -302,6 +310,10 @@ class FeedRouter(MarketDataProvider):
             else:
                 await self._ibkr.set_stream_symbols(set())
                 await self._alpaca.set_stream_symbols(set())
+
+            # Halt statuses follow the watched set regardless of who won the
+            # routing: a halt matters no matter where the bars come from.
+            await self._alpaca.set_status_symbols(self._symbols)
 
             if switched and self._symbols:
                 logger.info("Market data routed to %s", target.value)

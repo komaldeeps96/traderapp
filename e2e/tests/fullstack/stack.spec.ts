@@ -100,6 +100,30 @@ test.describe('end to end', () => {
     expect(quarters).toBeGreaterThan(0);
   });
 
+  test('opens four-hour bars on the New York clock', async ({ terminal }) => {
+    // 4h is the one timeframe whose bars do not fall out of epoch division,
+    // so this is the end-to-end proof that the backend anchors them to the
+    // local day: every bar opens at 00:00, 04:00, 08:00, 12:00, 16:00 or
+    // 20:00 New York, which is what puts the pre-market, the open and the
+    // close each in a bar of their own.
+    await terminal.selectTimeframe('4h');
+    await expect.poll(async () => (await terminal.chartState()).timeframe).toBe('4h');
+
+    const state = await terminal.chartState();
+    expect(state.barCount).toBeGreaterThan(0);
+
+    const opened = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour12: false,
+      hour: 'numeric',
+      minute: 'numeric',
+    }).format(new Date(state.lastBar!.t * 1000));
+    const [hour, minute] = opened.split(':').map(Number);
+
+    expect(minute).toBe(0);
+    expect((hour ?? 0) % 4).toBe(0);
+  });
+
   test('serves a 10-second chart rebuilt from the trade tape', async ({ terminal }) => {
     // 10s is its own base timeframe: the backend aggregates the raw trades
     // endpoint rather than resampling minutes, so bars here prove that path.

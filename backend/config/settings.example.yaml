@@ -37,8 +37,12 @@ history:
   # hours from IBKR natively — the recent 4h up front, the older 4h as a
   # background backfill — with Alpaca's trade tape as the recent-slice
   # fallback when TWS is down.
-  intraday_days: 5
-  daily_years: 3
+  # 20 days: the windowed-RVOL denominator wants real prior sessions,
+  # not the handful a chart needs for display.
+  intraday_days: 20
+  # Daily history is one Alpaca request capped at 10k rows; 40 years is what
+  # fills that page, so asking for less only throws away levels.
+  daily_years: 40
 
 scanner:
   # The trade-rate scanner is IBKR-only; there is no Alpaca equivalent to

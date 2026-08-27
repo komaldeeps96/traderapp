@@ -8,7 +8,13 @@
 
 import { create } from 'zustand';
 
-import { loadVisibility, saveVisibility, type Theme } from '@/lib/storage';
+import {
+  loadMiniTimeframes,
+  loadVisibility,
+  saveMiniTimeframes,
+  saveVisibility,
+  type Theme,
+} from '@/lib/storage';
 import type {
   ApiUsageMessage,
   DataSource,
@@ -18,9 +24,26 @@ import type {
   QuoteMessage,
   ScannerConfig,
   ScannerRow,
+  ScannerTierId,
   Timeframe,
   WireBar,
 } from '@/types/protocol';
+import { SCANNER_TIER_IDS, SCANNER_TIER_LABELS } from '@/types/protocol';
+
+export interface ScannerTierState {
+  label: string;
+  rows: ScannerRow[];
+  config: ScannerConfig | null;
+  running: boolean;
+}
+
+function emptyScanners(): Record<ScannerTierId, ScannerTierState> {
+  const scanners = {} as Record<ScannerTierId, ScannerTierState>;
+  for (const id of SCANNER_TIER_IDS) {
+    scanners[id] = { label: SCANNER_TIER_LABELS[id], rows: [], config: null, running: false };
+  }
+  return scanners;
+}
 
 export type ChartStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -29,6 +52,8 @@ export interface Readout {
   /** Close of the preceding bar, for the bar-over-bar change. */
   previousClose: number | null;
   values: Record<string, number>;
+  /** Cumulative session volume as of this bar, from the chart's bars. */
+  sessionVolume: number | null;
 }
 
 interface TerminalState {
@@ -63,11 +88,11 @@ interface TerminalState {
   specs: IndicatorSpec[];
   visibility: Record<string, boolean>;
 
-  // scanner
-  scannerRows: ScannerRow[];
-  scannerConfig: ScannerConfig | null;
-  scannerRunning: boolean;
-  scannerAvailable: boolean;
+  // scanner — one entry per market-cap tier, each independently filtered
+  // and persisted (see ScannerPanel/backend ScannerService).
+  scanners: Record<ScannerTierId, ScannerTierState>;
+  /** The timeframe each mini-chart slot shows. */
+  miniTimeframes: Timeframe[];
   scannerNote: string | null;
   scanCodes: Array<{ code: string; label: string }>;
 
@@ -95,12 +120,14 @@ interface TerminalState {
   setError: (message: string) => void;
   toggleIndicator: (id: string) => void;
   setAllIndicators: (ids: string[], visible: boolean) => void;
-  setScanner: (payload: { rows: ScannerRow[]; config: ScannerConfig; running: boolean }) => void;
-  setScannerMeta: (payload: {
-    available: boolean;
+  setMiniTimeframe: (slot: number, timeframe: Timeframe) => void;
+  setScanner: (
+    scannerId: ScannerTierId,
+    payload: { label: string; rows: ScannerRow[]; config: ScannerConfig; running: boolean },
+  ) => void;
+  setScannerTiers: (payload: {
     note: string | null;
     scanCodes: Array<{ code: string; label: string }>;
-    config?: ScannerConfig;
   }) => void;
   setQuote: (quote: QuoteMessage) => void;
   setInfo: (info: InfoMessage) => void;
@@ -137,10 +164,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   specs: [],
   visibility: {},
 
-  scannerRows: [],
-  scannerConfig: null,
-  scannerRunning: false,
-  scannerAvailable: false,
+  scanners: emptyScanners(),
+  miniTimeframes: loadMiniTimeframes(),
   scannerNote: null,
   scanCodes: [],
 
@@ -212,16 +237,35 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set({ visibility: next });
   },
 
-  setScanner: ({ rows, config, running }) =>
-    set({ scannerRows: rows, scannerConfig: config, scannerRunning: running }),
+  setMiniTimeframe: (slot, timeframe) => {
+    const next = [...get().miniTimeframes];
+    if (slot < 0 || slot >= next.length) return;
+    next[slot] = timeframe;
+    saveMiniTimeframes(next);
+    set({ miniTimeframes: next });
+  },
 
-  setScannerMeta: ({ available, note, scanCodes, config }) =>
+  setScanner: (scannerId, { label, rows, config, running }) => {
+    // One row per symbol, first (best-ranked) occurrence wins. The table keys
+    // its rows by symbol, and React's reconciliation of duplicate keys leaves
+    // orphaned DOM rows that outlive their data — the panel filled with stale
+    // copies when a scan once returned a symbol under two contracts. The
+    // backend dedupes too; this makes the render safe against any feed.
+    const seen = new Set<string>();
+    const unique = rows.filter((row) => {
+      if (seen.has(row.symbol)) return false;
+      seen.add(row.symbol);
+      return true;
+    });
     set((state) => ({
-      scannerAvailable: available,
-      scannerNote: note,
-      scanCodes,
-      scannerConfig: config ?? state.scannerConfig,
-    })),
+      scanners: {
+        ...state.scanners,
+        [scannerId]: { label, rows: unique, config, running },
+      },
+    }));
+  },
+
+  setScannerTiers: ({ note, scanCodes }) => set({ scannerNote: note, scanCodes }),
 
   setQuote: (quote) => set({ quote }),
 

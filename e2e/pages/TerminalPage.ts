@@ -8,6 +8,8 @@
 
 import { expect, type Locator, type Page } from '@playwright/test';
 
+import type { ScannerTierId } from '../fixtures/data';
+
 export interface ChartState {
   barCount: number;
   lastBar: { t: number; o: number; h: number; l: number; c: number; v: number; n: number } | null;
@@ -17,6 +19,17 @@ export interface ChartState {
   subPaneOffset: number;
   /** Shaded confluence zones — canvas-painted, so unreachable from the DOM. */
   bands: Array<{ low: number; high: number; color: string }>;
+  /** The measure tool — also canvas-painted. */
+  measure: {
+    active: boolean;
+    selection: {
+      bars: number;
+      priceDelta: number;
+      percent: number;
+      volume: number;
+      direction: 'up' | 'down';
+    } | null;
+  };
   seriesIds: string[];
   pointCounts: Record<string, number>;
   visible: Record<string, boolean>;
@@ -27,6 +40,8 @@ export interface ChartState {
   hasVolumePane: boolean;
   hasMacdPane: boolean;
   dollarLineCount: number;
+  /** The ATH price line, canvas-painted like the dollar grid. */
+  athLine: number | null;
   /** Key levels that stood down from the axis for the price label. */
   axisYieldedToPrice: string[];
   /** Bar countdown on the price axis; painted, so invisible to the DOM. */
@@ -94,16 +109,17 @@ export class TerminalPage {
     return this.page.getByTestId('price-marker');
   }
 
-  get scanner(): Locator {
-    return this.page.getByTestId('scanner');
+  /** One of the four market-cap-tiered scanner panels — 'small_cap' by default. */
+  scannerPanel(tierId: ScannerTierId = 'small_cap'): Locator {
+    return this.page.getByTestId(`scanner-${tierId}`);
   }
 
-  get scannerNote(): Locator {
-    return this.page.getByTestId('scanner-note');
+  scannerNote(tierId: ScannerTierId = 'small_cap'): Locator {
+    return this.page.getByTestId(`scanner-${tierId}-note`);
   }
 
-  get scannerRows(): Locator {
-    return this.page.locator('[data-testid^="scanner-row-"]');
+  scannerRows(tierId: ScannerTierId = 'small_cap'): Locator {
+    return this.page.locator(`[data-testid^="scanner-${tierId}-row-"]`);
   }
 
   get themeToggle(): Locator {
@@ -126,7 +142,7 @@ export class TerminalPage {
     return this.page.getByTestId('mini-charts');
   }
 
-  miniChart(timeframe: '1m' | '5m'): Locator {
+  miniChart(timeframe: string): Locator {
     return this.page.getByTestId(`mini-chart-${timeframe}`);
   }
 
@@ -245,7 +261,7 @@ export class TerminalPage {
   }
 
   /** What a mini chart actually drew. Null when the column is not rendered. */
-  miniChartState(timeframe: '1m' | '5m'): Promise<ChartState | null> {
+  miniChartState(timeframe: string): Promise<ChartState | null> {
     return this.page.evaluate(
       (tf) => window.__traderapp!.miniChart(tf) as ChartState | null,
       timeframe,
@@ -276,7 +292,7 @@ declare global {
   interface Window {
     __traderapp?: {
       chart: () => unknown;
-      miniChart: (timeframe: '1m' | '5m') => unknown;
+      miniChart: (timeframe: string) => unknown;
       state: () => unknown;
       ready: () => boolean;
     };

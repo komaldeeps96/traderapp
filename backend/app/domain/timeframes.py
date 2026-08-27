@@ -20,7 +20,9 @@ class Timeframe(str, Enum):
     M1 = "1m"
     M5 = "5m"
     M15 = "15m"
+    M30 = "30m"
     H1 = "1h"
+    H4 = "4h"
     D1 = "1d"
     W1 = "1w"
 
@@ -73,13 +75,23 @@ _SECONDS: dict[Timeframe, int] = {
     Timeframe.M1: 60,
     Timeframe.M5: 5 * 60,
     Timeframe.M15: 15 * 60,
+    Timeframe.M30: 30 * 60,
     Timeframe.H1: 60 * 60,
+    Timeframe.H4: 4 * 60 * 60,
     Timeframe.D1: 24 * 60 * 60,
     Timeframe.W1: 7 * 24 * 60 * 60,
 }
 
 _INTRADAY = frozenset(
-    {Timeframe.S10, Timeframe.M1, Timeframe.M5, Timeframe.M15, Timeframe.H1}
+    {
+        Timeframe.S10,
+        Timeframe.M1,
+        Timeframe.M5,
+        Timeframe.M15,
+        Timeframe.M30,
+        Timeframe.H1,
+        Timeframe.H4,
+    }
 )
 
 ALL_TIMEFRAMES: tuple[Timeframe, ...] = tuple(Timeframe)

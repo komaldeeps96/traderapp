@@ -219,6 +219,107 @@ test.describe('chart navigation', () => {
     await expect.poll(rangeWidth(terminal)).toBeCloseTo(opened, 1);
   });
 
+  test('the zoom survives a reload', async ({ terminal }) => {
+    // The whole point of persisting it: restart the terminal, keep the width
+    // that was dialled in instead of reopening at the 240-bar default.
+    await terminal.waitForChart();
+    const opened = await rangeWidth(terminal)();
+    await terminal.chartControls.getByRole('button', { name: 'Zoom in' }).click();
+    await expect.poll(rangeWidth(terminal)).toBeLessThan(opened);
+    const zoomed = await rangeWidth(terminal)();
+
+    // The write is debounced behind the gesture, and the initial view reset
+    // writes the default width first — so wait for the zoomed width itself
+    // to land in storage, not merely for the key to exist.
+    await expect
+      .poll(() =>
+        terminal.page.evaluate(() => {
+          const raw = localStorage.getItem('traderapp.zoom');
+          return raw ? ((JSON.parse(raw) as Record<string, number>)['main:10s'] ?? null) : null;
+        }),
+      )
+      // Storage holds a bar count: one more than the logical range width.
+      .toBe(Math.round(zoomed + 1));
+
+    await terminal.page.reload();
+    await terminal.waitForChart();
+    await expect.poll(rangeWidth(terminal)).toBeCloseTo(zoomed, 0);
+  });
+
+  test('the Reset button returns to the default width, not the saved one', async ({
+    terminal,
+  }) => {
+    await terminal.waitForChart();
+    const opened = await rangeWidth(terminal)();
+    await terminal.chartControls.getByRole('button', { name: 'Zoom in' }).click();
+    await expect.poll(rangeWidth(terminal)).toBeLessThan(opened);
+
+    await terminal.chartControls.getByRole('button', { name: 'Reset view' }).click();
+    await expect.poll(rangeWidth(terminal)).toBeCloseTo(opened, 0);
+  });
+
+  test('the measure tool reads a dragged region and Escape puts the drag back', async ({
+    terminal,
+  }) => {
+    await terminal.waitForChart();
+    const canvas = terminal.page.getByTestId('chart-canvas');
+    const box = (await canvas.boundingBox())!;
+
+    await terminal.page.getByTestId('measure-toggle').click();
+    await expect(terminal.page.getByTestId('measure-toggle')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    // Drag across the middle of the price pane.
+    const y = box.y + box.height * 0.3;
+    await terminal.page.mouse.move(box.x + box.width * 0.3, y);
+    await terminal.page.mouse.down();
+    await terminal.page.mouse.move(box.x + box.width * 0.7, y, { steps: 5 });
+    await terminal.page.mouse.up();
+
+    const measure = async () => (await terminal.chartState()).measure;
+    await expect.poll(async () => (await measure()).selection?.bars ?? 0).toBeGreaterThan(0);
+    const selection = (await measure()).selection!;
+    expect(selection.volume).toBeGreaterThan(0);
+    expect(Math.abs(selection.percent)).toBeGreaterThanOrEqual(0);
+
+    // The selection survives releasing the mouse…
+    expect((await measure()).active).toBe(true);
+
+    // …and Escape ends the mode, clears the paint, and restores panning.
+    await terminal.page.keyboard.press('Escape');
+    await expect
+      .poll(async () => (await measure()).active)
+      .toBe(false);
+    expect((await measure()).selection).toBeNull();
+    await expect(terminal.page.getByTestId('measure-toggle')).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+
+  test('a symbol switch drops the measurement', async ({ terminal }) => {
+    await terminal.waitForChart();
+    const canvas = terminal.page.getByTestId('chart-canvas');
+    const box = (await canvas.boundingBox())!;
+
+    await terminal.page.getByTestId('measure-toggle').click();
+    const y = box.y + box.height * 0.4;
+    await terminal.page.mouse.move(box.x + box.width * 0.4, y);
+    await terminal.page.mouse.down();
+    await terminal.page.mouse.move(box.x + box.width * 0.6, y, { steps: 3 });
+    await terminal.page.mouse.up();
+    await expect
+      .poll(async () => (await terminal.chartState()).measure.selection?.bars ?? 0)
+      .toBeGreaterThan(0);
+
+    await terminal.setSymbol('TSLA');
+    await terminal.waitForChart();
+    await expect.poll(async () => (await terminal.chartState()).measure.active).toBe(false);
+    expect((await terminal.chartState()).measure.selection).toBeNull();
+  });
+
   test('scrolling moves the window without resizing it', async ({ terminal }) => {
     await terminal.waitForChart();
     const before = (await terminal.chartState()).visibleRange!;

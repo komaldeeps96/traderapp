@@ -38,11 +38,14 @@ import {
   hasCandleCountdown,
   isCandleClosing,
   secondsToCandleClose,
+  sessionVolumes,
 } from '@/lib/session';
+import { loadZoom, saveZoom } from '@/lib/storage';
 import type { LevelStyle } from '@/store/selectors';
 import { indicatorLabel, type IndicatorSpec, type SeriesMap, type Timeframe, type WireBar } from '@/types/protocol';
 
 import { ConfluenceBands, type PriceBand } from './bands';
+import { MeasureTool, measureStats, type MeasurePoint } from './measure';
 import { BarCountdown } from './countdown';
 import type { MiniConfig } from './mini';
 import { paletteFor, type ChartPalette, type ThemeName } from './theme';
@@ -64,18 +67,34 @@ const FONT_SIZE = { full: 11, mini: 9 } as const;
 const AXIS_LABEL_HEIGHT = (fontSize: number) => Math.round(fontSize * 1.7);
 // One scroll click, as a fraction of the visible width.
 const NAV_STEP = 0.1;
+// How long a zoom gesture has to settle before its width is persisted.
+const ZOOM_SAVE_DELAY_MS = 400;
 // Width multiplier for one zoom-in click; zooming out applies its
 // reciprocal, so the two are exact inverses.
 const ZOOM_FACTOR = 0.8;
 // Whole/half dollar gridlines cap out before they become wallpaper.
 const MAX_DOLLAR_LINES = 28;
-const INTRADAY_TIMEFRAMES: ReadonlySet<string> = new Set(['10s', '1m', '5m', '15m', '1h']);
+const INTRADAY_TIMEFRAMES: ReadonlySet<string> = new Set([
+  '10s',
+  '1m',
+  '5m',
+  '15m',
+  '30m',
+  '1h',
+  '4h',
+]);
 
 export interface ChartEngineOptions {
   container: HTMLElement;
   theme: ThemeName;
   onCrosshairMove?: (time: number | null) => void;
   onVisibleRangeChange?: () => void;
+  /**
+   * Persist the visible bar count under `{zoomSlot}:{timeframe}` and restore
+   * it whenever a snapshot resets the view, so a terminal restart keeps the
+   * zoom that was dialled in. Absent, the view always opens at the default.
+   */
+  zoomSlot?: string;
   /**
    * Run as a mini chart: only the listed indicators, no dollar gridlines, a
    * shorter volume pane and a tighter frame. See `chart/mini.ts`.
@@ -116,6 +135,8 @@ export class ChartEngine {
   private macdHist: ISeriesApi<'Histogram'> | null = null;
   private indicatorSeries = new Map<string, ISeriesApi<'Line'>>();
   private dollarLines: IPriceLine[] = [];
+  private athLine: IPriceLine | null = null;
+  private athPrice: number | null = null;
   private dollarRange: { low: number; high: number; step: number } | null = null;
 
   private bars: WireBar[] = [];
@@ -123,9 +144,17 @@ export class ChartEngine {
   private seriesValues = new Map<string, Map<number, number>>();
   private specs: IndicatorSpec[] = [];
   private timeframe: Timeframe = '10s';
+  private zoomSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Specs streamed for the readout strip but never painted. */
+  private readoutIds = new Set<string>();
+  /** Session-cumulative volume per bar; null until asked for, dropped on any bar change. */
+  private sessionVolCache: number[] | null = null;
   private theme: ThemeName;
   private palette: ChartPalette;
   private readonly bands = new ConfluenceBands();
+  private readonly measure = new MeasureTool();
+  private measureMode = false;
+  private measureAnchor: MeasurePoint | null = null;
   private levelStyles: Record<string, LevelStyle> = {};
   /** Levels currently giving up their axis label to the price. */
   private readonly crowded = new Set<string>();
@@ -179,6 +208,7 @@ export class ChartEngine {
     // Zones ride on the candle series so they share its price scale, and
     // paint underneath it — context behind price, never over it.
     this.candles.attachPrimitive(this.bands);
+    this.candles.attachPrimitive(this.measure);
     // Rides the same series so it shares the price scale the last-value label
     // is drawn on, which is what lets it sit directly underneath.
     this.candles.attachPrimitive(this.countdown);
@@ -196,9 +226,10 @@ export class ChartEngine {
       this.options.onCrosshairMove?.(time);
     });
 
-    if (options.onVisibleRangeChange) {
+    if (options.onVisibleRangeChange || options.zoomSlot) {
       this.chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
         options.onVisibleRangeChange?.();
+        this.persistZoomSoon();
       });
     }
 
@@ -281,6 +312,9 @@ export class ChartEngine {
     this.resizeObserver = null;
     if (this.countdownTimer !== null) clearInterval(this.countdownTimer);
     this.countdownTimer = null;
+    if (this.zoomSaveTimer !== null) clearTimeout(this.zoomSaveTimer);
+    this.zoomSaveTimer = null;
+    this.setMeasureMode(false);
     this.indicatorSeries.clear();
     this.seriesValues.clear();
     this.chart.remove();
@@ -388,6 +422,7 @@ export class ChartEngine {
     this.timeframe = input.timeframe;
     this.bars = input.bars;
     this.barIndex = new Map(input.bars.map((bar, index) => [bar.t, index]));
+    this.sessionVolCache = null;
 
     // Timeframe-dependent formatters have to be reapplied before data lands,
     // or the axis briefly labels 1-minute bars as dates.
@@ -403,7 +438,10 @@ export class ChartEngine {
     this.tickCountdown();
 
     if (input.resetView) {
-      this.resetView();
+      // A measurement is a statement about one symbol on one timeframe;
+      // carried across a switch it would be quietly wrong.
+      this.measure.clear();
+      this.resetView(this.savedZoom());
     } else if (keepLogical) {
       const shift = anchorTime !== undefined ? (this.barIndex.get(anchorTime) ?? 0) : 0;
       this.timeScale.setVisibleLogicalRange({
@@ -522,6 +560,7 @@ export class ChartEngine {
   clear(): void {
     this.bars = [];
     this.barIndex.clear();
+    this.setAllTimeHigh(null);
     this.countdown.set(null);
     this.seriesValues.clear();
     for (const line of this.dollarLines) this.candles.removePriceLine(line);
@@ -545,6 +584,7 @@ export class ChartEngine {
     } else {
       this.bars[existingIndex] = bar;
     }
+    this.sessionVolCache = null;
 
     const time = bar.t as UTCTimestamp;
     this.candles.update({ time, open: bar.o, high: bar.h, low: bar.l, close: bar.c });
@@ -561,7 +601,10 @@ export class ChartEngine {
         continue;
       }
       const series = this.indicatorSeries.get(id);
-      if (!series) continue;
+      if (!series) {
+        if (this.readoutIds.has(id)) this.rememberValue(id, bar.t, value);
+        continue;
+      }
       series.update({ time, value });
       this.rememberValue(id, bar.t, value);
     }
@@ -617,6 +660,9 @@ export class ChartEngine {
       chartSeries.setData(points.map(([time, value]) => ({ time: time as UTCTimestamp, value })));
       this.seriesValues.set(id, new Map(points));
     }
+    for (const id of this.readoutIds) {
+      this.seriesValues.set(id, new Map(series[id] ?? []));
+    }
     this.renderMacd(series);
   }
 
@@ -646,6 +692,36 @@ export class ChartEngine {
    * are drawn rather than inferred. The step widens with the range so a
    * high-priced or long-range chart never turns into wallpaper.
    */
+  /**
+   * Draw the all-time high as a labelled price line.
+   *
+   * A price line rather than a series: the value comes from TradingView as
+   * one number, not from our bars, and a price line neither expands the
+   * autoscale (an ATH ten times above price must not flatten the chart) nor
+   * needs data reconciliation. It simply appears when price gets near.
+   */
+  setAllTimeHigh(price: number | null): void {
+    if (price === this.athPrice) return;
+    this.athPrice = price;
+    if (this.athLine) {
+      this.candles.removePriceLine(this.athLine);
+      this.athLine = null;
+    }
+    if (price == null || price <= 0 || this.mini) return;
+    this.athLine = this.candles.createPriceLine({
+      price,
+      color: this.palette.down,
+      lineWidth: 1,
+      lineStyle: LineStyle.LargeDashed,
+      axisLabelVisible: true,
+      title: 'ATH',
+    });
+  }
+
+  athLevel(): number | null {
+    return this.athPrice;
+  }
+
   private renderDollarLines(): void {
     for (const line of this.dollarLines) this.candles.removePriceLine(line);
     this.dollarLines = [];
@@ -725,6 +801,14 @@ export class ChartEngine {
         .filter((spec) => this.include === null || this.include.has(spec.id))
         .map((spec) => [spec.id, spec]),
     );
+
+    // Readout-only specs get values recorded for the strip's lookups but no
+    // chart series — a volume ratio painted on a price pane would crawl
+    // along zero and drag the autoscale with it.
+    this.readoutIds = new Set(
+      [...wanted.values()].filter((spec) => spec.readout_only).map((spec) => spec.id),
+    );
+    for (const id of this.readoutIds) wanted.delete(id);
 
     for (const [id, series] of [...this.indicatorSeries]) {
       if (!wanted.has(id)) {
@@ -900,6 +984,14 @@ export class ChartEngine {
     return this.bars.at(-1) ?? null;
   }
 
+  /** The session's cumulative volume as of the bar at `time`. */
+  sessionVolumeAt(time: number): number | null {
+    const index = this.barIndex.get(time);
+    if (index === undefined) return null;
+    this.sessionVolCache ??= sessionVolumes(this.bars);
+    return this.sessionVolCache[index] ?? null;
+  }
+
   barAt(time: number): WireBar | null {
     const index = this.barIndex.get(time);
     return index === undefined ? null : (this.bars[index] ?? null);
@@ -1018,14 +1110,118 @@ export class ChartEngine {
     this.pan(NAV_STEP);
   }
 
-  resetView(): void {
+  /**
+   * Reframe to the latest bars. The Reset button calls this bare — reset
+   * means the default width — while a snapshot's view reset passes the
+   * persisted width back in, so a restart or symbol switch keeps the zoom.
+   */
+  resetView(visibleBars?: number): void {
     if (!this.bars.length) return;
-    const visible = this.mini?.visibleBars ?? DEFAULT_VISIBLE_BARS;
+    const visible = visibleBars ?? this.mini?.visibleBars ?? DEFAULT_VISIBLE_BARS;
     this.chart.priceScale('right').applyOptions({ autoScale: true });
     this.timeScale.setVisibleLogicalRange({
       from: Math.max(0, this.bars.length - visible),
       to: this.bars.length - 1,
     });
+  }
+
+  /**
+   * Toggle measure mode. While on, the drag gesture is borrowed from the
+   * chart — panning and wheel-zoom are suspended so a drag selects a region
+   * instead of scrolling one — and given back the moment the mode ends.
+   */
+  setMeasureMode(on: boolean): void {
+    if (this.measureMode === on) return;
+    this.measureMode = on;
+    this.chart.applyOptions({ handleScroll: !on, handleScale: !on });
+    this.options.container.style.cursor = on ? 'crosshair' : '';
+    if (on) {
+      this.options.container.addEventListener('pointerdown', this.onMeasureDown);
+      this.options.container.addEventListener('pointermove', this.onMeasureMove);
+      this.options.container.addEventListener('pointerup', this.onMeasureUp);
+    } else {
+      this.options.container.removeEventListener('pointerdown', this.onMeasureDown);
+      this.options.container.removeEventListener('pointermove', this.onMeasureMove);
+      this.options.container.removeEventListener('pointerup', this.onMeasureUp);
+      this.measureAnchor = null;
+      this.measure.clear();
+    }
+  }
+
+  isMeasuring(): boolean {
+    return this.measureMode;
+  }
+
+  private readonly onMeasureDown = (event: PointerEvent): void => {
+    const point = this.measurePoint(event);
+    if (!point) return;
+    this.measureAnchor = point;
+    this.measure.clear();
+    (event.target as Element | null)?.setPointerCapture?.(event.pointerId);
+  };
+
+  private readonly onMeasureMove = (event: PointerEvent): void => {
+    if (!this.measureAnchor) return;
+    const point = this.measurePoint(event);
+    if (!point) return;
+    this.measure.setSelection(
+      this.measureAnchor,
+      point,
+      measureStats(this.bars, this.timeframe, this.measureAnchor, point),
+    );
+  };
+
+  private readonly onMeasureUp = (): void => {
+    // The selection stays painted after release; the next drag replaces it.
+    this.measureAnchor = null;
+  };
+
+  /**
+   * The bar and price under the pointer. The bar index is snapped to a real
+   * bar — a measurement over whitespace counts bars that exist — while the
+   * price is left exactly where the pointer put it.
+   */
+  private measurePoint(event: PointerEvent): MeasurePoint | null {
+    if (!this.bars.length) return null;
+    const rect = this.options.container.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const logical = this.timeScale.coordinateToLogical(x);
+    const price = this.candles.coordinateToPrice(y);
+    if (logical === null || price === null) return null;
+    const index = Math.min(Math.max(Math.round(logical), 0), this.bars.length - 1);
+    const bar = this.bars[index];
+    if (!bar) return null;
+    return { index, time: bar.t, price };
+  }
+
+  private zoomKey(): string | null {
+    return this.options.zoomSlot ? `${this.options.zoomSlot}:${this.timeframe}` : null;
+  }
+
+  /** The saved width for the current slot and timeframe, if any. */
+  private savedZoom(): number | undefined {
+    const key = this.zoomKey();
+    return key ? (loadZoom(key) ?? undefined) : undefined;
+  }
+
+  /**
+   * Write the visible width back to storage, debounced: the range change
+   * fires on every wheel notch and drag frame, and localStorage writes are
+   * synchronous. One write after the gesture settles is plenty.
+   */
+  private persistZoomSoon(): void {
+    const key = this.zoomKey();
+    if (!key || !this.bars.length) return;
+    if (this.zoomSaveTimer !== null) clearTimeout(this.zoomSaveTimer);
+    this.zoomSaveTimer = setTimeout(() => {
+      this.zoomSaveTimer = null;
+      const range = this.timeScale.getVisibleLogicalRange();
+      // Stored as a bar COUNT, matching what resetView takes: a range from
+      // logical a to b shows b - a + 1 bars, and feeding the raw width back
+      // in would shave one bar off the view on every restore.
+      if (range) saveZoom(key, range.to - range.from + 1);
+    }, ZOOM_SAVE_DELAY_MS);
   }
 
   fitContent(): void {
@@ -1079,6 +1275,19 @@ export class ChartEngine {
         high: band.high,
         color: band.color,
       })),
+      // Painted on the canvas like the bands; this is the test surface.
+      measure: {
+        active: this.measureMode,
+        selection: this.measure.selection
+          ? {
+              bars: this.measure.selection.stats.bars,
+              priceDelta: this.measure.selection.stats.priceDelta,
+              percent: this.measure.selection.stats.percent,
+              volume: this.measure.selection.stats.volume,
+              direction: this.measure.selection.stats.direction,
+            }
+          : null,
+      },
       seriesIds: [...this.indicatorSeries.keys()].sort(),
       pointCounts: Object.fromEntries(
         [...this.seriesValues].map(([id, lookup]) => [id, lookup.size]),
@@ -1099,6 +1308,7 @@ export class ChartEngine {
       hasVolumePane: this.volume !== null,
       hasMacdPane: this.macdLine !== null,
       dollarLineCount: this.dollarLines.length,
+      athLine: this.athPrice,
       // Levels that have stood down from the axis so the price label and its
       // countdown are not shuffled off the price.
       axisYieldedToPrice: [...this.crowded].sort(),

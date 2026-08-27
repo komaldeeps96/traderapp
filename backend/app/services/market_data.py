@@ -28,7 +28,7 @@ from ..indicators.engine import IndicatorEngine, SeriesMap
 from ..indicators.functions import EMPTY_SESSION_LEVELS, SessionLevels, session_levels
 from ..indicators.levels import DailyLevelIndex
 from ..market.bar_builder import BarBuilder, Trade
-from ..market.resample import derive, resample
+from ..market.resample import bucket_start, derive, resample
 from ..market.store import BarStore
 from ..providers.router import FeedRouter
 
@@ -392,9 +392,59 @@ class MarketDataService:
         if cached and cached[0] == revision:
             return cached[1]
 
-        result = derive(self._store.get(symbol, timeframe.base), timeframe)
+        result = derive(self._base_bars(symbol, timeframe.base), timeframe)
         self._bars_cache[key] = (revision, result)
         return result
+
+    def _base_bars(self, symbol: str, base: Timeframe) -> list[Bar]:
+        """The stored base series, with the daily one carried up to now.
+
+        Only the daily base needs this. It is fetched and never streamed, so
+        its newest row is whatever the provider had published when the symbol
+        was loaded — on a runner the 1D and 1W charts would sit at that price
+        for the rest of the session while every other chart moved.
+
+        Folding today's minutes in fixes that, and puts the day's candle on
+        the same prices the intraday charts are drawn from: its close is the
+        newest minute's close, and its range the session's, rather than a
+        second story told beside them.
+
+        Derived on read rather than written back to the store: the daily bars
+        the key levels are built from must stay strictly historical, or a
+        level would repaint as today traded.
+        """
+        stored = self._store.get(symbol, base)
+        if base is not Timeframe.D1:
+            return stored
+
+        today = self._today_from_minutes(symbol)
+        if today is None:
+            return stored
+        if not stored:
+            return [today]
+        # A minute base whose newest bar predates the newest daily row has
+        # nothing to add — the weekend case, and the moment after a load
+        # whose minutes have not landed yet.
+        if stored[-1].time > today.time:
+            return stored
+        if stored[-1].time == today.time:
+            return [*stored[:-1], _widen(stored[-1], today)]
+        return [*stored, today]
+
+    def _today_from_minutes(self, symbol: str) -> Bar | None:
+        """The newest session's minute bars folded into one daily bar."""
+        minutes = self._store.get(symbol, Timeframe.M1)
+        if not minutes:
+            return None
+        # Integer comparisons against the day's opening stamp rather than a
+        # timezone lookup per bar: this runs once per revision, and a session
+        # of minutes is hundreds of bars.
+        start = bucket_start(minutes[-1].time, Timeframe.D1)
+        index = len(minutes)
+        while index > 0 and minutes[index - 1].time >= start:
+            index -= 1
+        folded = resample(minutes[index:], Timeframe.D1)
+        return folded[-1] if folded else None
 
     def series(self, symbol: str, timeframe: Timeframe) -> SeriesMap:
         revision = self.revision(symbol)
@@ -409,6 +459,7 @@ class MarketDataService:
             timeframe,
             level_index=self._level_index.get(symbol),
             session=self._session_levels(symbol, timeframe, bars),
+            minute_bars=self._store.get(symbol, Timeframe.M1),
         )
         self._series_cache[key] = (revision, result)
         return result
@@ -464,6 +515,7 @@ class MarketDataService:
                 timeframe,
                 self._level_index.get(symbol),
                 self._session_levels(symbol, timeframe, bars),
+                minute_bars=self._store.get(symbol, Timeframe.M1),
             ),
         )
 
@@ -472,8 +524,9 @@ class MarketDataService:
 
     # ── live data ──────────────────────────────────────────────────────
 
-    # Live trades extend both intraday bases in lockstep; daily stays a pure
-    # history product.
+    # Live trades extend both intraday bases in lockstep. The daily store
+    # stays a pure history product — today's candle is folded out of the
+    # minute base on read instead, see `_base_bars`.
     _LIVE_TIMEFRAMES = (Timeframe.S10, Timeframe.M1)
 
     async def _handle_trade(self, symbol: str, trade: Trade) -> None:
@@ -523,6 +576,37 @@ class MarketDataService:
 
     def _bump(self, symbol: str) -> None:
         self._revisions[symbol] = self._revisions.get(symbol, 0) + 1
+
+
+def _widen(stored: Bar, session: Bar) -> Bar:
+    """The fetched day's row extended by the session folded from minutes.
+
+    Extended, never narrowed. The minute base can have seen less of the day
+    than the provider's own row for it — a load that fell back to the 10s
+    tape reaches back hours, not to the pre-market open — so nothing here may
+    shrink a range that has already been published.
+
+    Volume takes whichever side counted more, which early in a session is
+    routinely the provider's: our minute base runs on the IBKR-derived
+    convention for the recent hours and so reads a few percent under the
+    consolidated tape, the same seam `_refresh_minutes_from_tensec` accepts.
+    Taking the larger keeps the day's bar on the published number until our
+    own count overtakes it, and never walks the volume backwards.
+
+    The close is the exception and the whole point of the exercise: it is the
+    newest price either side holds, which is the minute base's by
+    construction. The open stays the provider's, whose first print of the day
+    is the one the gap is measured from.
+    """
+    return Bar(
+        time=stored.time,
+        open=stored.open,
+        high=max(stored.high, session.high),
+        low=min(stored.low, session.low),
+        close=session.close,
+        volume=max(stored.volume, session.volume),
+        trades=max(stored.trades, session.trades),
+    )
 
 
 async def _empty() -> list[Bar]:

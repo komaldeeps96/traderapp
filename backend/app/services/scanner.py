@@ -9,12 +9,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 
 from ..core.settings import ScannerSettings
-from ..domain.scanner import VALID_SCAN_CODES, ScannerConfig, ScannerRow, ScannerState
+from ..domain.scanner import (
+    DEFAULT_SCANNER_ROWS,
+    SCANNER_TIER_BY_ID,
+    VALID_SCAN_CODES,
+    ScannerConfig,
+    ScannerRow,
+    ScannerState,
+)
 from ..providers.ibkr import IBKRProvider
 from .rank_velocity import RankTracker
+from .tv import STATS_TTL_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +33,17 @@ UNAVAILABLE_NOTE = "Market scanner requires a running IBKR TWS or Gateway connec
 
 
 class ScannerService:
-    def __init__(self, ibkr: IBKRProvider, settings: ScannerSettings, tv=None):
+    """One market-cap-tiered scanner. Four of these run concurrently — see
+    ``AppContainer.scanners`` — sharing one ``IBKRProvider`` but each with
+    its own IBKR subscription, filters and persisted state.
+    """
+
+    def __init__(self, ibkr: IBKRProvider, scanner_id: str, settings: ScannerSettings, tv=None):
         self._ibkr = ibkr
+        self.scanner_id = scanner_id
+        tier = SCANNER_TIER_BY_ID[scanner_id]
+        self.label = str(tier["label"])
+        self._rows = int(tier.get("rows") or DEFAULT_SCANNER_ROWS)
         self._settings = settings
         # TradingView is the only source for float and market cap. Optional so
         # the service still runs bare in tests.
@@ -42,17 +60,50 @@ class ScannerService:
                 above_price=settings.above_price,
                 below_price=settings.below_price,
                 above_volume=settings.above_volume,
-                market_cap_above=settings.market_cap_above,
-                market_cap_below=settings.market_cap_below,
+                market_cap_above=tier["market_cap_above"],
+                market_cap_below=tier["market_cap_below"],
                 change_perc_above=settings.change_perc_above,
-                number_of_rows=settings.number_of_rows,
+                number_of_rows=self._rows,
             )
         )
         self._ranks = RankTracker(settings.rank_window_seconds)
-        ibkr.on_scanner(self._on_rows)
+        ibkr.on_scanner(scanner_id, self._on_rows)
 
     def on_update(self, handler: UpdateHandler) -> None:
         self._handlers.append(handler)
+
+    def adopt_config(self, saved: dict) -> None:
+        """Restore persisted filters before the scan starts.
+
+        The file is user-writable and survives releases, so nothing in it is
+        trusted: unknown keys are dropped, wrongly-typed values are dropped,
+        and an unknown scan code rejects the lot. Called before ``start()``,
+        so the adopted filters are simply what the first scan runs with — no
+        restart dance.
+
+        The row count is pointedly not among them. It has no client command
+        and no UI control, so a value in the file can only be a copy of some
+        older default — and adopting it would let that stale copy pin the
+        tier back to it for good, silently, on every machine that had run the
+        terminal before the depth changed.
+        """
+        current = self._state.config.to_dict()
+        clean: dict = {}
+        for key, default in current.items():
+            if key == "number_of_rows" or key not in saved:
+                continue
+            value = saved[key]
+            if default is None or isinstance(default, int | float):
+                # Numeric or clearable filter: numbers stay, null clears.
+                if value is None or (isinstance(value, int | float) and not isinstance(value, bool)):
+                    clean[key] = value
+            elif isinstance(default, str) and isinstance(value, str):
+                clean[key] = value
+        candidate = ScannerConfig(**{**current, **clean})
+        if candidate.scan_code not in VALID_SCAN_CODES:
+            logger.warning("saved scanner config has unknown scan code; ignoring it")
+            return
+        self._state.config = candidate
 
     @property
     def state(self) -> ScannerState:
@@ -72,12 +123,12 @@ class ScannerService:
             self._state.running = False
             return False
 
-        started = await self._ibkr.start_scanner(self._state.config)
+        started = await self._ibkr.start_scanner(self.scanner_id, self._state.config)
         self._state.running = started
         return started
 
     async def stop(self) -> None:
-        await self._ibkr.stop_scanner()
+        await self._ibkr.stop_scanner(self.scanner_id)
         for task in list(self._warming):
             task.cancel()
         self._warming.clear()
@@ -128,7 +179,7 @@ class ScannerService:
             previous.to_dict(),
             candidate.to_dict(),
         )
-        started = await self._ibkr.start_scanner(candidate)
+        started = await self._ibkr.start_scanner(self.scanner_id, candidate)
         self._state.running = started
         if not started:
             await self._notify()
@@ -198,8 +249,23 @@ class ScannerService:
             stats = self._tv.peek_stats(row.symbol)
             if stats is not None:
                 row.float_shares = stats.float_shares
-                row.market_cap = stats.market_cap
-            elif row.symbol not in self._stats_pending:
+                # Market cap follows the tape: shares outstanding times the
+                # row's live price. TradingView's own figure is a cached
+                # snapshot — minutes stale on a list whose whole point is
+                # stocks moving double digits — so it is only the fallback
+                # when the share count is missing.
+                if stats.shares_outstanding and row.price:
+                    row.market_cap = stats.shares_outstanding * row.price
+                else:
+                    row.market_cap = stats.market_cap
+
+            # Warm on a miss, and REwarm once the cache goes stale: the
+            # share count behind the live market cap moves on offerings, and
+            # a stamped-once cache would carry the old count all day. The
+            # stale value keeps displaying while the refresh runs — never
+            # block the tape.
+            stale = stats is None or time.time() - stats.fetched_at > STATS_TTL_SECONDS
+            if stale and row.symbol not in self._stats_pending:
                 self._stats_pending.add(row.symbol)
                 task = asyncio.create_task(self._warm(row.symbol))
                 self._warming.add(task)

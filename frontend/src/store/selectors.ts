@@ -302,22 +302,53 @@ export function buildBands(clusters: LevelCluster[], theme: 'light' | 'dark'): P
 
 export interface OhlcvView {
   bar: WireBar;
+  /** This one candle's move: close against the previous bar's close. */
   barChange: Change | null;
   /** Change against the previous session's close — the gap, intraday. */
   sessionChange: Change | null;
   extendedHours: boolean;
+  /** Cumulative session volume as of this bar. */
+  sessionVolume: number | null;
+  /** The day's pace at this bar: session volume so far over the 10-day avg. */
+  rvolAtBar: number | null;
+  /** Time-matched RVOL: this window against the same window on prior days. */
+  windowRvol: number | null;
+  /** Float turns as of this bar: session volume so far over the float. */
+  rotationAtBar: number | null;
+  /** Distance from VWAP at this bar, % — the polarity read, at that moment. */
+  vwapDeltaPercent: number | null;
+  /** Market cap at this bar's close: shares outstanding × close. */
+  marketCapAtBar: number | null;
 }
 
-export function buildOhlcv(readout: Readout | null): OhlcvView | null {
+export function buildOhlcv(readout: Readout | null, info?: InfoMessage | null): OhlcvView | null {
   if (!readout) return null;
-  const { bar, previousClose, values } = readout;
+  const { bar, previousClose, values, sessionVolume } = readout;
   const prevDayClose = values['prev_day_close'];
+  const vwap = values['vwap'];
+  const avgVol = info?.avg_vol_10d;
+  const floatShares = info?.float_shares;
 
   return {
     bar,
     barChange: previousClose != null ? computeChange(bar.c, previousClose) : null,
     sessionChange: prevDayClose != null ? computeChange(bar.c, prevDayClose) : null,
     extendedHours: bar.x === 1,
+    sessionVolume: sessionVolume ?? null,
+    rvolAtBar:
+      sessionVolume != null && avgVol != null && avgVol > 0 ? sessionVolume / avgVol : null,
+    // Server-computed off the 20-day minute base and stamped per bar, so it
+    // exists on the 10-second chart too (stepping once a minute there).
+    windowRvol: values['wrvol'] ?? null,
+    rotationAtBar:
+      sessionVolume != null && floatShares != null && floatShares > 0
+        ? sessionVolume / floatShares
+        : null,
+    vwapDeltaPercent: vwap != null && vwap > 0 ? ((bar.c - vwap) / vwap) * 100 : null,
+    marketCapAtBar:
+      info?.shares_outstanding != null && info.shares_outstanding > 0
+        ? info.shares_outstanding * bar.c
+        : null,
   };
 }
 
@@ -412,9 +443,95 @@ export interface InfoView {
   /** Distance from the last price to each band, in dollars. */
   haltUpDistance: number | null;
   haltDownDistance: number | null;
+  /** Headroom to each band as a percentage of the last price. */
+  haltUpPercent: number | null;
+  haltDownPercent: number | null;
+  /** Days since listing, when young enough to matter. */
+  listedDays: number | null;
+  allTimeHigh: number | null;
+  /** Headroom to the all-time high, % of price; negative means blue sky. */
+  athDistancePercent: number | null;
+  borrow: BorrowStatus | null;
+  shortableShares: number | null;
+  /** Halted right now. */
+  halted: boolean;
+  haltsToday: number;
+  /** The latest reverse split: 10 means 1-for-10, `daysAgo` its recency. */
+  reverseSplit: { ratio: number; daysAgo: number } | null;
+  yahooFloat: number | null;
+  /** Divergence between the two float sources; null unless both answered. */
+  floatDisagreePercent: number | null;
+  pullback: PullbackView | null;
+  /** Float exceeding shares outstanding — stale or broken reference data. */
+  floatSuspect: boolean;
   description: string;
   exchange: string;
   sector: string;
+}
+
+/**
+ * IBKR's shortable magnitude, bucketed the way TWS colours it: above 2.5
+ * there is stock to borrow, 1.5–2.5 needs a locate, below 1.5 there is none.
+ */
+export type BorrowStatus = 'easy' | 'locate' | 'none';
+
+export function borrowStatus(shortable: number | null): BorrowStatus | null {
+  if (shortable == null) return null;
+  if (shortable > 2.5) return 'easy';
+  if (shortable >= 1.5) return 'locate';
+  return 'none';
+}
+
+/** Show the IPO badge for listings younger than this. */
+export const RECENT_IPO_DAYS = 90;
+
+/** Show the reverse-split badge inside this window — the diluter's year. */
+export const RECENT_SPLIT_DAYS = 365;
+
+/** Sources disagreeing on the float by at least this much get the badge. */
+export const FLOAT_DISAGREE_PERCENT = 25;
+
+/**
+ * How far the two float sources diverge, as a percentage of the smaller.
+ * Null unless both actually answered — one source is silence, not agreement.
+ */
+export function floatDisagreement(
+  tv: number | null,
+  yahoo: number | null,
+): number | null {
+  if (tv == null || yahoo == null || tv <= 0 || yahoo <= 0) return null;
+  return (Math.abs(tv - yahoo) / Math.min(tv, yahoo)) * 100;
+}
+
+// ── pullback quality ───────────────────────────────────────────────────
+
+export interface PullbackView {
+  depthPercent: number;
+  volumeRatio: number | null;
+  bars: number;
+  legPercent: number;
+  tone: PullbackTone;
+}
+
+/**
+ * The playbook's first-pullback judgment, from the raw measurements.
+ *
+ * `failed` past the 78.6% fib — the deepest retrace that still counts as
+ * holding; `stale` at ten minutes off the high — that is a downtrend with a
+ * story; `healthy` when the top half of the leg holds AND volume has dried
+ * to half the rally's pace; anything in between is merely `ok`.
+ */
+export type PullbackTone = 'healthy' | 'ok' | 'failed' | 'stale';
+
+export function pullbackTone(
+  depthPercent: number,
+  volumeRatio: number | null,
+  bars: number,
+): PullbackTone {
+  if (depthPercent >= 78.6) return 'failed';
+  if (bars >= 10) return 'stale';
+  if (depthPercent <= 50 && volumeRatio != null && volumeRatio <= 0.5) return 'healthy';
+  return 'ok';
 }
 
 export function buildInfoView(info: InfoMessage | null, lastPrice: number | null): InfoView | null {
@@ -425,6 +542,8 @@ export function buildInfoView(info: InfoMessage | null, lastPrice: number | null
       : null;
   return {
     floatShares: info.float_shares,
+    // The reference snapshot, deliberately static — its live counterpart
+    // ticks per bar in the session strip, the way RVOL and ROT pair up.
     marketCap: info.market_cap,
     dayVolume: info.day_volume,
     pmVolume: info.pm_volume,
@@ -441,6 +560,44 @@ export function buildInfoView(info: InfoMessage | null, lastPrice: number | null
       info.halt_up != null && lastPrice != null ? info.halt_up - lastPrice : null,
     haltDownDistance:
       info.halt_down != null && lastPrice != null ? lastPrice - info.halt_down : null,
+    haltUpPercent:
+      info.halt_up != null && lastPrice != null && lastPrice > 0
+        ? ((info.halt_up - lastPrice) / lastPrice) * 100
+        : null,
+    haltDownPercent:
+      info.halt_down != null && lastPrice != null && lastPrice > 0
+        ? ((lastPrice - info.halt_down) / lastPrice) * 100
+        : null,
+    listedDays: info.listed_days,
+    allTimeHigh: info.all_time_high,
+    athDistancePercent:
+      info.all_time_high != null && lastPrice != null && lastPrice > 0
+        ? ((info.all_time_high - lastPrice) / lastPrice) * 100
+        : null,
+    borrow: borrowStatus(info.shortable),
+    shortableShares: info.shortable_shares,
+    halted: info.halted,
+    haltsToday: info.halts_today,
+    reverseSplit:
+      info.reverse_split_ratio != null && info.reverse_split_days != null
+        ? { ratio: info.reverse_split_ratio, daysAgo: info.reverse_split_days }
+        : null,
+    yahooFloat: info.yahoo_float,
+    floatDisagreePercent: floatDisagreement(info.float_shares, info.yahoo_float),
+    pullback:
+      info.pullback_depth_pct != null && info.pullback_bars != null && info.pullback_leg_pct != null
+        ? {
+            depthPercent: info.pullback_depth_pct,
+            volumeRatio: info.pullback_vol_ratio,
+            bars: info.pullback_bars,
+            legPercent: info.pullback_leg_pct,
+            tone: pullbackTone(info.pullback_depth_pct, info.pullback_vol_ratio, info.pullback_bars),
+          }
+        : null,
+    floatSuspect:
+      info.float_shares != null &&
+      info.shares_outstanding != null &&
+      info.float_shares > info.shares_outstanding,
     description: info.description,
     exchange: info.exchange,
     sector: info.sector,
@@ -454,7 +611,10 @@ export function overlayIndicators(
 ): IndicatorSpec[] {
   return specs.filter(
     (spec) =>
-      spec.pane === 'price' && !isKeyLevel(spec) && spec.timeframes[timeframe] !== undefined,
+      spec.pane === 'price' &&
+      !spec.readout_only &&
+      !isKeyLevel(spec) &&
+      spec.timeframes[timeframe] !== undefined,
   );
 }
 
@@ -464,6 +624,7 @@ export function levelIndicators(specs: IndicatorSpec[], timeframe: string): Indi
 
 export function paneIndicators(specs: IndicatorSpec[], timeframe: string): IndicatorSpec[] {
   return specs.filter(
-    (spec) => spec.pane !== 'price' && spec.timeframes[timeframe] !== undefined,
+    (spec) =>
+      spec.pane !== 'price' && !spec.readout_only && spec.timeframes[timeframe] !== undefined,
   );
 }

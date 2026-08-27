@@ -67,11 +67,14 @@ const dateTimeWithSecondsFormat = new Intl.DateTimeFormat('en-US', {
  * 3%, so "0.37" hides the difference between a level and the price standing on
  * it.
  */
+/**
+ * Decimals follow the quoting tick, not taste. Reg NMS Rule 612: a cent at
+ * or above $1.00, sub-penny ($0.0001) only below it. So a $2.34 stock gets
+ * two decimals — a third would be a permanent trailing zero — and only the
+ * sub-dollar tape, where a whole cent is ~3% of price, earns four.
+ */
 export function priceDecimals(value: number): number {
-  const magnitude = Math.abs(value);
-  if (magnitude < 1) return 4;
-  if (magnitude < 10) return 3;
-  return 2;
+  return Math.abs(value) < 1 ? 4 : 2;
 }
 
 export function formatPrice(value: number | null | undefined, digits?: number): string {
@@ -133,8 +136,13 @@ export function formatRotation(value: number | null | undefined): string {
 /** A spread in dollars, shown in cents below one dollar: 4¢, 38¢, $1.25. */
 export function formatSpread(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
-  if (Math.abs(value) < 1) return `${(value * 100).toFixed(value < 0.1 ? 1 : 0)}¢`;
-  return `$${value.toFixed(2)}`;
+  if (Math.abs(value) >= 1) return `$${value.toFixed(2)}`;
+  // Cents, with just enough decimals for the size: sub-dollar names quote in
+  // hundredths of a cent, and flooring a real 0.04¢ spread to 0.0¢ reads as
+  // "free" when it is a third of a percent of the price.
+  const cents = value * 100;
+  const digits = Math.abs(cents) < 1 ? 2 : Math.abs(cents) < 10 ? 1 : 0;
+  return `${cents.toFixed(digits)}¢`;
 }
 
 /** Percentage distance from `from` to `to`, or null if it cannot be computed. */
@@ -161,8 +169,15 @@ export function computeChange(current: number, previous: number): Change | null 
   };
 }
 
-export function formatChange(change: Change | null): string {
+/**
+ * The dollar leg's precision follows the *price level*, not the delta: a
+ * $0.37 stock moves in hundredths of a cent, so two decimals would report a
+ * +0.0350 move as +0.04 — a 14% lie. Pass the price the change happened at;
+ * without one, cent precision is the safe floor.
+ */
+export function formatChange(change: Change | null, referencePrice?: number | null): string {
   if (!change) return '—';
   const sign = change.absolute >= 0 ? '+' : '';
-  return `${sign}${change.absolute.toFixed(2)} (${sign}${change.percent.toFixed(2)}%)`;
+  const digits = referencePrice != null ? priceDecimals(referencePrice) : 2;
+  return `${sign}${change.absolute.toFixed(digits)} (${sign}${change.percent.toFixed(2)}%)`;
 }

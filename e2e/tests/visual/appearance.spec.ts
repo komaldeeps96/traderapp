@@ -72,9 +72,14 @@ test.describe('appearance', () => {
 
   test('the sidebar', async ({ terminal }) => {
     // DOM-rendered, so this is the stricter of the two checks.
+    //
+    // Named rather than bare `complementary`: the mini-chart column is an
+    // aside too, so the bare role matches two elements and the comparison
+    // stopped running rather than failing loudly.
     await terminal.waitForChart();
     await terminal.moveMouseAway();
-    await expect(terminal.page.getByRole('complementary')).toHaveScreenshot('sidebar-dark.png', {
+    const sidebar = terminal.page.getByRole('complementary', { name: 'Market tools' });
+    await expect(sidebar).toHaveScreenshot('sidebar-dark.png', {
       maxDiffPixelRatio: 0.01,
       animations: 'disabled',
     });
@@ -107,11 +112,17 @@ test.describe('bar countdown', () => {
 
     // Measured off the chart rather than hardcoded, so the column widths
     // either side can change without silently cropping the wrong pixels.
+    //
+    // Cropped to the price axis and no wider. An earlier version reached 110px
+    // into the plot, and the candles in that strip land a pixel or two either
+    // way depending on what width the container reports on first paint — so
+    // the comparison failed on the bars rather than on its own subject, and
+    // the baseline was rewritten every few runs. The axis labels are stable.
     const box = (await terminal.chart.boundingBox())!;
     await expect(terminal.page).toHaveScreenshot('countdown-axis-dark.png', {
       animations: 'disabled',
       maxDiffPixelRatio: 0.01,
-      clip: { x: box.x + box.width - 110, y: box.y + 380, width: 110, height: 280 },
+      clip: { x: box.x + box.width - 56, y: box.y + 380, width: 56, height: 280 },
     });
   });
 });

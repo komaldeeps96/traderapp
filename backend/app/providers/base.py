@@ -24,6 +24,7 @@ TradeHandler = Callable[[str, Trade], Awaitable[None]]
 QuoteHandler = Callable[[str, Quote], Awaitable[None]]
 BarHandler = Callable[[str, Timeframe, Bar], Awaitable[None]]
 StatusHandler = Callable[[], Awaitable[None]]
+HaltHandler = Callable[[str, bool], Awaitable[None]]
 
 
 class ProviderError(RuntimeError):
@@ -40,6 +41,7 @@ class MarketDataProvider(ABC):
         self._quote_handlers: list[QuoteHandler] = []
         self._bar_handlers: list[BarHandler] = []
         self._status_handlers: list[StatusHandler] = []
+        self._halt_handlers: list[HaltHandler] = []
 
     # ── lifecycle ──────────────────────────────────────────────────────
 
@@ -90,6 +92,9 @@ class MarketDataProvider(ABC):
     def on_status_change(self, handler: StatusHandler) -> None:
         self._status_handlers.append(handler)
 
+    def on_halt(self, handler: HaltHandler) -> None:
+        self._halt_handlers.append(handler)
+
     async def _emit_trade(self, symbol: str, trade: Trade) -> None:
         for handler in self._trade_handlers:
             try:
@@ -110,6 +115,13 @@ class MarketDataProvider(ABC):
                 await handler(symbol, timeframe, bar)
             except Exception:
                 logger.exception("%s: bar handler failed", self.name)
+
+    async def _emit_halt(self, symbol: str, halted: bool) -> None:
+        for handler in self._halt_handlers:
+            try:
+                await handler(symbol, halted)
+            except Exception:
+                logger.exception("%s: halt handler failed", self.name)
 
     async def _emit_status(self) -> None:
         for handler in self._status_handlers:

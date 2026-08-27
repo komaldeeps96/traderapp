@@ -9,8 +9,8 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 
+import type { ChartEngine } from '@/chart/ChartEngine';
 import { getEngine, getMiniEngine, miniEngineEntries } from '@/chart/engineRef';
-import { isMiniTimeframe, MINI_TIMEFRAMES } from '@/chart/mini';
 import { api } from '@/lib/http';
 import { applyTheme, loadTheme, saveTheme, type Theme } from '@/lib/storage';
 import { createWsClient, type WsClient } from '@/lib/wsClient';
@@ -18,12 +18,16 @@ import { useTerminalStore } from '@/store/useTerminalStore';
 import type {
   BarMessage,
   ClientCommand,
+  ScannerTierId,
   ServerMessage,
   SnapshotMessage,
   Timeframe,
 } from '@/types/protocol';
 
-type ScannerOverrides = Omit<Extract<ClientCommand, { action: 'scanner.configure' }>, 'action'>;
+type ScannerOverrides = Omit<
+  Extract<ClientCommand, { action: 'scanner.configure' }>,
+  'action' | 'scanner_id'
+>;
 
 export function useTerminal() {
   const clientRef = useRef<WsClient | null>(null);
@@ -41,7 +45,16 @@ export function useTerminal() {
       for (const [, engine] of miniEngineEntries()) engine.clear();
     }
     useTerminalStore.getState().requestChart(normalised, timeframe);
-    clientRef.current?.subscribe(normalised, timeframe, MINI_TIMEFRAMES);
+    clientRef.current?.subscribe(normalised, timeframe, miniExtras());
+  }, []);
+
+  const setMiniTimeframe = useCallback((slot: number, timeframe: Timeframe) => {
+    useTerminalStore.getState().setMiniTimeframe(slot, timeframe);
+    // The slot's engine is rebuilt by React off the store change; the wire
+    // has to follow, or the fresh chart would wait forever for a timeframe
+    // nobody subscribed to.
+    const { symbol, timeframe: main } = useTerminalStore.getState();
+    if (symbol) clientRef.current?.subscribe(symbol, main, miniExtras());
   }, []);
 
   const setTimeframe = useCallback(
@@ -64,8 +77,8 @@ export function useTerminal() {
     for (const id of ids) engine?.setIndicatorVisible(id, visible);
   }, []);
 
-  const configureScanner = useCallback((overrides: ScannerOverrides) => {
-    clientRef.current?.configureScanner(overrides);
+  const configureScanner = useCallback((scannerId: ScannerTierId, overrides: ScannerOverrides) => {
+    clientRef.current?.configureScanner(scannerId, overrides);
   }, []);
 
   // The charts are not repainted here. Each one subscribes to the store's
@@ -92,14 +105,12 @@ export function useTerminal() {
       try {
         const [specs, scanner] = await Promise.all([
           api.indicators(controller.signal),
-          api.scannerConfig(controller.signal),
+          api.scannerTiers(controller.signal),
         ]);
         useTerminalStore.getState().setSpecs(specs);
-        useTerminalStore.getState().setScannerMeta({
-          available: scanner.available,
+        useTerminalStore.getState().setScannerTiers({
           note: scanner.note,
           scanCodes: scanner.scan_codes,
-          config: scanner.config,
         });
 
         const session = await api.session(controller.signal);
@@ -134,6 +145,7 @@ export function useTerminal() {
   return {
     subscribe,
     setTimeframe,
+    setMiniTimeframe,
     toggleIndicator,
     setIndicatorGroup,
     configureScanner,
@@ -187,6 +199,7 @@ export function handleMessage(message: ServerMessage): void {
               bar: last,
               previousClose: engine.previousClose(last.t),
               values: engine.latestValues(),
+              sessionVolume: engine.sessionVolumeAt(last.t),
             }
           : null,
       });
@@ -210,6 +223,7 @@ export function handleMessage(message: ServerMessage): void {
           bar: message.bar,
           previousClose: engine.previousClose(message.bar.t),
           values: message.series,
+          sessionVolume: engine.sessionVolumeAt(message.bar.t),
         },
         engine.barCount(),
       );
@@ -222,7 +236,10 @@ export function handleMessage(message: ServerMessage): void {
       break;
 
     case 'info':
-      if (message.symbol === store.symbol) store.setInfo(message);
+      if (message.symbol === store.symbol) {
+        store.setInfo(message);
+        getEngine()?.setAllTimeHigh(message.all_time_high);
+      }
       break;
 
     case 'api':
@@ -230,7 +247,12 @@ export function handleMessage(message: ServerMessage): void {
       break;
 
     case 'scanner':
-      store.setScanner({ rows: message.rows, config: message.config, running: message.running });
+      store.setScanner(message.scanner_id, {
+        label: message.label,
+        rows: message.rows,
+        config: message.config,
+        running: message.running,
+      });
       break;
 
     case 'regime':
@@ -255,23 +277,37 @@ function isCurrent(symbol: string, timeframe: string): boolean {
   return state.symbol === symbol && state.timeframe === timeframe;
 }
 
+/** The extra timeframes a subscribe carries: one per mini slot, deduped —
+ *  two slots on the same timeframe are one subscription on the wire. */
+function miniExtras(): Timeframe[] {
+  return [...new Set(useTerminalStore.getState().miniTimeframes)];
+}
+
 /**
- * The mini chart for a message, if one wants it.
+ * The mini charts a message feeds, possibly none.
  *
  * They follow the main chart's symbol and nothing else, so a message for a
  * symbol the user has navigated away from is dropped exactly as it is for the
- * main chart.
+ * main chart. Slots are matched by their chosen timeframe; two slots on the
+ * same timeframe both draw the one message.
  */
-function miniFor(symbol: string, timeframe: string) {
-  if (symbol !== useTerminalStore.getState().symbol) return null;
-  if (!isMiniTimeframe(timeframe)) return null;
-  return getMiniEngine(timeframe);
+function minisFor(symbol: string, timeframe: string): ChartEngine[] {
+  const state = useTerminalStore.getState();
+  if (symbol !== state.symbol) return [];
+  const engines: ChartEngine[] = [];
+  state.miniTimeframes.forEach((choice, slot) => {
+    if (choice !== timeframe) return;
+    const engine = getMiniEngine(slot);
+    if (engine) engines.push(engine);
+  });
+  return engines;
 }
 
 function applyMiniSnapshot(message: SnapshotMessage): void {
-  const engine = miniFor(message.symbol, message.timeframe);
-  if (!engine) return;
+  for (const engine of minisFor(message.symbol, message.timeframe)) applyToMini(engine, message);
+}
 
+function applyToMini(engine: ChartEngine, message: SnapshotMessage): void {
   engine.applySnapshot({
     bars: message.bars,
     series: message.series,
@@ -290,5 +326,7 @@ function applyMiniSnapshot(message: SnapshotMessage): void {
 }
 
 function applyMiniBar(message: BarMessage): void {
-  miniFor(message.symbol, message.timeframe)?.applyBar(message.bar, message.series);
+  for (const engine of minisFor(message.symbol, message.timeframe)) {
+    engine.applyBar(message.bar, message.series);
+  }
 }

@@ -30,6 +30,8 @@ from .functions import (
     sma,
     sma_last,
     to_series,
+    windowed_rvol,
+    windowed_rvol_last,
 )
 from .levels import DailyLevelIndex, LevelKey
 from .spec import IndicatorSpec, IndicatorType
@@ -69,6 +71,7 @@ class IndicatorEngine:
         daily_bars: list[Bar] | None = None,
         level_index: DailyLevelIndex | None = None,
         session: SessionLevels = EMPTY_SESSION_LEVELS,
+        minute_bars: list[Bar] | None = None,
     ) -> SeriesMap:
         """Compute every series active for ``timeframe``.
 
@@ -116,6 +119,12 @@ class IndicatorEngine:
                 # daily bars would just retrace the closes.
                 if timeframe.is_intraday:
                     series[spec.id] = to_series(bars, session_vwap(bars))
+
+            elif spec.type is IndicatorType.WRVOL:
+                # Read off the minute base, not the chart's own bars: a 10s
+                # window holds no prior session, and the 20-day base does.
+                if timeframe.is_intraday and minute_bars:
+                    series[spec.id] = to_series(bars, windowed_rvol(bars, minute_bars))
 
             elif spec.type is IndicatorType.MACD:
                 macd_line, signal_line, histogram = macd(
@@ -187,6 +196,7 @@ class IndicatorEngine:
         timeframe: Timeframe,
         level_index: DailyLevelIndex | None = None,
         session: SessionLevels = EMPTY_SESSION_LEVELS,
+        minute_bars: list[Bar] | None = None,
     ) -> dict[str, float]:
         """Just the current value of each indicator.
 
@@ -221,6 +231,10 @@ class IndicatorEngine:
             elif spec.type is IndicatorType.VWAP:
                 if timeframe.is_intraday:
                     value = session_vwap_last(bars)
+
+            elif spec.type is IndicatorType.WRVOL:
+                if timeframe.is_intraday and minute_bars:
+                    value = windowed_rvol_last(bars, minute_bars)
 
             elif spec.type is IndicatorType.MACD:
                 macd_value, signal_value, hist_value = macd_last(

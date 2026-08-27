@@ -55,12 +55,61 @@ export function sessionView(now: Date = new Date()): SessionView {
   return { session, phase, minutes, weekend };
 }
 
+/** The session a historical bar printed in. */
+export function sessionAt(epochSeconds: number): SessionName {
+  return sessionView(new Date(epochSeconds * 1000)).session;
+}
+
+/**
+ * Which New York trading day an epoch second belongs to.
+ *
+ * A fixed 4.5-hour offset instead of a real timezone lookup, on purpose: the
+ * tape only prints between 4:00 and 20:00 ET, and any offset between 4 and 5
+ * hours buckets every such timestamp identically under both EST and EDT. That
+ * makes the day boundary pure arithmetic — this runs once per bar over
+ * thousands of bars every time the session cache rebuilds.
+ */
+export function nyDayIndex(epochSeconds: number): number {
+  return Math.floor((epochSeconds - 16_200) / 86_400);
+}
+
+/**
+ * Cumulative volume through each bar, restarting at every New York day.
+ *
+ * `result[i]` is the session volume *as of* bar i — what the day had done by
+ * that moment, which is the honest way to read a historical setup. On daily
+ * and weekly bars every bar is its own "day", so the figure degrades to the
+ * bar's own volume.
+ */
+export function sessionVolumes(bars: readonly { t: number; v: number }[]): number[] {
+  const result: number[] = new Array(bars.length);
+  let day = Number.NaN;
+  let sum = 0;
+  for (let i = 0; i < bars.length; i += 1) {
+    const bar = bars[i]!;
+    const barDay = nyDayIndex(bar.t);
+    if (barDay !== day) {
+      day = barDay;
+      sum = 0;
+    }
+    sum += bar.v;
+    result[i] = sum;
+  }
+  return result;
+}
+
+export function timeframeSeconds(timeframe: Timeframe): number {
+  return TIMEFRAME_SECONDS[timeframe];
+}
+
 const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
   '10s': 10,
   '1m': 60,
   '5m': 300,
   '15m': 900,
+  '30m': 1800,
   '1h': 3600,
+  '4h': 14_400,
   '1d': 86_400,
   '1w': 604_800,
 };
@@ -73,7 +122,32 @@ const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
  */
 export function secondsToCandleClose(timeframe: Timeframe, epochSeconds: number): number {
   const size = TIMEFRAME_SECONDS[timeframe];
-  return size - (Math.floor(epochSeconds) % size);
+  const now = Math.floor(epochSeconds);
+  // Bars align to the New York wall clock (backend: market/resample.py). A
+  // size that divides an hour lands on the same boundaries either way — US
+  // offsets are whole hours — so it skips the timezone lookup. The 4-hour
+  // bar is the one that does not: counted off UTC it would close an hour
+  // early all winter, and the countdown would disagree with the candle.
+  if (3600 % size === 0) return size - (now % size);
+  const local = now + nyOffsetSeconds(now);
+  return size - (((local % size) + size) % size);
+}
+
+const NY_OFFSET = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  timeZoneName: 'longOffset',
+});
+
+/** New York's UTC offset at an instant, in seconds (negative, whole hours). */
+function nyOffsetSeconds(epochSeconds: number): number {
+  const name = NY_OFFSET.formatToParts(new Date(epochSeconds * 1000)).find(
+    (part) => part.type === 'timeZoneName',
+  )?.value;
+  const match = name ? /GMT([+-])(\d{2}):(\d{2})/.exec(name) : null;
+  // Standard time is the safe fallback: an engine without longOffset support
+  // would otherwise put the boundary an hour out for eight months of the year.
+  if (!match) return -5 * 3600;
+  return (match[1] === '-' ? -1 : 1) * (Number(match[2]) * 3600 + Number(match[3]) * 60);
 }
 
 /**
@@ -85,8 +159,14 @@ export function secondsToCandleClose(timeframe: Timeframe, epochSeconds: number)
  */
 export function formatCountdown(timeframe: Timeframe, remaining: number): string {
   if (TIMEFRAME_SECONDS[timeframe] < 60) return `${remaining}s`;
-  const minutes = Math.floor(remaining / 60);
   const seconds = remaining % 60;
+  const minutes = Math.floor(remaining / 60);
+  // Hours once there are hours to show: "239:14" is a 4-hour bar's countdown
+  // in minutes, and nobody reads that as "just under four hours".
+  if (remaining >= 3600) {
+    const hours = Math.floor(remaining / 3600);
+    return `${hours}:${String(minutes % 60).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 

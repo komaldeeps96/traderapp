@@ -1,3 +1,4 @@
+import { SCANNER_TIERS } from '../../fixtures/data';
 import { expect, test } from '../../fixtures/test';
 
 /**
@@ -14,7 +15,12 @@ test.describe('tablet layout', () => {
   test('keeps the sidebar usable', async ({ terminal }) => {
     await terminal.waitForChart();
     await expect(terminal.keyLevels).toBeVisible();
-    await expect(terminal.scanner).toBeVisible();
+    // All four market-cap tiers stay visible on a constrained viewport — the
+    // scanner column scrolls independently rather than hiding tiers behind
+    // a tab strip.
+    for (const tier of SCANNER_TIERS) {
+      await expect(terminal.scannerPanel(tier.id)).toBeVisible();
+    }
   });
 
   test('does not scroll the page sideways', async ({ terminal }) => {

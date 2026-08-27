@@ -41,6 +41,9 @@ _COLUMNS = [
     "premarket_close",
     "premarket_volume",
     "sector",
+    # Split-adjusted all-time high since listing — unreachable from our own
+    # bars, which only go back three years.
+    "High.All",
 ]
 _INDEX = {name: i for i, name in enumerate(_COLUMNS)}
 
@@ -158,6 +161,7 @@ class TVDataService:
             avg_vol_10d=_value(row, "average_volume_10d_calc"),
             premarket_volume=_value(row, "premarket_volume"),
             premarket_change=_value(row, "premarket_change"),
+            all_time_high=_value(row, "High.All"),
             fetched_at=time.time(),
         )
 

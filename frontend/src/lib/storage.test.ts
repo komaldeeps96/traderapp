@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { IndicatorSpec } from '@/types/protocol';
 
-import { defaultVisibility, loadTheme, loadVisibility, saveTheme, saveVisibility } from './storage';
+import {
+  defaultVisibility,
+  loadTheme,
+  loadVisibility,
+  loadZoom,
+  saveTheme,
+  saveVisibility,
+  saveZoom,
+} from './storage';
 
 function spec(id: string, timeframes: Record<string, { enabled: boolean }>): IndicatorSpec {
   return {
@@ -12,6 +20,7 @@ function spec(id: string, timeframes: Record<string, { enabled: boolean }>): Ind
     color: '#2a78d6',
     color_dark: '#3987e5',
     pane: 'price',
+    readout_only: false,
     line_width: 1,
     line_style: 'solid',
     price_line: false,
@@ -26,6 +35,41 @@ const SPECS = [
   spec('pm_high', { '1m': { enabled: true } }),
   spec('high_52w', { '1m': { enabled: false } }),
 ];
+
+describe('zoom persistence', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('is empty before anything was saved', () => {
+    expect(loadZoom('main:10s')).toBeNull();
+  });
+
+  it('round-trips a width per slot and timeframe', () => {
+    saveZoom('main:10s', 120);
+    saveZoom('mini:1m', 60);
+    expect(loadZoom('main:10s')).toBe(120);
+    expect(loadZoom('mini:1m')).toBe(60);
+    expect(loadZoom('main:1m')).toBeNull();
+  });
+
+  it('rounds fractional logical widths', () => {
+    saveZoom('main:10s', 119.6);
+    expect(loadZoom('main:10s')).toBe(120);
+  });
+
+  it('refuses to save or load an absurd width', () => {
+    saveZoom('main:10s', 2);
+    expect(loadZoom('main:10s')).toBeNull();
+    saveZoom('main:10s', 1_000_000);
+    expect(loadZoom('main:10s')).toBeNull();
+    localStorage.setItem('traderapp.zoom', JSON.stringify({ 'main:10s': 'wide' }));
+    expect(loadZoom('main:10s')).toBeNull();
+  });
+
+  it('falls back when storage holds junk', () => {
+    localStorage.setItem('traderapp.zoom', 'not json');
+    expect(loadZoom('main:10s')).toBeNull();
+  });
+});
 
 describe('defaultVisibility', () => {
   beforeEach(() => localStorage.clear());

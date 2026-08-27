@@ -17,6 +17,7 @@ export function ChartButton({
   children,
   wide = false,
   size = 'md',
+  pressed,
 }: {
   onClick: () => void;
   label: string;
@@ -25,6 +26,8 @@ export function ChartButton({
   /** Let the button size to its text — for word labels like "Reset". */
   wide?: boolean;
   size?: 'md' | 'sm';
+  /** Toggle buttons only: renders the active state and aria-pressed. */
+  pressed?: boolean;
 }) {
   const box = size === 'sm' ? 'h-[18px]' : 'h-8';
   const square = size === 'sm' ? 'w-[18px] text-[11px]' : 'w-8 text-[15px]';
@@ -34,12 +37,15 @@ export function ChartButton({
     <button
       type="button"
       className={
-        `flex ${box} items-center justify-center rounded-sm border border-line-strong ` +
-        'bg-elevated text-ink-2 shadow-sm transition-colors hover:border-accent hover:text-ink ' +
+        `flex ${box} items-center justify-center rounded-sm border shadow-sm transition-colors ` +
+        (pressed
+          ? 'border-accent bg-accent/15 text-accent '
+          : 'border-line-strong bg-elevated text-ink-2 hover:border-accent hover:text-ink ') +
         (wide ? text : `${square} leading-none`)
       }
       onClick={onClick}
       aria-label={label}
+      {...(pressed !== undefined ? { 'aria-pressed': pressed } : {})}
       {...(testId ? { 'data-testid': testId } : {})}
     >
       <span aria-hidden>{children}</span>

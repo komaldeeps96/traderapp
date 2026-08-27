@@ -3,7 +3,7 @@ import { expect, test } from '../../fixtures/test';
 test.describe('timeframes', () => {
   test('offers every timeframe', async ({ terminal }) => {
     await terminal.waitForChart();
-    for (const timeframe of ['10s', '1m', '5m', '15m', '1h', '1d', '1w']) {
+    for (const timeframe of ['10s', '1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']) {
       await expect(terminal.timeframeTab(timeframe)).toBeVisible();
     }
   });
@@ -59,7 +59,7 @@ test.describe('timeframes', () => {
 
   test('every timeframe renders bars', async ({ terminal }) => {
     await terminal.waitForChart();
-    for (const timeframe of ['5m', '15m', '1h', '1d']) {
+    for (const timeframe of ['5m', '15m', '30m', '1h', '4h', '1d']) {
       await terminal.selectTimeframe(timeframe);
       await expect.poll(async () => (await terminal.chartState()).timeframe).toBe(timeframe);
       expect((await terminal.chartState()).barCount).toBeGreaterThan(0);

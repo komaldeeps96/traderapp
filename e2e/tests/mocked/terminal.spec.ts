@@ -43,10 +43,84 @@ test.describe('top panel', () => {
     await backend.pushInfo();
 
     await expect(terminal.page.getByTestId('tp-float')).toHaveText('8.50M');
+    // The reference row keeps TradingView's static snapshot; its live
+    // counterpart ticks per bar in the session strip above.
     await expect(terminal.page.getByTestId('tp-mktcap')).toHaveText('$62.00M');
+    // 12M shares outstanding times the ~$10 tape.
+    await expect(terminal.page.getByTestId('bs-mcap')).toContainText('$12');
     await expect(terminal.page.getByTestId('tp-rotation')).toHaveText('1.7x');
     await expect(terminal.page.getByTestId('tp-relvol')).toHaveText('7.5x');
     await expect(terminal.page.getByTestId('tp-dayvol')).toHaveText('14.20M');
+
+    // Without a share count the live figure has nothing to derive from and
+    // stands down; the snapshot stays.
+    await backend.pushInfo({ shares_outstanding: null });
+    await expect(terminal.page.getByTestId('bs-mcap')).toHaveCount(0);
+    await expect(terminal.page.getByTestId('tp-mktcap')).toHaveText('$62.00M');
+  });
+
+  test('shows borrow status, the IPO badge and a suspect float', async ({
+    terminal,
+    backend,
+  }) => {
+    await terminal.waitForChart();
+    // The fixture's shortable of 2.9 is above IBKR's easy-to-borrow line.
+    await backend.pushInfo({ listed_days: 23, float_shares: 13_000_000 });
+
+    await expect(terminal.page.getByTestId('tp-borrow')).toHaveText('ETB');
+    await expect(terminal.page.getByTestId('tp-ipo')).toHaveText('IPO 23d');
+    // 13M float against 12M shares outstanding is impossible data.
+    await expect(terminal.page.getByTestId('tp-float')).toContainText('⚠');
+
+    await backend.pushInfo({ shortable: 1.2, listed_days: null });
+    await expect(terminal.page.getByTestId('tp-borrow')).toHaveText('NO BORROW');
+    await expect(terminal.page.getByTestId('tp-ipo')).toHaveCount(0);
+  });
+
+  test('shows the all-time high with its headroom, and draws its line', async ({
+    terminal,
+    backend,
+  }) => {
+    await terminal.waitForChart();
+    // The fixture's ATH is 22.0; the mock tape trades around 10.
+    await backend.pushInfo();
+
+    await expect(terminal.page.getByTestId('tp-ath')).toContainText('22.00');
+    await expect(terminal.page.getByTestId('tp-ath')).toContainText('%');
+    await expect.poll(async () => (await terminal.chartState()).athLine).toBe(22.0);
+
+    // Blue sky reads as such.
+    await backend.pushInfo({ all_time_high: 5.0 });
+    await expect(terminal.page.getByTestId('tp-ath')).toContainText('-');
+  });
+
+  test('shows halts, the reverse split, the pullback and float disagreement', async ({
+    terminal,
+    backend,
+  }) => {
+    await terminal.waitForChart();
+    await backend.pushInfo({
+      halted: true,
+      halts_today: 3,
+      reverse_split_ratio: 12,
+      reverse_split_days: 45,
+      yahoo_float: 17_000_000, // vs the fixture's 8.5M — a 100% disagreement
+      pullback_depth_pct: 38,
+      pullback_vol_ratio: 0.4,
+      pullback_bars: 4,
+      pullback_leg_pct: 20,
+    });
+
+    await expect(terminal.page.getByTestId('tp-halted')).toHaveText('HALTED · 3');
+    await expect(terminal.page.getByTestId('tp-reverse-split')).toHaveText('R/S 1:12 · 45d');
+    const pullback = terminal.page.getByTestId('tp-pullback');
+    await expect(pullback).toHaveText('PB 38% · 0.4× · 4b');
+    await expect(pullback).toHaveAttribute('data-tone', 'healthy');
+    await expect(terminal.page.getByTestId('tp-float')).toContainText('±100%');
+
+    // Resumed but scarred: the chip stays as a count.
+    await backend.pushInfo({ halted: false, halts_today: 3 });
+    await expect(terminal.page.getByTestId('tp-halted')).toHaveText('HALTS 3');
   });
 
   test('drops the quote when the symbol changes', async ({ terminal, backend }) => {

@@ -78,6 +78,77 @@ test.describe('mini charts', () => {
     }
   });
 
+  test('a mini zoom survives a reload without touching the main chart', async ({
+    terminal,
+  }) => {
+    await terminal.waitForChart();
+    await terminal.waitForMiniCharts();
+    const mainBefore = (await terminal.chartState()).visibleRange!;
+
+    const width = async () => {
+      const range = (await terminal.miniChartState('1m'))!.visibleRange!;
+      return range.to - range.from;
+    };
+    const opened = await width();
+    // Not scoped to `miniChart('1m')`: that testid is on the canvas container,
+    // and the zoom buttons sit in the section header beside it. The label is
+    // unique across the page anyway.
+    await terminal.page.getByRole('button', { name: 'Zoom in 1m chart' }).click();
+    await expect.poll(width).toBeLessThan(opened);
+    const zoomed = await width();
+
+    // Wait for the zoomed width itself — the initial frame already wrote a
+    // default-width entry under this key.
+    await expect
+      .poll(() =>
+        terminal.page.evaluate(() => {
+          const raw = localStorage.getItem('traderapp.zoom');
+          return raw ? ((JSON.parse(raw) as Record<string, number>)['mini:1m'] ?? null) : null;
+        }),
+      )
+      // Storage holds a bar count: one more than the logical range width.
+      .toBe(Math.round(zoomed + 1));
+
+    await terminal.page.reload();
+    await terminal.waitForChart();
+    await terminal.waitForMiniCharts();
+    await expect.poll(width).toBeCloseTo(zoomed, 0);
+    // Slot-keyed storage: the main chart still opens at its own width.
+    const main = (await terminal.chartState()).visibleRange!;
+    expect(main.to - main.from).toBeCloseTo(mainBefore.to - mainBefore.from, 0);
+  });
+
+  test('a slot can be retimed, and the choice survives a reload', async ({
+    terminal,
+    backend,
+  }) => {
+    await terminal.waitForChart();
+    await terminal.waitForMiniCharts();
+
+    // Slot 1 ships as 5m; move it to 15m.
+    await terminal.page.getByTestId('mini-tf-1').selectOption('15m');
+
+    // The wire follows: the resubscribe carries the new timeframe…
+    const command = await backend.waitForCommand('subscribe');
+    expect(command.extra_timeframes).toContain('15m');
+    expect(command.extra_timeframes).not.toContain('5m');
+
+    // …and the slot draws it. The mock serves 30 bars of 15m.
+    await expect
+      .poll(async () => (await terminal.miniChartState('15m'))?.barCount ?? 0)
+      .toBeGreaterThan(0);
+    expect((await terminal.miniChartState('15m'))!.timeframe).toBe('15m');
+    expect(await terminal.miniChartState('5m')).toBeNull();
+
+    // The choice is a preference, not session state.
+    await terminal.page.reload();
+    await terminal.waitForChart();
+    await expect(terminal.page.getByTestId('mini-tf-1')).toHaveValue('15m');
+    await expect
+      .poll(async () => (await terminal.miniChartState('15m'))?.barCount ?? 0)
+      .toBeGreaterThan(0);
+  });
+
   test('follows the symbol', async ({ terminal }) => {
     await terminal.waitForChart();
     await terminal.waitForMiniCharts();

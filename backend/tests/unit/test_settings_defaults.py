@@ -8,15 +8,33 @@ test_ibkr_provider; this pins what the app actually asks for.
 from __future__ import annotations
 
 from app.core.settings import ScannerSettings
+from app.domain.scanner import DEFAULT_SCANNER_ROWS, SCANNER_TIERS
 
 
 class TestScannerDefaults:
-    def test_market_cap_is_the_size_gate_not_price(self):
+    def test_market_cap_bands_partition_with_no_overlap(self):
         """A $1-20 band let Coupang, SoFi and Grab through on the live scan:
-        a large cap with a low share price is still a large cap."""
-        settings = ScannerSettings()
-        assert settings.market_cap_above == 1_000_000
-        assert settings.market_cap_below == 2_000_000_000
+        a large cap with a low share price is still a large cap — so each
+        tier's band, not price, is the size gate. Each tier's floor is the
+        previous tier's ceiling, so the four scanners never surface the same
+        name at a boundary."""
+        bands = [(t["market_cap_above"], t["market_cap_below"]) for t in SCANNER_TIERS]
+        assert bands == [
+            (1_000_000, 2_000_000_000),
+            (2_000_000_000, 10_000_000_000),
+            (10_000_000_000, 200_000_000_000),
+            (200_000_000_000, None),
+        ]
+
+    def test_small_cap_runs_deeper_than_the_context_tiers(self):
+        """Depth is spent on the tier the terminal is actually for."""
+        rows = {str(tier["id"]): tier["rows"] for tier in SCANNER_TIERS}
+        assert rows["small_cap"] == 10
+        assert rows["mid_cap"] == rows["large_cap"] == rows["mega_cap"] == DEFAULT_SCANNER_ROWS
+
+    def test_the_row_count_is_not_a_settings_knob(self):
+        """It belongs to the tier, beside the band — one source of truth."""
+        assert not hasattr(ScannerSettings(), "number_of_rows")
 
     def test_price_has_a_ceiling_and_no_floor(self):
         settings = ScannerSettings()

@@ -29,6 +29,7 @@ class IndicatorType(str, Enum):
     SESSION_LEVEL = "session_level"
     DAILY_LEVEL = "daily_level"
     VOLUME = "volume"
+    WRVOL = "wrvol"
 
 
 class Pane(str, Enum):
@@ -106,6 +107,16 @@ class IndicatorSpec(BaseModel):
         return Pane.PRICE
 
     @property
+    def readout_only(self) -> bool:
+        """Computed and streamed, but never painted.
+
+        Windowed RVOL is a ratio, not a price — drawn on the price pane it
+        would be a line crawling along zero. It exists for the readout strip,
+        which looks values up by bar time exactly as it does for VWAP.
+        """
+        return self.type is IndicatorType.WRVOL
+
+    @property
     def level_key(self) -> LevelKey | None:
         return parse_level_key(self.level) if self.level else None
 
@@ -134,6 +145,7 @@ class IndicatorSpec(BaseModel):
             "color": self.color,
             "color_dark": self.color_dark or self.color,
             "pane": self.pane.value,
+            "readout_only": self.readout_only,
             "line_width": self.line_width,
             "line_style": self.line_style.value,
             "price_line": self.price_line,

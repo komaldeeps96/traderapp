@@ -15,14 +15,17 @@ import {
   INDICATORS,
   MANY_INDICATORS,
   SCAN_CODES,
+  SCANNER_TIERS,
   TIMEFRAMES,
   makeApiUsage,
   makeInfo,
   makeQuote,
   makeScannerMessage,
+  makeScannerRows,
   makeRegimeMessage,
   makeSnapshot,
   makeStatus,
+  type ScannerTierId,
   type SnapshotOptions,
 } from './data';
 
@@ -50,7 +53,11 @@ export interface MockBackend {
   waitForCommand: (action: string, timeoutMs?: number) => Promise<Record<string, unknown>>;
   send: (message: unknown) => Promise<void>;
   pushStatus: (overrides?: Record<string, unknown>) => Promise<void>;
-  pushScanner: (rows?: ReturnType<typeof makeScannerMessage>['rows'], running?: boolean) => Promise<void>;
+  pushScanner: (
+    scannerId: ScannerTierId,
+    rows?: ReturnType<typeof makeScannerRows>,
+    running?: boolean,
+  ) => Promise<void>;
   pushRegime: (running?: boolean) => Promise<void>;
   pushQuote: (overrides?: Partial<Record<string, number>>) => Promise<void>;
   pushInfo: (overrides?: Partial<Record<string, unknown>>) => Promise<void>;
@@ -92,20 +99,9 @@ export async function installMockBackend(
     default_symbol: 'AAPL',
     default_timeframe: '10s',
   });
-  await json(page, '**/api/scanner/config', {
+  await json(page, '**/api/scanner/tiers', {
     scan_codes: SCAN_CODES,
-    config: {
-      scan_code: 'TOP_TRADE_RATE',
-      above_price: 1,
-      below_price: 20,
-      above_volume: 100_000,
-      market_cap_above: null,
-      market_cap_below: null,
-      change_perc_above: null,
-      number_of_rows: 15,
-    },
-    running: scannerAvailable,
-    available: scannerAvailable,
+    tiers: SCANNER_TIERS,
     note: scannerAvailable
       ? null
       : 'Market scanner requires a running IBKR TWS or Gateway connection.',
@@ -113,9 +109,12 @@ export async function installMockBackend(
   await page.routeWebSocket(/\/ws(\?.*)?$/, (ws) => {
     socket = ws;
 
-    // The real server opens with these four frames.
+    // The real server opens with status, one scanner frame per market-cap
+    // tier, regime, then api — seven frames in all.
     ws.send(JSON.stringify(makeStatus({ source, delayed })));
-    ws.send(JSON.stringify(makeScannerMessage([], scannerAvailable)));
+    for (const tier of SCANNER_TIERS) {
+      ws.send(JSON.stringify(makeScannerMessage(tier.id, [], scannerAvailable)));
+    }
     ws.send(JSON.stringify(makeRegimeMessage()));
     ws.send(JSON.stringify(makeApiUsage()));
 
@@ -191,9 +190,11 @@ export async function installMockBackend(
           break;
         }
 
-        case 'scanner.configure':
-          ws.send(JSON.stringify(makeScannerMessage([], scannerAvailable)));
+        case 'scanner.configure': {
+          const scannerId = text(command.scanner_id, 'small_cap') as ScannerTierId;
+          ws.send(JSON.stringify(makeScannerMessage(scannerId, [], scannerAvailable)));
           break;
+        }
 
         default:
           break;
@@ -237,7 +238,8 @@ export async function installMockBackend(
 
     pushStatus: (overrides = {}) => send(makeStatus({ source, delayed, ...overrides })),
 
-    pushScanner: (rows = [], running = true) => send(makeScannerMessage(rows, running)),
+    pushScanner: (scannerId, rows = [], running = true) =>
+      send(makeScannerMessage(scannerId, rows, running)),
 
     pushRegime: (running = true) => send(makeRegimeMessage(running)),
 
@@ -271,8 +273,12 @@ function barCountFor(timeframe: string): SnapshotOptions {
       return { barCount: 60 };
     case '15m':
       return { barCount: 30 };
+    case '30m':
+      return { barCount: 24 };
     case '1h':
       return { barCount: 20 };
+    case '4h':
+      return { barCount: 12 };
     case '1d':
       return { barCount: 120 };
     case '1w':

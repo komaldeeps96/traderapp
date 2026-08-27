@@ -4,6 +4,7 @@ import {
   computeChange,
   formatBarTime,
   formatChange,
+  formatSpread,
   formatCompact,
   formatMoney,
   formatPercent,
@@ -35,8 +36,11 @@ describe('price precision', () => {
   it.each([
     [0.3738, 4],
     [0.0091, 4],
-    [4.25, 3],
-    [9.999, 3],
+    // At or above a dollar the quoting tick is a whole cent (Reg NMS 612),
+    // so a third decimal could only ever be a trailing zero.
+    [1.0, 2],
+    [4.25, 2],
+    [9.999, 2],
     [10, 2],
     [334.86, 2],
   ])('uses %s decimals for %s', (price, expected) => {
@@ -135,7 +139,33 @@ describe('computeChange', () => {
   });
 });
 
+describe('formatSpread', () => {
+  it('shows dollar spreads in dollars', () => {
+    expect(formatSpread(1.23)).toBe('$1.23');
+  });
+
+  it('shows cent spreads in cents, decimals matched to size', () => {
+    expect(formatSpread(0.5)).toBe('50¢');
+    expect(formatSpread(0.04)).toBe('4.0¢');
+    expect(formatSpread(0.004)).toBe('0.40¢');
+    // Sub-dollar names quote in hundredths of a cent; flooring this to 0.0¢
+    // would read as free liquidity.
+    expect(formatSpread(0.0004)).toBe('0.04¢');
+  });
+
+  it('handles absence', () => {
+    expect(formatSpread(null)).toBe('—');
+  });
+});
+
 describe('formatChange', () => {
+  it('matches the dollar precision to the price level', () => {
+    // +3.5 cents on a 37-cent stock: two decimals would report +0.04.
+    expect(formatChange(computeChange(0.4088, 0.3738), 0.4088)).toBe('+0.0350 (+9.36%)');
+    // The same helper on a dollar-priced stock stays at cents.
+    expect(formatChange(computeChange(2.69, 2.34), 2.69)).toBe('+0.35 (+14.96%)');
+  });
+
   it('shows absolute and percentage together', () => {
     expect(formatChange(computeChange(110, 100))).toBe('+10.00 (+10.00%)');
   });

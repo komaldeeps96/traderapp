@@ -45,6 +45,9 @@ class SymbolStats:
     avg_vol_10d: float | None = None
     premarket_volume: float | None = None
     premarket_change: float | None = None
+    # Split-adjusted; after a heavy reverse split this can sit absurdly far
+    # above price, which is itself information about the chart's history.
+    all_time_high: float | None = None
     fetched_at: float = 0.0
 
     def to_dict(self) -> dict:

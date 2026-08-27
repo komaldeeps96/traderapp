@@ -81,7 +81,12 @@ class HistorySettings(BaseModel):
     """How much history to load for each base timeframe."""
 
     intraday_days: int = Field(default=5, ge=1, le=30)
-    daily_years: int = Field(default=3, ge=1, le=20)
+    # Alpaca serves the daily base in one request capped at ``page_limit``
+    # rows, so a wider window costs nothing until it stops filling the page.
+    # Forty years is where ~252 sessions a year meets that 10k cap; the
+    # weekly and monthly levels drawn off this series get the full record
+    # instead of whatever three years happened to contain.
+    daily_years: int = Field(default=40, ge=1, le=50)
     max_bars_in_memory: int = Field(default=20_000, ge=100)
     # IBKR is only asked for the most recent slice; Alpaca covers the rest.
     # (The 10-second window is not configured here: it always runs from the
@@ -118,16 +123,19 @@ class ScannerSettings(BaseModel):
     above_price: float | None = None
     below_price: float | None = 50.0
     above_volume: int | None = None
-    number_of_rows: int = Field(default=15, ge=1, le=15)
 
-    # Dollars — IBKR takes millions, converted at the call site. The ceiling
-    # is the real small-cap gate: without one the trade-rate scan fills with
-    # large caps that merely have a low share price (Coupang, SoFi and Grab
-    # all cleared a $1-20 band in testing). Price is not a proxy for size.
-    # The floor drops sub-$1M shells that can top a print-rate ranking on a
-    # few thousand dollars of churn.
-    market_cap_above: float | None = 1_000_000
-    market_cap_below: float | None = 2_000_000_000
+    # How many rows a panel shows is not settable here: it belongs to the
+    # market-cap tier, beside the band, in app/domain/scanner.py's
+    # SCANNER_TIERS. Small cap runs deeper than the other three.
+
+    # Market cap is no longer a single band here — the four scanner tiers
+    # (app/domain/scanner.py, SCANNER_TIERS) each carry their own band, e.g.
+    # the small-cap tier's $1M floor drops sub-$1M shells that can top a
+    # print-rate ranking on a few thousand dollars of churn, and its $2B
+    # ceiling is the real small-cap gate: without one the trade-rate scan
+    # fills with large caps that merely have a low share price (Coupang,
+    # SoFi and Grab all cleared a $1-20 band in testing). Price is not a
+    # proxy for size.
 
     # Up 10%+ on the day — the same gate the TradingView screen uses, so the
     # two panels answer about the same universe. Applied as a subscription

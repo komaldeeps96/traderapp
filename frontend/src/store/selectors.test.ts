@@ -1,19 +1,26 @@
 import { describe, expect, it } from 'vitest';
 
-import type { IndicatorSpec, WireBar } from '@/types/protocol';
+import type {
+  IndicatorSpec,
+  InfoMessage,
+  WireBar,
+} from '@/types/protocol';
 
 import {
+  borrowStatus,
   budgetTone,
+  buildBands,
   buildInfoView,
   buildKeyLevels,
-  buildBands,
   buildLevelStyles,
   buildOhlcv,
   buildQuoteView,
   clusterLevels,
+  floatDisagreement,
   levelIndicators,
   nearestLevels,
   overlayIndicators,
+  pullbackTone,
   spreadTone,
 } from './selectors';
 
@@ -24,6 +31,7 @@ function spec(overrides: Partial<IndicatorSpec> & Pick<IndicatorSpec, 'id'>): In
     color: '#898781',
     color_dark: '#898781',
     pane: 'price',
+    readout_only: false,
     line_width: 1,
     line_style: 'solid',
     price_line: false,
@@ -329,32 +337,77 @@ describe('buildLevelStyles', () => {
 
 describe('buildOhlcv', () => {
   const bar: WireBar = { t: 1_700_000_000, o: 10, h: 11, l: 9.5, c: 10.5, v: 1000, n: 20 };
+  const readout = (over: Partial<import('@/store/useTerminalStore').Readout> = {}) => ({
+    bar,
+    previousClose: 10,
+    values: {},
+    sessionVolume: null,
+    ...over,
+  });
 
   it('is null without a readout', () => {
     expect(buildOhlcv(null)).toBeNull();
   });
 
   it('computes the bar-over-bar change', () => {
-    const view = buildOhlcv({ bar, previousClose: 10, values: {} });
-    expect(view?.barChange?.absolute).toBeCloseTo(0.5);
+    expect(buildOhlcv(readout())?.barChange?.absolute).toBeCloseTo(0.5);
   });
 
   it('computes the change against the previous session close', () => {
-    const view = buildOhlcv({ bar, previousClose: 10, values: { prev_day_close: 8 } });
+    const view = buildOhlcv(readout({ values: { prev_day_close: 8 } }));
     expect(view?.sessionChange?.percent).toBeCloseTo(31.25);
   });
 
   it('omits the session change without a previous close', () => {
-    expect(buildOhlcv({ bar, previousClose: 10, values: {} })?.sessionChange).toBeNull();
+    expect(buildOhlcv(readout())?.sessionChange).toBeNull();
   });
 
   it('flags an extended-hours bar', () => {
-    const view = buildOhlcv({ bar: { ...bar, x: 1 }, previousClose: null, values: {} });
+    const view = buildOhlcv(readout({ bar: { ...bar, x: 1 }, previousClose: null }));
     expect(view?.extendedHours).toBe(true);
   });
 
   it('leaves regular-hours bars unflagged', () => {
-    expect(buildOhlcv({ bar, previousClose: null, values: {} })?.extendedHours).toBe(false);
+    expect(buildOhlcv(readout({ previousClose: null }))?.extendedHours).toBe(false);
+  });
+
+  it('derives the market cap at the bar from its close', () => {
+    const info = { shares_outstanding: 9_000_000 } as InfoMessage;
+    expect(buildOhlcv(readout(), info)?.marketCapAtBar).toBeCloseTo(9_000_000 * 10.5);
+    expect(buildOhlcv(readout())?.marketCapAtBar).toBeNull();
+    const none = { shares_outstanding: null } as unknown as InfoMessage;
+    expect(buildOhlcv(readout(), none)?.marketCapAtBar).toBeNull();
+  });
+
+  it('reads the windowed RVOL from the server-stamped series', () => {
+    // Computed backend-side off the 20-day minute base and delivered like
+    // any indicator value, so it reaches 10-second bars too.
+    expect(buildOhlcv(readout({ values: { wrvol: 3.2 } }))?.windowRvol).toBeCloseTo(3.2);
+    expect(buildOhlcv(readout())?.windowRvol).toBeNull();
+  });
+
+  it('derives the session pace and rotation as of the bar', () => {
+    const info = { avg_vol_10d: 2_000_000, float_shares: 5_000_000 } as InfoMessage;
+    const view = buildOhlcv(readout({ sessionVolume: 4_000_000 }), info);
+    expect(view?.sessionVolume).toBe(4_000_000);
+    expect(view?.rvolAtBar).toBeCloseTo(2.0);
+    expect(view?.rotationAtBar).toBeCloseTo(0.8);
+  });
+
+  it('leaves pace and rotation out without reference data', () => {
+    const view = buildOhlcv(readout({ sessionVolume: 4_000_000 }));
+    expect(view?.rvolAtBar).toBeNull();
+    expect(view?.rotationAtBar).toBeNull();
+    const zeroed = { avg_vol_10d: 0, float_shares: null } as unknown as InfoMessage;
+    const guarded = buildOhlcv(readout({ sessionVolume: 4_000_000 }), zeroed);
+    expect(guarded?.rvolAtBar).toBeNull();
+    expect(guarded?.rotationAtBar).toBeNull();
+  });
+
+  it('reads the VWAP distance at the bar from the plotted series', () => {
+    const view = buildOhlcv(readout({ values: { vwap: 10.0 } }));
+    expect(view?.vwapDeltaPercent).toBeCloseTo(5.0);
+    expect(buildOhlcv(readout())?.vwapDeltaPercent).toBeNull();
   });
 });
 
@@ -418,6 +471,7 @@ describe('buildInfoView', () => {
     market_cap: 40_000_000,
     shares_outstanding: 9_000_000,
     avg_vol_10d: 2_000_000,
+    all_time_high: null,
     description: 'Runner Inc',
     exchange: 'NASDAQ',
     sector: 'Health',
@@ -431,6 +485,18 @@ describe('buildInfoView', () => {
     halt_up: 5.5,
     halt_down: 4.5,
     halt_active: true,
+    listed_days: null,
+    shortable: null,
+    shortable_shares: null,
+    halted: false,
+    halts_today: 0,
+    reverse_split_ratio: null,
+    reverse_split_days: null,
+    yahoo_float: null,
+    pullback_depth_pct: null,
+    pullback_vol_ratio: null,
+    pullback_bars: null,
+    pullback_leg_pct: null,
     generated_at: 0,
   };
 
@@ -454,7 +520,163 @@ describe('buildInfoView', () => {
     const view = buildInfoView({ ...info, prev_close: null }, 5.0);
     expect(view!.sessionChange).toBeNull();
   });
+
+  it('reports halt headroom as a percentage of the last price', () => {
+    const view = buildInfoView(info, 5.0);
+    expect(view!.haltUpPercent).toBeCloseTo(10);
+    expect(view!.haltDownPercent).toBeCloseTo(10);
+  });
+
+  it('flags a float larger than the shares outstanding', () => {
+    expect(buildInfoView(info, 5.0)!.floatSuspect).toBe(false);
+    const broken = { ...info, float_shares: 10_000_000, shares_outstanding: 9_000_000 };
+    expect(buildInfoView(broken, 5.0)!.floatSuspect).toBe(true);
+  });
+
+  it('does not flag the float when either side is missing', () => {
+    expect(buildInfoView({ ...info, shares_outstanding: null }, 5.0)!.floatSuspect).toBe(false);
+    expect(buildInfoView({ ...info, float_shares: null }, 5.0)!.floatSuspect).toBe(false);
+  });
+
+  it('keeps the reference market cap static', () => {
+    // The live per-bar figure lives in the session strip; this one is the
+    // snapshot and must not wobble with the tape.
+    expect(buildInfoView(info, 5.0)!.marketCap).toBe(40_000_000);
+    expect(buildInfoView(info, 6.0)!.marketCap).toBe(40_000_000);
+  });
+
+  it('measures the headroom to the all-time high', () => {
+    const view = buildInfoView({ ...info, all_time_high: 10.0 }, 5.0)!;
+    expect(view.allTimeHigh).toBe(10.0);
+    expect(view.athDistancePercent).toBeCloseTo(100);
+  });
+
+  it('reads a negative ATH distance in blue sky', () => {
+    expect(buildInfoView({ ...info, all_time_high: 4.0 }, 5.0)!.athDistancePercent).toBeCloseTo(
+      -20,
+    );
+  });
+
+  it('leaves the ATH distance out without the reference or a price', () => {
+    expect(buildInfoView(info, 5.0)!.athDistancePercent).toBeNull();
+    expect(buildInfoView({ ...info, all_time_high: 10.0 }, null)!.athDistancePercent).toBeNull();
+  });
 });
+
+describe('pullbackTone', () => {
+  it('is healthy when depth, volume and freshness all agree', () => {
+    expect(pullbackTone(38, 0.4, 4)).toBe('healthy');
+  });
+
+  it('fails past the deepest fib regardless of the rest', () => {
+    expect(pullbackTone(80, 0.3, 2)).toBe('failed');
+  });
+
+  it('is stale ten minutes off the high', () => {
+    expect(pullbackTone(30, 0.4, 10)).toBe('stale');
+  });
+
+  it('is merely ok when volume never dried up', () => {
+    expect(pullbackTone(38, 0.9, 4)).toBe('ok');
+    expect(pullbackTone(38, null, 4)).toBe('ok');
+  });
+
+  it('is merely ok when the retrace is deep but not fatal', () => {
+    expect(pullbackTone(60, 0.3, 4)).toBe('ok');
+  });
+});
+
+describe('floatDisagreement', () => {
+  it('is the divergence over the smaller source', () => {
+    expect(floatDisagreement(2_500_000, 3_500_000)).toBeCloseTo(40);
+    expect(floatDisagreement(3_500_000, 2_500_000)).toBeCloseTo(40);
+  });
+
+  it('one source silent is not a disagreement', () => {
+    expect(floatDisagreement(null, 3_500_000)).toBeNull();
+    expect(floatDisagreement(2_500_000, null)).toBeNull();
+    expect(floatDisagreement(0, 3_500_000)).toBeNull();
+  });
+});
+
+describe('buildInfoView tranches 2-3', () => {
+  const base = {
+    type: 'info' as const,
+    symbol: 'RUN',
+    float_shares: 5_000_000,
+    market_cap: 40_000_000,
+    shares_outstanding: 9_000_000,
+    avg_vol_10d: null,
+    all_time_high: null,
+    description: '',
+    exchange: '',
+    sector: '',
+    day_volume: 0,
+    pm_volume: 0,
+    prev_close: null,
+    rel_vol: null,
+    float_rotation: null,
+    pm_float_rotation: null,
+    halt_ref: null,
+    halt_up: null,
+    halt_down: null,
+    halt_active: false,
+    listed_days: null,
+    shortable: null,
+    shortable_shares: null,
+    halted: true,
+    halts_today: 3,
+    reverse_split_ratio: 12.0,
+    reverse_split_days: 45,
+    yahoo_float: 7_500_000,
+    pullback_depth_pct: 38,
+    pullback_vol_ratio: 0.4,
+    pullback_bars: 4,
+    pullback_leg_pct: 20,
+    generated_at: 0,
+  };
+
+  it('carries the halt state and count', () => {
+    const view = buildInfoView(base, 5.0)!;
+    expect(view.halted).toBe(true);
+    expect(view.haltsToday).toBe(3);
+  });
+
+  it('pairs the reverse split ratio with its recency', () => {
+    expect(buildInfoView(base, 5.0)!.reverseSplit).toEqual({ ratio: 12.0, daysAgo: 45 });
+    expect(buildInfoView({ ...base, reverse_split_ratio: null }, 5.0)!.reverseSplit).toBeNull();
+  });
+
+  it('scores the float disagreement between the sources', () => {
+    expect(buildInfoView(base, 5.0)!.floatDisagreePercent).toBeCloseTo(50);
+  });
+
+  it('assembles the pullback view with its tone', () => {
+    const view = buildInfoView(base, 5.0)!;
+    expect(view.pullback).toEqual({
+      depthPercent: 38,
+      volumeRatio: 0.4,
+      bars: 4,
+      legPercent: 20,
+      tone: 'healthy',
+    });
+    expect(buildInfoView({ ...base, pullback_depth_pct: null }, 5.0)!.pullback).toBeNull();
+  });
+});
+
+describe('borrowStatus', () => {
+  it('buckets the IBKR magnitude the way TWS colours it', () => {
+    expect(borrowStatus(3.0)).toBe('easy');
+    expect(borrowStatus(2.5)).toBe('locate');
+    expect(borrowStatus(1.5)).toBe('locate');
+    expect(borrowStatus(1.49)).toBe('none');
+  });
+
+  it('is null with nothing reported', () => {
+    expect(borrowStatus(null)).toBeNull();
+  });
+});
+
 
 describe('budgetTone', () => {
   it('is ok with at least half the window left', () => {

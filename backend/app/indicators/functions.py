@@ -7,6 +7,7 @@ so each one is directly unit-testable.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -442,3 +443,111 @@ def premarket_bounds_last(bars: Sequence[Bar]) -> tuple[Number, Number]:
         high = bar.high if high is None else max(high, bar.high)
         low = bar.low if low is None else min(low, bar.low)
     return high, low
+
+
+# ── windowed relative volume ──────────────────────────────────────────
+
+# Two days whose first bars sit further apart than this are not measuring
+# the same window: the older one was truncated by the history fetch, and
+# comparing a 4am-anchored day against a noon-anchored one manufactures a
+# relative-volume signal out of the fetch boundary.
+_WRVOL_START_SLACK_SECONDS = 600
+
+# New York day bucketing as pure arithmetic: the tape prints 4:00-20:00 ET,
+# and any fixed offset between 4 and 5 hours buckets every such timestamp
+# identically under both EST and EDT. Mirrors the frontend's session lib.
+_NY_OFFSET_SECONDS = 16_200
+
+
+@dataclass(slots=True)
+class _VolumeDay:
+    day: int
+    first_tod: float
+    tods: list[float]
+    cums: list[float]
+
+
+def _volume_days(minute_bars: Sequence[Bar]) -> list[_VolumeDay]:
+    """Cumulative volume per bar, grouped by New York day."""
+    days: list[_VolumeDay] = []
+    current: _VolumeDay | None = None
+    total = 0.0
+    for bar in minute_bars:
+        day = int((bar.time - _NY_OFFSET_SECONDS) // 86_400)
+        tod = (bar.time - _NY_OFFSET_SECONDS) % 86_400
+        if current is None or day != current.day:
+            total = 0.0
+            current = _VolumeDay(day=day, first_tod=tod, tods=[], cums=[])
+            days.append(current)
+        total += bar.volume
+        current.tods.append(tod)
+        current.cums.append(total)
+    return days
+
+
+def _cum_at_or_before(day: _VolumeDay, tod: float) -> float | None:
+    """The day's cumulative volume at the last minute at or before ``tod``."""
+    index = bisect_right(day.tods, tod) - 1
+    return day.cums[index] if index >= 0 else None
+
+
+def windowed_rvol(bars: Sequence[Bar], minute_bars: Sequence[Bar]) -> list[Number]:
+    """Time-matched relative volume, stamped onto each chart bar.
+
+    Today's cumulative volume from the 4am open through the bar, over the
+    mean of the prior days' cumulative volume at the same time of day — "is
+    this pace hot for 10:15am", where a whole-day RVOL only answers "is it
+    hot against an average day". Both legs are read off the 1-minute base,
+    so on a 10-second chart the value steps once a minute; the sub-minute
+    lag was accepted in exchange for a history the 10s window cannot hold.
+
+    ``None`` is the honest answer wherever a comparison does not exist: the
+    oldest day in history, a bar whose day the minute base has not covered,
+    or a chart with no full prior session behind it.
+    """
+    days = _volume_days(minute_bars)
+    by_day = {entry.day: index for index, entry in enumerate(days)}
+
+    # Mean prior-day cumulative at a time of day, memoised per (day, minute):
+    # on a 10-second chart six consecutive bars share one lookup.
+    denominators: dict[tuple[int, int], float | None] = {}
+
+    def denominator(day_index: int, tod: float) -> float | None:
+        key = (day_index, int(tod // 60))
+        if key in denominators:
+            return denominators[key]
+        today = days[day_index]
+        total = 0.0
+        counted = 0
+        for prior in days[:day_index]:
+            if abs(prior.first_tod - today.first_tod) > _WRVOL_START_SLACK_SECONDS:
+                continue
+            at = _cum_at_or_before(prior, tod)
+            if at is None:
+                continue
+            total += at
+            counted += 1
+        value = (total / counted) if counted and total > 0 else None
+        denominators[key] = value
+        return value
+
+    out: list[Number] = []
+    for bar in bars:
+        day = int((bar.time - _NY_OFFSET_SECONDS) // 86_400)
+        tod = (bar.time - _NY_OFFSET_SECONDS) % 86_400
+        day_index = by_day.get(day)
+        if day_index is None or day_index == 0:
+            out.append(None)
+            continue
+        cum = _cum_at_or_before(days[day_index], tod)
+        base = denominator(day_index, tod)
+        out.append(cum / base if cum is not None and base is not None else None)
+    return out
+
+
+def windowed_rvol_last(bars: Sequence[Bar], minute_bars: Sequence[Bar]) -> Number:
+    """Just the latest bar's value — the once-a-second path."""
+    if not bars:
+        return None
+    values = windowed_rvol(bars[-1:], minute_bars)
+    return values[-1] if values else None

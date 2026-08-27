@@ -13,7 +13,7 @@ import contextlib
 import json
 import logging
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 from websockets.asyncio.client import connect as ws_connect
@@ -34,7 +34,9 @@ _TIMEFRAME_PARAM = {
     Timeframe.M1: "1Min",
     Timeframe.M5: "5Min",
     Timeframe.M15: "15Min",
+    Timeframe.M30: "30Min",
     Timeframe.H1: "1Hour",
+    Timeframe.H4: "4Hour",
     Timeframe.D1: "1Day",
     Timeframe.W1: "1Week",
 }
@@ -57,6 +59,11 @@ class AlpacaProvider(MarketDataProvider):
         self._client: httpx.AsyncClient | None = None
         self._stream_task: asyncio.Task | None = None
         self._symbols: set[str] = set()
+        # Halt statuses keep their own subscription set: the router clears
+        # the market data symbols whenever IBKR carries the tape, but a halt
+        # matters no matter who the bars come from, so this set survives
+        # routing and rides the same websocket.
+        self._status_symbols: set[str] = set()
         self._connected = False
         self._closing = False
         self._ws = None
@@ -233,6 +240,30 @@ class AlpacaProvider(MarketDataProvider):
 
         raise ProviderError(f"Alpaca request failed after retries: {last_error}")
 
+    # ── corporate actions ──────────────────────────────────────────────
+
+    async def fetch_reverse_splits(self, symbol: str, start: date) -> list[dict]:
+        """Reverse splits for one symbol since ``start``, raw from Alpaca.
+
+        Splits cannot be read from our own bars — history is fetched with
+        ``adjustment: split``, which is exactly the transform that hides
+        them — so the corporate-actions endpoint is the only source.
+        """
+        if not self._settings.enabled or self._client is None:
+            return []
+        payload = await self._get(
+            "/v1/corporate-actions",
+            {
+                "symbols": symbol,
+                "types": "reverse_split",
+                "start": start.isoformat(),
+                "limit": 1000,
+            },
+        )
+        actions = payload.get("corporate_actions") or {}
+        rows = actions.get("reverse_splits") or []
+        return [row for row in rows if isinstance(row, dict)]
+
     # ── streaming ──────────────────────────────────────────────────────
 
     async def set_stream_symbols(self, symbols: set[str]) -> None:
@@ -259,6 +290,26 @@ class AlpacaProvider(MarketDataProvider):
             if added:
                 await self._send({"action": "subscribe", **_channels(added)})
 
+    async def set_status_symbols(self, symbols: set[str]) -> None:
+        """Symbols whose halt statuses to follow, independent of routing."""
+        if not self._settings.enabled:
+            return
+
+        async with self._lock:
+            if symbols == self._status_symbols:
+                return
+            added = symbols - self._status_symbols
+            removed = self._status_symbols - symbols
+            self._status_symbols = set(symbols)
+
+            if symbols and (self._stream_task is None or self._stream_task.done()):
+                self._stream_task = asyncio.create_task(self._stream_loop())
+                return
+            if removed:
+                await self._send({"action": "unsubscribe", "statuses": sorted(removed)})
+            if added:
+                await self._send({"action": "subscribe", "statuses": sorted(added)})
+
     async def _send(self, payload: dict) -> None:
         if self._ws is None:
             return
@@ -283,6 +334,10 @@ class AlpacaProvider(MarketDataProvider):
 
                     if self._symbols:
                         await self._send({"action": "subscribe", **_channels(self._symbols)})
+                    if self._status_symbols:
+                        await self._send(
+                            {"action": "subscribe", "statuses": sorted(self._status_symbols)}
+                        )
 
                     async for raw in websocket:
                         await self._handle_frame(raw)
@@ -354,6 +409,10 @@ class AlpacaProvider(MarketDataProvider):
                 )
             elif kind == "b":
                 await self._emit_bar(message["S"], Timeframe.M1, _parse_bar(message))
+            elif kind == "s" and "S" in message:
+                halted = _parse_status(message)
+                if halted is not None:
+                    await self._emit_halt(message["S"], halted)
             elif kind == "error":
                 logger.error(
                     "Alpaca stream error %s: %s", message.get("code"), message.get("msg")
@@ -364,6 +423,24 @@ class AlpacaProvider(MarketDataProvider):
                     message.get("trades"),
                     message.get("bars"),
                 )
+
+
+# Exchange status codes that mean the stock is not trading. "H" is a halt,
+# "P" a pause, "V" a LULD volatility hold; anything announcing a resumption
+# or plain trading means it is. Codes vary by tape, so the human-readable
+# message is the fallback — checked for "halt"/"pause" BEFORE "trading",
+# because the halt announcement itself reads "Trading Halt".
+_HALT_CODES = frozenset("HPV")
+
+
+def _parse_status(raw: dict) -> bool | None:
+    code = str(raw.get("sc") or "").upper()
+    text = str(raw.get("sm") or "").lower()
+    if code in _HALT_CODES or "halt" in text or "pause" in text:
+        return True
+    if code == "T" or "resum" in text or "trading" in text:
+        return False
+    return None
 
 
 def _channels(symbols: set[str]) -> dict[str, list[str]]:

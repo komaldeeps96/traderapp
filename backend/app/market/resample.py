@@ -20,6 +20,11 @@ def _ny_midnight_epoch(epoch: float) -> int:
     return int(datetime(ny.year, ny.month, ny.day, tzinfo=NY_TZ).timestamp())
 
 
+def _ny_offset_seconds(epoch: float) -> int:
+    """New York's UTC offset at ``epoch``, in seconds (negative, whole hours)."""
+    return int(to_ny(epoch).utcoffset().total_seconds())  # type: ignore[union-attr]
+
+
 def _ny_week_start_epoch(epoch: float) -> int:
     ny = to_ny(epoch)
     monday = ny.date() - timedelta(days=ny.weekday())
@@ -29,17 +34,33 @@ def _ny_week_start_epoch(epoch: float) -> int:
 def bucket_start(epoch: float, timeframe: Timeframe) -> int:
     """The opening timestamp of the period ``epoch`` falls into.
 
-    Intraday periods align to epoch boundaries, which lines up with New York
-    wall-clock minutes and hours because US market offsets are whole hours.
-    Daily and weekly periods align to New York midnight instead, so a bar is
-    never split across the 00:00 UTC boundary that falls mid-after-hours.
+    Every period aligns to the New York wall clock, which is the clock the
+    session runs on. For a size that divides an hour that is the same thing
+    as aligning to epoch boundaries — US offsets are whole hours — so those
+    keep the integer division and the timezone lookup it saves, over the
+    thousands of bars a resample walks.
+
+    Four-hour bars are the case that needs the wall clock spelled out. Epoch
+    boundaries would put them at 04:00 New York through the summer and 03:00
+    through the winter, so the bar that opens the pre-market would move twice
+    a year. Anchored to the local day they always run 00:00/04:00/08:00/
+    12:00/16:00/20:00 — pre-market, the open, midday, the close, and the
+    after-hours session, each in its own bar.
+
+    Daily and weekly periods anchor to New York midnight for the same
+    reason: a bar is never split across the 00:00 UTC boundary, which falls
+    mid-after-hours.
     """
     if timeframe is Timeframe.D1:
         return _ny_midnight_epoch(epoch)
     if timeframe is Timeframe.W1:
         return _ny_week_start_epoch(epoch)
     size = timeframe.seconds
-    return int(epoch) // size * size
+    if 3600 % size == 0:
+        return int(epoch) // size * size
+    offset = _ny_offset_seconds(epoch)
+    local = int(epoch) + offset
+    return local // size * size - offset
 
 
 def resample(bars: list[Bar], target: Timeframe) -> list[Bar]:

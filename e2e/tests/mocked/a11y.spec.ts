@@ -76,10 +76,17 @@ test.describe('accessibility', () => {
 test.describe('accessibility with scanner results', () => {
   test.use({ backendOptions: { scannerAvailable: true, source: 'ibkr' } });
 
-  test('the populated scanner has no violations', async ({ page, terminal, backend }) => {
+  test('the populated scanners have no violations', async ({ page, terminal, backend }) => {
     await terminal.waitForChart();
-    await backend.pushScanner(makeScannerRows(5));
-    await expect.poll(async () => terminal.scannerRows.count()).toBe(5);
+    // All four stacked panels populated at once — the new a11y surface this
+    // feature adds (landmark/heading structure across four instances of the
+    // same component), not just one tier in isolation.
+    await backend.pushScanner('small_cap', makeScannerRows(5));
+    await backend.pushScanner('mid_cap', makeScannerRows(3));
+    await backend.pushScanner('large_cap', makeScannerRows(2));
+    await backend.pushScanner('mega_cap', makeScannerRows(1));
+    await expect.poll(async () => terminal.scannerRows('small_cap').count()).toBe(5);
+    await expect.poll(async () => terminal.scannerRows('mega_cap').count()).toBe(1);
 
     const results = await scan(page);
     expect(results.violations).toEqual([]);

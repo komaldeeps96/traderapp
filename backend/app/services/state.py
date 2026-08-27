@@ -1,4 +1,5 @@
-"""Remembers the last chart the user was looking at.
+"""Remembers the last chart the user was looking at, and each scanner
+tier's filters.
 
 Kept in its own file so a write can never clobber credentials, which is what
 made this worth separating in the first place.
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 class StateStore:
     def __init__(self, path: str | Path, default_symbol: str, default_timeframe: str):
         self._path = Path(path)
-        self._cache: dict[str, str] = {
+        self._cache: dict[str, object] = {
             "symbol": default_symbol,
             "timeframe": default_timeframe,
         }
@@ -38,20 +39,45 @@ class StateStore:
                 value = data.get(key)
                 if isinstance(value, str) and value:
                     self._cache[key] = value
+            scanners = data.get("scanners")
+            if isinstance(scanners, dict):
+                # Stored as-is, per tier id; ScannerService.adopt_config
+                # validates each entry on the way in, so a hand-edited or
+                # stale file cannot poison it.
+                self._cache["scanners"] = {
+                    key: value for key, value in scanners.items() if isinstance(value, dict)
+                }
 
     @property
     def symbol(self) -> str:
-        return self._cache["symbol"]
+        return str(self._cache["symbol"])
 
     @property
     def timeframe(self) -> str:
-        return self._cache["timeframe"]
+        return str(self._cache["timeframe"])
 
-    def as_dict(self) -> dict[str, str]:
+    def scanner_config(self, scanner_id: str) -> dict | None:
+        """The last filters saved for one scanner tier, or None if none were."""
+        scanners = self._cache.get("scanners")
+        if not isinstance(scanners, dict):
+            return None
+        config = scanners.get(scanner_id)
+        return dict(config) if isinstance(config, dict) else None
+
+    def as_dict(self) -> dict[str, object]:
         return dict(self._cache)
 
     async def save(self, symbol: str, timeframe: str) -> None:
-        self._cache = {"symbol": symbol, "timeframe": timeframe}
+        # Update, not replace: the scanners section must survive a chart save.
+        self._cache.update(symbol=symbol, timeframe=timeframe)
+        await asyncio.to_thread(self._write)
+
+    async def save_scanner(self, scanner_id: str, config: dict) -> None:
+        scanners = self._cache.setdefault("scanners", {})
+        if not isinstance(scanners, dict):
+            scanners = {}
+            self._cache["scanners"] = scanners
+        scanners[scanner_id] = dict(config)
         await asyncio.to_thread(self._write)
 
     def _write(self) -> None:

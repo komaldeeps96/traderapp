@@ -73,7 +73,18 @@ test.describe('confluence bands', () => {
     await terminal.waitForChart();
     const band = terminal.page.locator('[data-testid^="level-row-"][data-strength="3"]');
     await expect(band).toContainText('×3');
-    await expect(band).toContainText('3 levels');
+  });
+
+  test('wraps the member names rather than cutting them off', async ({ terminal }) => {
+    // The count used to take a line of its own and leave the names one
+    // truncated line under it, so a three-level band read "Prev Qtr Close ·
+    // Prev Month Close …" and the third name was never legible.
+    await terminal.waitForChart();
+    const names = terminal.page.locator('[data-testid^="band-members-"]').first();
+
+    const overflow = await names.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+    await expect(names).not.toContainText('…');
   });
 
   test('names the levels that make up the band', async ({ terminal }) => {

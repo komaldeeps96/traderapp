@@ -28,6 +28,10 @@ from app.market.bar_builder import Trade
 from app.providers import ibkr as ibkr_module
 from app.providers.ibkr import TRADE_BUFFER_MAX_AGE, IBKRProvider, _clean
 
+# Scanner internals are keyed by scanner_id; the provider itself is
+# agnostic to what a tier is called, so one fixed id exercises it here.
+TIER_ID = "small_cap"
+
 # ── stand-ins for ib_async ─────────────────────────────────────────────
 
 
@@ -70,6 +74,9 @@ class FakeTicker:
         self.tradeCount = fields.get("tradeCount")
         self.tradeRate = fields.get("tradeRate")
         self.volumeRate = fields.get("volumeRate")
+        self.shortable = fields.get("shortable")
+        self.shortableShares = fields.get("shortableShares")
+        self.halted = fields.get("halted")
 
 
 class FakeHistoricalBar:
@@ -107,6 +114,7 @@ class FakeIB:
         self.tick_subscriptions: list[str] = []
         self.cancelled_ticks: list[str] = []
         self.market_data: dict[str, FakeTicker] = {}
+        self.generic_ticks: dict[str, str] = {}
         self.cancelled_market_data: list[str] = []
         self.scanner_subscription = None
         self.scanner_data = None
@@ -151,6 +159,7 @@ class FakeIB:
     def reqMktData(self, contract, genericTickList=None, snapshot=False):
         ticker = FakeTicker()
         self.market_data[contract.symbol] = ticker
+        self.generic_ticks[contract.symbol] = genericTickList
         return ticker
 
     def cancelMktData(self, contract):
@@ -210,7 +219,7 @@ class TestWithoutTheLibrary:
 
     async def test_scanner_refuses_while_unavailable(self):
         instance = IBKRProvider(IBKRSettings(), ScannerSettings())
-        assert await instance.start_scanner(ScannerConfig(scan_code="TOP_PERC_GAIN")) is False
+        assert await instance.start_scanner(TIER_ID, ScannerConfig(scan_code="TOP_PERC_GAIN")) is False
 
 
 class TestCancelAckFilter:
@@ -384,6 +393,14 @@ class TestFetchBars:
         await provider.fetch_bars("AAPL", Timeframe.D1, start, end)
         assert ib.history_calls[0]["durationStr"].endswith(" D")
 
+    async def test_asks_in_years_for_the_daily_window(self, provider, ib):
+        # The daily base reaches back decades so Alpaca's single page comes
+        # back full; TWS takes that window in years, not in five figures of
+        # days.
+        end = datetime(2024, 3, 5, tzinfo=UTC)
+        await provider.fetch_bars("AAPL", Timeframe.D1, end - timedelta(days=365 * 40), end)
+        assert ib.history_calls[0]["durationStr"] == "40 Y"
+
     async def test_maps_the_timeframe_to_a_bar_size(self, provider, ib):
         end = datetime.now(UTC)
         await provider.fetch_bars("AAPL", Timeframe.M5, end, end)
@@ -550,6 +567,75 @@ class TestTickConditions:
 # ── scanner ────────────────────────────────────────────────────────────
 
 
+class TestBorrowStatus:
+    async def test_the_quote_line_asks_for_shortable(self, provider, ib):
+        await provider.set_stream_symbols({"AAPL"})
+        assert ib.generic_ticks["AAPL"] == "236"
+
+    async def test_captures_tier_and_pool_from_the_quote_line(self, provider, ib):
+        await provider.set_stream_symbols({"AAPL"})
+        provider._on_quote("AAPL", FakeTicker(shortable=2.9, shortableShares=1_500_000))
+        assert provider.borrow_status("AAPL") == (2.9, 1_500_000)
+
+    async def test_borrow_lands_without_a_valid_book(self, provider, ib):
+        """Tick 236 arrives whether or not the BBO is populated yet."""
+        await provider.set_stream_symbols({"AAPL"})
+        provider._on_quote("AAPL", FakeTicker(shortable=1.2))
+        assert provider.borrow_status("AAPL") == (1.2, None)
+
+    async def test_unknown_symbol_reads_as_none(self, provider):
+        assert provider.borrow_status("AAPL") is None
+
+    async def test_cleared_when_the_stream_is_cancelled(self, provider, ib):
+        await provider.set_stream_symbols({"AAPL"})
+        provider._on_quote("AAPL", FakeTicker(shortable=3.0))
+        await provider.set_stream_symbols(set())
+        assert provider.borrow_status("AAPL") is None
+
+
+class TestHaltedTick:
+    @staticmethod
+    def recorder(provider):
+        events: list[tuple[str, bool]] = []
+
+        async def handler(symbol: str, halted: bool) -> None:
+            events.append((symbol, halted))
+
+        provider.on_halt(handler)
+        return events
+
+    async def test_a_halt_transition_is_emitted(self, provider, ib, on_loop):
+        events = self.recorder(provider)
+        await provider.set_stream_symbols({"AAPL"})
+        provider._on_quote("AAPL", FakeTicker(halted=2))
+        await asyncio.sleep(0)
+        assert events == [("AAPL", True)]
+
+    async def test_repeats_of_the_same_state_stay_quiet(self, provider, ib, on_loop):
+        events = self.recorder(provider)
+        await provider.set_stream_symbols({"AAPL"})
+        for _ in range(3):
+            provider._on_quote("AAPL", FakeTicker(halted=1))
+        await asyncio.sleep(0)
+        assert events == [("AAPL", True)]
+
+    async def test_resume_is_a_transition_too(self, provider, ib, on_loop):
+        events = self.recorder(provider)
+        await provider.set_stream_symbols({"AAPL"})
+        provider._on_quote("AAPL", FakeTicker(halted=1))
+        provider._on_quote("AAPL", FakeTicker(halted=0))
+        await asyncio.sleep(0)
+        assert events == [("AAPL", True), ("AAPL", False)]
+
+    async def test_unknown_magnitude_is_ignored(self, provider, ib, on_loop):
+        events = self.recorder(provider)
+        await provider.set_stream_symbols({"AAPL"})
+        provider._on_quote("AAPL", FakeTicker(halted=-1))
+        provider._on_quote("AAPL", FakeTicker())
+        await asyncio.sleep(0)
+        assert events == []
+
+
 class TestScannerSubscription:
     async def test_passes_the_filters_through(self, provider, ib):
         config = ScannerConfig(
@@ -559,7 +645,7 @@ class TestScannerSubscription:
             above_volume=100_000,
             number_of_rows=15,
         )
-        assert await provider.start_scanner(config) is True
+        assert await provider.start_scanner(TIER_ID, config) is True
 
         subscription = ib.scanner_subscription
         assert subscription.scanCode == "TOP_PERC_GAIN"
@@ -569,7 +655,7 @@ class TestScannerSubscription:
         assert subscription.aboveVolume == 100_000
 
     async def test_omits_filters_that_were_not_set(self, provider, ib):
-        await provider.start_scanner(ScannerConfig(scan_code="MOST_ACTIVE"))
+        await provider.start_scanner(TIER_ID, ScannerConfig(scan_code="MOST_ACTIVE"))
         assert not hasattr(ib.scanner_subscription, "abovePrice")
 
     async def test_market_cap_band_lands_on_the_subscription_in_millions(self, provider, ib):
@@ -579,13 +665,13 @@ class TestScannerSubscription:
             market_cap_above=10_000_000,
             market_cap_below=500_000_000,
         )
-        assert await provider.start_scanner(config) is True
+        assert await provider.start_scanner(TIER_ID, config) is True
         assert ib.scanner_subscription.marketCapAbove == 10
         assert ib.scanner_subscription.marketCapBelow == 500
 
     async def test_percent_change_rides_the_filter_options(self, provider, ib):
         config = ScannerConfig(scan_code="TOP_PERC_GAIN", change_perc_above=10.0)
-        assert await provider.start_scanner(config) is True
+        assert await provider.start_scanner(TIER_ID, config) is True
         options = {o.tag: o.value for o in ib.scanner_filter_options}
         assert options["changePercAbove"] == "10.0"
 
@@ -596,7 +682,7 @@ class TestScannerSubscription:
         trade-rate scan; only a capitalisation ceiling removes them.
         """
         config = ScannerConfig(scan_code="TOP_TRADE_RATE", market_cap_below=2_000_000_000)
-        assert await provider.start_scanner(config) is True
+        assert await provider.start_scanner(TIER_ID, config) is True
         # IBKR takes millions; our config carries dollars.
         assert ib.scanner_subscription.marketCapBelow == 2000
 
@@ -607,7 +693,7 @@ class TestScannerSubscription:
         silently keeps only one of them.
         """
         provider._scanner_settings = ScannerSettings(exclude_stock_types=["ETF", "CEF"])
-        await provider.start_scanner(ScannerConfig(scan_code="MOST_ACTIVE"))
+        await provider.start_scanner(TIER_ID, ScannerConfig(scan_code="MOST_ACTIVE"))
         options = {o.tag: o.value for o in ib.scanner_filter_options}
         assert options["stkTypes"] == "exc:ETF,exc:CEF"
 
@@ -617,12 +703,12 @@ class TestScannerSubscription:
         If it ever starts being set, the filter list is the thing that works
         and this guards against a well-meaning "fix" swapping them over.
         """
-        await provider.start_scanner(ScannerConfig(scan_code="MOST_ACTIVE"))
+        await provider.start_scanner(TIER_ID, ScannerConfig(scan_code="MOST_ACTIVE"))
         assert not getattr(ib.scanner_subscription, "stockTypeFilter", "")
 
     async def test_no_filters_at_all_sends_no_options(self, provider, ib):
         provider._scanner_settings = ScannerSettings(exclude_stock_types=[])
-        await provider.start_scanner(ScannerConfig(scan_code="MOST_ACTIVE"))
+        await provider.start_scanner(TIER_ID, ScannerConfig(scan_code="MOST_ACTIVE"))
         assert ib.scanner_filter_options == []
 
     async def test_refresh_loop_reemits_between_ranking_pushes(self, provider, ib):
@@ -633,12 +719,12 @@ class TestScannerSubscription:
         async def handler(rows):
             emissions.append(rows)
 
-        provider.on_scanner(handler)
+        provider.on_scanner(TIER_ID, handler)
         provider._loop = asyncio.get_running_loop()
-        await provider.start_scanner(ScannerConfig(scan_code="TOP_TRADE_RATE"))
+        await provider.start_scanner(TIER_ID, ScannerConfig(scan_code="TOP_TRADE_RATE"))
         try:
             # One ranking push from IBKR; the ticker is empty at that moment.
-            provider._on_scanner_update([FakeScannerRow(0, "HOT")])
+            provider._on_scanner_update(TIER_ID, [FakeScannerRow(0, "HOT")])
             await asyncio.sleep(0.02)
             assert emissions and emissions[0][0].price is None
 
@@ -650,14 +736,14 @@ class TestScannerSubscription:
             assert emissions[-1][0].price == pytest.approx(7.5)
             assert emissions[-1][0].trades_1m == 900
         finally:
-            await provider.stop_scanner()
+            await provider.stop_scanner(TIER_ID)
 
     async def test_stop_scanner_ends_the_refresh_loop(self, provider):
         provider._scanner_settings = ScannerSettings(min_refresh_seconds=0.05)
-        await provider.start_scanner(ScannerConfig(scan_code="MOST_ACTIVE"))
-        task = provider._scanner_refresh_task
+        await provider.start_scanner(TIER_ID, ScannerConfig(scan_code="MOST_ACTIVE"))
+        task = provider._scanner_refresh_tasks[TIER_ID]
         assert task is not None
-        await provider.stop_scanner()
+        await provider.stop_scanner(TIER_ID)
         assert task.done()
 
     async def test_reports_a_refusal(self, provider, ib):
@@ -665,17 +751,17 @@ class TestScannerSubscription:
             raise RuntimeError("scanner subscription limit reached")
 
         ib.reqScannerSubscription = refuse
-        assert await provider.start_scanner(ScannerConfig(scan_code="MOST_ACTIVE")) is False
+        assert await provider.start_scanner(TIER_ID, ScannerConfig(scan_code="MOST_ACTIVE")) is False
 
     async def test_stopping_cancels_the_subscription(self, provider, ib):
-        await provider.start_scanner(ScannerConfig(scan_code="MOST_ACTIVE"))
-        await provider.stop_scanner()
+        await provider.start_scanner(TIER_ID, ScannerConfig(scan_code="MOST_ACTIVE"))
+        await provider.stop_scanner(TIER_ID)
         assert ib.scanner_cancelled is True
 
     async def test_stopping_releases_the_row_feeds(self, provider, ib):
-        await provider.start_scanner(ScannerConfig(scan_code="MOST_ACTIVE"))
-        await provider._process_scanner([FakeScannerRow(0, "ABCD")])
-        await provider.stop_scanner()
+        await provider.start_scanner(TIER_ID, ScannerConfig(scan_code="MOST_ACTIVE"))
+        await provider._process_scanner(TIER_ID, [FakeScannerRow(0, "ABCD")])
+        await provider.stop_scanner(TIER_ID)
         assert ib.cancelled_market_data == ["ABCD"]
 
 
@@ -687,13 +773,25 @@ class TestScannerRows:
         async def handler(result):
             captured.append(result)
 
-        provider.on_scanner(handler)
-        await provider._process_scanner(rows)
+        provider.on_scanner(TIER_ID, handler)
+        await provider._process_scanner(TIER_ID, rows)
         return captured[0]
 
     async def test_reports_rank_symbol_and_exchange(self, provider):
         rows = await self.collect(provider, [FakeScannerRow(3, "ABCD", "NASDAQ")])
         assert (rows[0].rank, rows[0].symbol, rows[0].exchange) == (3, "ABCD", "NASDAQ")
+
+    async def test_a_symbol_returned_under_two_contracts_emits_once(self, provider):
+        """Downstream is keyed per symbol; a duplicate is the same row twice."""
+        entries = [
+            FakeScannerRow(0, "DUPE", "NASDAQ"),
+            FakeScannerRow(1, "OTHR"),
+            FakeScannerRow(2, "DUPE", "NYSE"),
+        ]
+        rows = await self.collect(provider, entries)
+        assert [row.symbol for row in rows] == ["DUPE", "OTHR"]
+        # The first contract — the better scan rank — is the one kept.
+        assert (rows[0].rank, rows[0].exchange) == (0, "NASDAQ")
 
     async def test_orders_rows_by_trade_rate(self, provider):
         """The scan picks the universe; prints per minute rank it."""
@@ -816,25 +914,55 @@ class TestScannerRows:
 
 class TestScannerStreams:
     async def test_opens_a_feed_for_each_row(self, provider, ib):
-        provider._sync_scanner_streams([FakeScannerRow(0, "AAA"), FakeScannerRow(1, "BBB")])
+        provider._sync_scanner_streams(TIER_ID, [FakeScannerRow(0, "AAA"), FakeScannerRow(1, "BBB")])
         assert sorted(ib.market_data) == ["AAA", "BBB"]
 
     async def test_closes_a_feed_when_the_row_drops_out(self, provider, ib):
-        provider._sync_scanner_streams([FakeScannerRow(0, "AAA"), FakeScannerRow(1, "BBB")])
-        provider._sync_scanner_streams([FakeScannerRow(0, "AAA")])
+        provider._sync_scanner_streams(TIER_ID, [FakeScannerRow(0, "AAA"), FakeScannerRow(1, "BBB")])
+        provider._sync_scanner_streams(TIER_ID, [FakeScannerRow(0, "AAA")])
         assert ib.cancelled_market_data == ["BBB"]
+
+    async def test_two_tiers_wanting_the_same_symbol_share_one_line(self, provider, ib):
+        """A symbol straddling two market-cap tiers must not double-subscribe.
+
+        ib_async's own client-side ticker cache is keyed by contract alone, and
+        a second reqMktData call on a contract already tracked overwrites the
+        reqId a later cancelMktData would act on — cancelling whichever tier
+        subscribed most recently rather than the one that asked to stop, and
+        leaking the other's line forever. One shared, refcounted stream per
+        symbol is what avoids that.
+        """
+        provider._sync_scanner_streams(TIER_ID, [FakeScannerRow(0, "AAA")])
+        provider._sync_scanner_streams("mid_cap", [FakeScannerRow(0, "AAA")])
+        assert list(ib.market_data) == ["AAA"]  # only one reqMktData call
+        assert provider._scanner_streams["AAA"]["owners"] == {TIER_ID, "mid_cap"}
+
+    async def test_one_tier_dropping_a_shared_symbol_does_not_cancel_it(self, provider, ib):
+        provider._sync_scanner_streams(TIER_ID, [FakeScannerRow(0, "AAA")])
+        provider._sync_scanner_streams("mid_cap", [FakeScannerRow(0, "AAA")])
+        provider._sync_scanner_streams(TIER_ID, [])  # small_cap no longer wants it
+        assert ib.cancelled_market_data == []
+        assert provider._scanner_streams["AAA"]["owners"] == {"mid_cap"}
+
+    async def test_only_the_last_owner_dropping_it_cancels_the_line(self, provider, ib):
+        provider._sync_scanner_streams(TIER_ID, [FakeScannerRow(0, "AAA")])
+        provider._sync_scanner_streams("mid_cap", [FakeScannerRow(0, "AAA")])
+        provider._sync_scanner_streams(TIER_ID, [])
+        provider._sync_scanner_streams("mid_cap", [])
+        assert ib.cancelled_market_data == ["AAA"]
+        assert "AAA" not in provider._scanner_streams
 
     async def test_keeps_the_trade_buffer_across_refreshes(self, provider):
         # Continuity is the entire point of a sliding window; resubscribing
         # each refresh would reset every rate to zero.
-        provider._sync_scanner_streams([FakeScannerRow(0, "AAA")])
+        provider._sync_scanner_streams(TIER_ID, [FakeScannerRow(0, "AAA")])
         provider._scanner_streams["AAA"]["trades"].append((time.time(), 1.0, 10))
 
-        provider._sync_scanner_streams([FakeScannerRow(0, "AAA"), FakeScannerRow(1, "BBB")])
+        provider._sync_scanner_streams(TIER_ID, [FakeScannerRow(0, "AAA"), FakeScannerRow(1, "BBB")])
         assert len(provider._scanner_streams["AAA"]["trades"]) == 1
 
     async def test_records_incoming_prints(self, provider):
-        provider._sync_scanner_streams([FakeScannerRow(0, "AAA")])
+        provider._sync_scanner_streams(TIER_ID, [FakeScannerRow(0, "AAA")])
         ticker = provider._scanner_streams["AAA"]["ticker"]
         ticker.ticks = [type("T", (), {"price": 3.0, "size": 40})()]
 
@@ -842,7 +970,7 @@ class TestScannerStreams:
         assert len(provider._scanner_streams["AAA"]["trades"]) == 1
 
     async def test_ignores_a_print_with_no_size(self, provider):
-        provider._sync_scanner_streams([FakeScannerRow(0, "AAA")])
+        provider._sync_scanner_streams(TIER_ID, [FakeScannerRow(0, "AAA")])
         ticker = provider._scanner_streams["AAA"]["ticker"]
         ticker.ticks = [type("T", (), {"price": 3.0, "size": 0})()]
 
@@ -850,7 +978,7 @@ class TestScannerStreams:
         assert len(provider._scanner_streams["AAA"]["trades"]) == 0
 
     async def test_prunes_prints_past_the_window(self, provider):
-        provider._sync_scanner_streams([FakeScannerRow(0, "AAA")])
+        provider._sync_scanner_streams(TIER_ID, [FakeScannerRow(0, "AAA")])
         trades = provider._scanner_streams["AAA"]["trades"]
         trades.append((time.time() - TRADE_BUFFER_MAX_AGE - 60, 1.0, 10))
 

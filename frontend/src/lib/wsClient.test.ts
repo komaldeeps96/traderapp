@@ -325,25 +325,29 @@ describe('WsClient', () => {
   });
 
   describe('scanner commands', () => {
-    it('sends filters', () => {
+    it('sends filters, tagged with the scanner id', () => {
       const client = makeClient();
       client.connect();
       FakeSocket.latest().open();
-      client.configureScanner({ scan_code: 'MOST_ACTIVE', above_price: 2 });
+      client.configureScanner('small_cap', { scan_code: 'MOST_ACTIVE', above_price: 2 });
 
       expect(FakeSocket.latest().commands).toContainEqual({
         action: 'scanner.configure',
+        scanner_id: 'small_cap',
         scan_code: 'MOST_ACTIVE',
         above_price: 2,
       });
     });
 
-    it('sends a stop', () => {
+    it('sends a stop, tagged with the scanner id', () => {
       const client = makeClient();
       client.connect();
       FakeSocket.latest().open();
-      client.stopScanner();
-      expect(FakeSocket.latest().commands).toContainEqual({ action: 'scanner.stop' });
+      client.stopScanner('mid_cap');
+      expect(FakeSocket.latest().commands).toContainEqual({
+        action: 'scanner.stop',
+        scanner_id: 'mid_cap',
+      });
     });
   });
 });
