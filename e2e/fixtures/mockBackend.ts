@@ -18,7 +18,11 @@ import {
   SCANNER_TIERS,
   TIMEFRAMES,
   makeApiUsage,
+  makeArticle,
+  makeFilings,
+  makeFundamentals,
   makeInfo,
+  makeNews,
   makeQuote,
   makeScannerMessage,
   makeScannerRows,
@@ -99,6 +103,14 @@ export async function installMockBackend(
     default_symbol: 'AAPL',
     default_timeframe: '10s',
   });
+  // The dock's fundamentals panel. Served for any symbol; specs that need a
+  // different read override it with `page.route` after installing.
+  await json(page, '**/api/fundamentals/**', makeFundamentals());
+  await json(page, '**/api/filings/**', makeFilings());
+  // Order matters: the article route is registered first so the broader news
+  // pattern does not swallow it.
+  await json(page, '**/api/news/*/article*', makeArticle());
+  await json(page, '**/api/news/*', makeNews());
   await json(page, '**/api/scanner/tiers', {
     scan_codes: SCAN_CODES,
     tiers: SCANNER_TIERS,

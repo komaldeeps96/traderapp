@@ -44,6 +44,32 @@ _COLUMNS = [
     # Split-adjusted all-time high since listing — unreachable from our own
     # bars, which only go back three years.
     "High.All",
+    # The fundamentals panel's lower section. All thirty-odd columns resolve
+    # in the one request the row already costs, so carrying them is free —
+    # which is the only reason they are here at all, since none of them
+    # decides whether a trade is possible.
+    "industry",
+    "country",
+    "number_of_employees",
+    "price_earnings_ttm",
+    "earnings_per_share_basic_ttm",
+    "total_revenue",
+    "gross_margin",
+    "operating_margin",
+    "net_income",
+    "total_debt",
+    "cash_n_short_term_invest_fq",
+    "free_cash_flow_ttm",
+    "ebitda",
+    "debt_to_equity",
+    "current_ratio",
+    "enterprise_value_current",
+    "return_on_equity",
+    "price_book_fq",
+    "price_sales_current",
+    "beta_1_year",
+    "Perf.YTD",
+    "earnings_release_next_date",
 ]
 _INDEX = {name: i for i, name in enumerate(_COLUMNS)}
 
@@ -162,6 +188,28 @@ class TVDataService:
             premarket_volume=_value(row, "premarket_volume"),
             premarket_change=_value(row, "premarket_change"),
             all_time_high=_value(row, "High.All"),
+            industry=_text(row, "industry"),
+            country=_text(row, "country"),
+            employees=_value(row, "number_of_employees"),
+            price_earnings=_value(row, "price_earnings_ttm"),
+            eps_ttm=_value(row, "earnings_per_share_basic_ttm"),
+            revenue_ttm=_value(row, "total_revenue"),
+            gross_margin=_value(row, "gross_margin"),
+            operating_margin=_value(row, "operating_margin"),
+            net_income=_value(row, "net_income"),
+            total_debt=_value(row, "total_debt"),
+            total_cash=_value(row, "cash_n_short_term_invest_fq"),
+            free_cash_flow=_value(row, "free_cash_flow_ttm"),
+            ebitda=_value(row, "ebitda"),
+            debt_to_equity=_value(row, "debt_to_equity"),
+            current_ratio=_value(row, "current_ratio"),
+            enterprise_value=_value(row, "enterprise_value_current"),
+            return_on_equity=_value(row, "return_on_equity"),
+            price_to_book=_value(row, "price_book_fq"),
+            price_to_sales=_value(row, "price_sales_current"),
+            beta=_value(row, "beta_1_year"),
+            perf_ytd=_value(row, "Perf.YTD"),
+            earnings_next=_value(row, "earnings_release_next_date"),
             fetched_at=time.time(),
         )
 

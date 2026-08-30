@@ -236,6 +236,22 @@ class RegimeMessage(TypedDict):
     error: str | None
 
 
+class NewsMessage(TypedDict):
+    """One live headline, pushed as it arrives on generic tick 292."""
+
+    type: Literal["news"]
+    symbol: str
+    headline: dict
+
+
+class FilingMessage(TypedDict):
+    """A dilution or distress filing that landed while the symbol was open."""
+
+    type: Literal["filing"]
+    symbol: str
+    filing: dict
+
+
 class ErrorMessage(TypedDict):
     type: Literal["error"]
     code: str
@@ -344,6 +360,14 @@ def api_usage_message(snapshot: dict) -> ApiUsageMessage:
 
 def regime_message(*, regime: dict, running: bool, error: str | None) -> RegimeMessage:
     return {"type": "regime", "regime": regime, "running": running, "error": error}
+
+
+def news_message(symbol: str, headline: dict) -> NewsMessage:
+    return {"type": "news", "symbol": symbol, "headline": headline}
+
+
+def filing_message(symbol: str, filing: dict) -> FilingMessage:
+    return {"type": "filing", "symbol": symbol, "filing": filing}
 
 
 def error_message(code: str, message: str) -> ErrorMessage:

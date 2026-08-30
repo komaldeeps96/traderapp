@@ -31,7 +31,14 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: isCI,
   retries: isCI ? 2 : 0,
-  workers: isCI ? 2 : undefined,
+  // Two everywhere, not just in CI. Left undefined, Playwright picks half
+  // the cores — four on this machine — and each worker is a whole browser
+  // holding a chart. On a 16GB laptop that is enough to exhaust memory: a
+  // run at the default count took the load average past 250 and ended in a
+  // kernel panic with the VM compressor at 100% of its page limit. The
+  // suite finishes in about a minute either way; the headroom is worth far
+  // more than the seconds.
+  workers: 2,
   timeout: 45_000,
   expect: { timeout: 10_000 },
 
@@ -137,6 +144,10 @@ export default defineConfig({
         TRADERAPP_SCANNER__ENABLED: 'false',
         // The regime poll would dial the real TradingView API from a test.
         TRADERAPP_REGIME__ENABLED: 'false',
+        // So would EDGAR, for the same reason: the dock's fundamentals and
+        // filings panels reach data.sec.gov, and nothing in a test run may
+        // leave the machine. The mocked suite serves those routes itself.
+        TRADERAPP_EDGAR__ENABLED: 'false',
         TRADERAPP_STATE_FILE: '/tmp/traderapp-e2e-state.yaml',
         TRADERAPP_LOG_LEVEL: 'WARNING',
       },

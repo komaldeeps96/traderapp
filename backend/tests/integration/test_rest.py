@@ -92,3 +92,163 @@ class TestCors:
     def test_allows_the_dev_frontend(self, client):
         response = client.get("/api/health", headers={"Origin": "http://localhost:3000"})
         assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+
+class TestFundamentals:
+    """The dock's fundamentals panel, for one symbol."""
+
+    def test_reports_unavailable_when_edgar_is_switched_off(self, client):
+        body = client.get("/api/fundamentals/CELU").json()
+        assert body == {
+            "symbol": "CELU",
+            "available": False,
+            "note": None,
+            "dilution": None,
+            "profile": None,
+            # TradingView is off in these settings too, so nothing to carry.
+            "business": None,
+        }
+
+    def test_serves_the_dilution_read(self, edgar_client):
+        body = edgar_client.get("/api/fundamentals/CELU").json()
+        assert body["available"] is True
+        read = body["dilution"]
+        assert read["warrants"]["value"] == 25_774_577
+        assert read["shares_outstanding"]["value"] == 28_945_961
+        assert read["warrant_overhang"] > 0.88
+        assert read["tone"] == "serial"
+
+    def test_every_figure_carries_the_date_it_was_reported_for(self, edgar_client):
+        """XBRL lags by a quarter or more; a number without its as-of date is
+        a lie with the timestamp missing."""
+        read = edgar_client.get("/api/fundamentals/CELU").json()["dilution"]
+        for field in ("cash", "warrants", "shares_outstanding", "public_float"):
+            assert read[field]["as_of"]
+            assert read[field]["stale_days"] >= 0
+
+    def test_carries_the_reasons_behind_the_verdict(self, edgar_client):
+        read = edgar_client.get("/api/fundamentals/CELU").json()["dilution"]
+        assert any("warrants" in reason for reason in read["reasons"])
+        assert any("listing rule" in reason for reason in read["reasons"])
+
+    def test_serves_the_filer_profile(self, edgar_client):
+        profile = edgar_client.get("/api/fundamentals/CELU").json()["profile"]
+        assert profile["name"] == "Celularity Inc"
+        assert profile["sic_description"] == "Pharmaceutical Preparations"
+        assert profile["exchanges"] == ["Nasdaq"]
+
+    def test_normalises_the_symbol(self, edgar_client):
+        assert edgar_client.get("/api/fundamentals/celu").json()["symbol"] == "CELU"
+
+    def test_rejects_a_symbol_that_is_not_one(self, edgar_client):
+        """It reaches an upstream URL, so it is validated like a command."""
+        assert edgar_client.get("/api/fundamentals/..%2Fetc").status_code in (404, 422)
+        assert edgar_client.get("/api/fundamentals/TOOLONGSYMBOL").status_code == 422
+
+    def test_an_unknown_ticker_answers_without_a_profile(self, edgar_client):
+        body = edgar_client.get("/api/fundamentals/ZZZZ").json()
+        assert body["available"] is True
+        assert body["profile"] is None
+        # The company being unknown is not an EDGAR problem.
+        assert body["note"] is None
+
+    def test_a_refused_request_says_so_rather_than_blaming_the_company(
+        self, settings, alpaca_api
+    ):
+        """www.sec.gov answers 403 to a User-Agent with no contact address
+        while data.sec.gov answers 200, so the CIK lookup fails and everything
+        else comes back null. Reporting that as "this company files nothing"
+        sends the reader hunting for a story that is really a config line."""
+        from fastapi.testclient import TestClient
+
+        from app.core.settings import EdgarSettings
+        from app.main import create_app
+        from app.providers.edgar import UNAVAILABLE_NOTE, EdgarProvider
+        from app.services.container import get_container
+        from tests.integration.edgar_stub import edgar_transport
+
+        settings = settings.model_copy(update={"edgar": EdgarSettings(enabled=True)})
+        with TestClient(create_app(settings)) as client:
+            container = get_container()
+            container.edgar = EdgarProvider(transport=edgar_transport(fail=True))
+            container.symbol_info._edgar = container.edgar
+
+            body = client.get("/api/fundamentals/CELU").json()
+            assert body["note"] == UNAVAILABLE_NOTE
+            assert body["dilution"] is None
+            assert client.get("/api/filings/CELU").json()["note"] == UNAVAILABLE_NOTE
+
+
+class TestFilings:
+    """The dock's filings panel — the SEC trail, classified."""
+
+    def test_reports_unavailable_when_edgar_is_switched_off(self, client):
+        body = client.get("/api/filings/CELU").json()
+        assert body == {"symbol": "CELU", "available": False, "note": None, "filings": []}
+
+    def test_serves_the_trail_newest_first(self, edgar_client):
+        rows = edgar_client.get("/api/filings/CELU").json()["filings"]
+        assert [row["form"] for row in rows][:3] == ["NT 10-Q", "8-K", "25-NSE"]
+
+    def test_each_row_is_classified_and_explained(self, edgar_client):
+        rows = edgar_client.get("/api/filings/CELU").json()["filings"]
+        by_form = {row["form"]: row for row in rows}
+        assert by_form["NT 10-Q"]["kind"] == "distress"
+        assert by_form["424B3"]["kind"] == "dilution"
+        assert by_form["10-K"]["kind"] == "periodic"
+        assert by_form["4"]["kind"] == "ownership"
+        assert by_form["424B3"]["note"]
+
+    def test_an_eight_k_is_classified_by_its_items(self, edgar_client):
+        rows = edgar_client.get("/api/filings/CELU").json()["filings"]
+        eight_ks = {tuple(row["items"]): row for row in rows if row["form"] == "8-K"}
+        assert eight_ks[("3.01",)]["kind"] == "distress"
+        assert eight_ks[("1.01",)]["kind"] == "dilution"
+
+    def test_rows_link_to_the_document_on_sec_gov(self, edgar_client):
+        rows = edgar_client.get("/api/filings/CELU").json()["filings"]
+        assert rows[0]["url"].startswith("https://www.sec.gov/Archives/edgar/data/1752828/")
+
+    def test_acceptance_time_rides_along(self, edgar_client):
+        """A 424B5 accepted at 16:05 is the one that matters, and only this
+        field can say so."""
+        rows = edgar_client.get("/api/filings/CELU").json()["filings"]
+        assert rows[0]["accepted"] == 1786723512
+
+    def test_a_company_with_nothing_on_file_is_not_an_edgar_problem(self, edgar_client):
+        body = edgar_client.get("/api/filings/ZZZZ").json()
+        assert body["available"] is True
+        assert body["filings"] == []
+        assert body["note"] is None
+
+    def test_normalises_the_symbol(self, edgar_client):
+        assert edgar_client.get("/api/filings/celu").json()["symbol"] == "CELU"
+
+    def test_rejects_a_symbol_that_is_not_one(self, edgar_client):
+        assert edgar_client.get("/api/filings/TOOLONGSYMBOL").status_code == 422
+
+
+class TestNews:
+    """The dock's news panel. IBKR is disabled in these settings, which is the
+    configuration a user without TWS has — the panel must say so rather than
+    fail."""
+
+    def test_answers_without_ibkr_rather_than_erroring(self, client):
+        body = client.get("/api/news/CELU").json()
+        assert body == {"symbol": "CELU", "providers": [], "headlines": []}
+
+    def test_normalises_the_symbol(self, client):
+        assert client.get("/api/news/celu").json()["symbol"] == "CELU"
+
+    def test_rejects_a_symbol_that_is_not_one(self, client):
+        assert client.get("/api/news/TOOLONGSYMBOL").status_code == 422
+
+    def test_an_article_needs_both_identifiers(self, client):
+        assert client.get("/api/news/CELU/article").status_code == 422
+
+    def test_an_article_body_comes_back_as_paragraphs(self, client):
+        body = client.get(
+            "/api/news/CELU/article", params={"provider": "DJ-N", "article_id": "DJ-N$1f36"}
+        ).json()
+        assert body["paragraphs"] == []
+        assert body["article_id"] == "DJ-N$1f36"

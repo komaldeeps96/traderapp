@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  LAST_INITIATION_MINUTE,
+  NEWS_SLOTS,
   formatCountdown,
   hasCandleCountdown,
   isCandleClosing,
   nyDayIndex,
   secondsToCandleClose,
+  newsWindow,
   sessionAt,
   sessionVolumes,
+  slotLabel,
 } from './session';
 
 /**
@@ -150,5 +154,60 @@ describe('session volume', () => {
     expect(sessionAt(PRE_OPEN)).toBe('PRE');
     expect(sessionAt(PRE_OPEN + 6 * 3600)).toBe('RTH'); // 10:00 ET
     expect(sessionAt(PRE_OPEN + 13 * 3600)).toBe('AH'); // 17:00 ET
+  });
+});
+
+
+/**
+ * The news clock.
+ *
+ * Issuers file on the hour and the half hour, so the morning's opportunity
+ * set is a schedule rather than a stream. 5 March 2026 is a Thursday still
+ * on EST, so 14:00Z is 09:00 in New York.
+ */
+describe('newsWindow', () => {
+  const ny = (hour: number, minute: number, second = 0) =>
+    new Date(Date.UTC(2026, 2, 5, hour + 5, minute, second));
+
+  it('counts down to the next scheduled slot', () => {
+    const window = newsWindow(ny(8, 28, 30));
+    expect(window).toEqual({ slot: 8 * 60 + 30, open: false, seconds: 90, dense: true });
+  });
+
+  it('switches to watching once the mark passes', () => {
+    const window = newsWindow(ny(8, 30, 42));
+    expect(window).toEqual({ slot: 8 * 60 + 30, open: true, seconds: 42, dense: true });
+  });
+
+  it('moves on once the watch window is spent', () => {
+    // Two minutes past 8:30 with nothing having moved: that window is closed
+    // and the next one to wait for is 9:00.
+    expect(newsWindow(ny(8, 32, 1))!.slot).toBe(9 * 60);
+  });
+
+  it('marks only the two densest slots', () => {
+    expect(newsWindow(ny(7, 29))!.dense).toBe(false);
+    expect(newsWindow(ny(7, 59))!.dense).toBe(true);
+    expect(newsWindow(ny(8, 29))!.dense).toBe(true);
+    expect(newsWindow(ny(8, 59))!.dense).toBe(false);
+  });
+
+  it('has nothing left to wait for after the last slot', () => {
+    expect(newsWindow(ny(9, 20))).toBeNull();
+  });
+
+  it('waits for the first slot before the day starts', () => {
+    expect(newsWindow(ny(5, 0))!.slot).toBe(NEWS_SLOTS[0]);
+  });
+
+  it('is silent at the weekend', () => {
+    // 7 March 2026 is a Saturday.
+    expect(newsWindow(new Date(Date.UTC(2026, 2, 7, 13, 0)))).toBeNull();
+  });
+
+  it('labels a slot as a wall clock reads it', () => {
+    expect(slotLabel(8 * 60 + 30)).toBe('8:30');
+    expect(slotLabel(9 * 60)).toBe('9:00');
+    expect(LAST_INITIATION_MINUTE).toBe(9 * 60 + 15);
   });
 });

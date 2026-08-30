@@ -8,9 +8,14 @@
 
 import { create } from 'zustand';
 
+import { clampDockWidth, type DockTabId } from '@/lib/dock';
 import {
+  loadDockTab,
+  loadDockWidth,
   loadMiniTimeframes,
   loadVisibility,
+  saveDockTab,
+  saveDockWidth,
   saveMiniTimeframes,
   saveVisibility,
   type Theme,
@@ -18,6 +23,8 @@ import {
 import type {
   ApiUsageMessage,
   DataSource,
+  FilingRow,
+  Headline,
   IndicatorSpec,
   InfoMessage,
   MarketRegime,
@@ -93,6 +100,25 @@ interface TerminalState {
   scanners: Record<ScannerTierId, ScannerTierState>;
   /** The timeframe each mini-chart slot shows. */
   miniTimeframes: Timeframe[];
+
+  // the right-hand dock — which tab is open and how wide the rail is
+  dockTab: DockTabId;
+  dockWidth: number;
+
+  // news: the backfill and every live headline merged into one list, held
+  // here rather than in the panel so a headline arriving over the WebSocket
+  // reaches it whether or not the tab is currently mounted.
+  news: Headline[];
+  newsSymbol: string;
+  newsStatus: 'idle' | 'loading' | 'ready' | 'error';
+  newsProviders: Array<{ code: string; name: string }>;
+
+  /** Live pushes that arrived while a tab was not the open one, per tab.
+   *  Cleared when that tab is selected. */
+  dockAlerts: Partial<Record<DockTabId, number>>;
+  /** Dilution and distress filings pushed mid-session, newest first. */
+  liveFilings: FilingRow[];
+
   scannerNote: string | null;
   scanCodes: Array<{ code: string; label: string }>;
 
@@ -121,6 +147,16 @@ interface TerminalState {
   toggleIndicator: (id: string) => void;
   setAllIndicators: (ids: string[], visible: boolean) => void;
   setMiniTimeframe: (slot: number, timeframe: Timeframe) => void;
+  setDockTab: (tab: DockTabId) => void;
+  setDockWidth: (width: number) => void;
+  setNews: (
+    symbol: string,
+    headlines: Headline[],
+    providers: Array<{ code: string; name: string }>,
+  ) => void;
+  setNewsStatus: (status: 'idle' | 'loading' | 'ready' | 'error') => void;
+  addHeadline: (symbol: string, headline: Headline) => void;
+  addFiling: (symbol: string, filing: FilingRow) => void;
   setScanner: (
     scannerId: ScannerTierId,
     payload: { label: string; rows: ScannerRow[]; config: ScannerConfig; running: boolean },
@@ -166,6 +202,15 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
   scanners: emptyScanners(),
   miniTimeframes: loadMiniTimeframes(),
+  dockTab: loadDockTab(),
+  dockWidth: loadDockWidth(),
+
+  news: [],
+  newsSymbol: '',
+  newsStatus: 'idle',
+  newsProviders: [],
+  dockAlerts: {},
+  liveFilings: [],
   scannerNote: null,
   scanCodes: [],
 
@@ -201,6 +246,11 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       barCount: 0,
       quote: changedSymbol ? null : state.quote,
       info: changedSymbol ? null : state.info,
+      // The previous company's headlines and filing alerts must not sit under
+      // the new ticker while its own load.
+      news: changedSymbol ? [] : state.news,
+      liveFilings: changedSymbol ? [] : state.liveFilings,
+      dockAlerts: changedSymbol ? {} : state.dockAlerts,
       visibility: changedTimeframe ? loadVisibility(state.specs, timeframe) : state.visibility,
     });
   },
@@ -243,6 +293,55 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     next[slot] = timeframe;
     saveMiniTimeframes(next);
     set({ miniTimeframes: next });
+  },
+
+  setNews: (newsSymbol, news, newsProviders) => set({ newsSymbol, news, newsProviders }),
+
+  setNewsStatus: (newsStatus) => set({ newsStatus }),
+
+  addHeadline: (symbol, headline) => {
+    // A headline for a symbol the user has navigated away from is dropped,
+    // exactly as a stale snapshot is.
+    const state = get();
+    if (symbol !== state.symbol) return;
+    // The server only pushes genuinely new stories — a bulletin that
+    // collapsed into one already held never reaches here — but the id check
+    // keeps a reconnect replay from doubling a row.
+    if (state.news.some((row) => row.article_id === headline.article_id)) return;
+    set({
+      news: [headline, ...state.news],
+      dockAlerts:
+        state.dockTab === 'news'
+          ? state.dockAlerts
+          : { ...state.dockAlerts, news: (state.dockAlerts.news ?? 0) + 1 },
+    });
+  },
+
+  addFiling: (symbol, filing) => {
+    const state = get();
+    if (symbol !== state.symbol) return;
+    if (state.liveFilings.some((row) => row.accession === filing.accession)) return;
+    set({
+      liveFilings: [filing, ...state.liveFilings],
+      dockAlerts:
+        state.dockTab === 'filings'
+          ? state.dockAlerts
+          : { ...state.dockAlerts, filings: (state.dockAlerts.filings ?? 0) + 1 },
+    });
+  },
+
+  setDockTab: (dockTab) => {
+    saveDockTab(dockTab);
+    // Opening a tab is what marks its alerts read.
+    set((state) => ({ dockTab, dockAlerts: { ...state.dockAlerts, [dockTab]: 0 } }));
+  },
+
+  setDockWidth: (width) => {
+    // Clamped here rather than at the drag handler so a width arriving from
+    // anywhere — a restored session, a test — lands inside the bounds.
+    const dockWidth = clampDockWidth(width);
+    saveDockWidth(dockWidth);
+    set({ dockWidth });
   },
 
   setScanner: (scannerId, { label, rows, config, running }) => {

@@ -18,6 +18,15 @@ const dayFormat = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
 });
 
+// Sortable YYYY-MM-DD in New York, used only to answer "is this bar from the
+// session on screen right now?" — never rendered.
+const nyDayKey = new Intl.DateTimeFormat('en-CA', {
+  timeZone: NY_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
 const dayYearFormat = new Intl.DateTimeFormat('en-US', {
   timeZone: NY_TIMEZONE,
   year: 'numeric',
@@ -108,9 +117,27 @@ export function formatInteger(value: number | null | undefined): string {
   return Math.round(value).toLocaleString('en-US');
 }
 
-export function formatBarTime(epochSeconds: number, timeframe: Timeframe): string {
+/**
+ * The bar's opening time, in New York.
+ *
+ * The date is dropped for a bar from the session on screen: "Aug 28," in
+ * front of an intraday timestamp is noise every single day, and dropping it
+ * leaves a clean clock that reads against the wall clock in the toolbar. It
+ * comes back the moment the bar is from an earlier day, which is the only
+ * case where its absence could mislead.
+ */
+export function formatBarTime(
+  epochSeconds: number,
+  timeframe: Timeframe,
+  now: number = Date.now(),
+): string {
   const date = new Date(epochSeconds * 1000);
   if (timeframe === '1d' || timeframe === '1w') return dayYearFormat.format(date);
+  if (nyDayKey.format(date) === nyDayKey.format(new Date(now))) {
+    return timeframe === '10s'
+      ? timeWithSecondsFormat.format(date)
+      : timeFormat.format(date);
+  }
   if (timeframe === '10s') return dateTimeWithSecondsFormat.format(date);
   return dateTimeFormat.format(date);
 }
@@ -126,11 +153,108 @@ export function formatClock(epochSeconds: number): string {
   return timeWithSecondsFormat.format(new Date(epochSeconds * 1000));
 }
 
+const newsDayFormat = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  timeZone: NY_TIMEZONE,
+});
+const newsTimeFormat = new Intl.DateTimeFormat('en-US', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  timeZone: NY_TIMEZONE,
+});
+
+/**
+ * A headline's timestamp: the clock for today, the date for anything older.
+ *
+ * A feed reaching back thirty days that shows only "09:01" makes a filing from
+ * June read as this morning's news, which is the one mistake a news panel must
+ * not make.
+ */
+export function formatNewsTime(epochSeconds: number, now: number = Date.now()): string {
+  const when = new Date(epochSeconds * 1000);
+  const sameDay = newsDayFormat.format(when) === newsDayFormat.format(new Date(now));
+  return sameDay ? newsTimeFormat.format(when) : newsDayFormat.format(when);
+}
+
+/**
+ * A price that may be nonsense.
+ *
+ * Reverse splits compound into split-adjusted history, so a serial diluter's
+ * all-time high can print in the tens of millions against a 38-cent tape.
+ * Compacting past five figures is what stops one broken reference number from
+ * setting the width of an entire row.
+ */
+export function formatLevel(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  if (Math.abs(value) >= 100_000) return formatCompact(value, 1);
+  return formatPrice(value);
+}
+
+/**
+ * A ratio read as a multiple: ×2.4, ×18, ×243M.
+ *
+ * The escape hatch for percentages that have stopped being percentages —
+ * "+24283875452%" is nine characters of nothing, "×243M" is the same fact in
+ * five and reads instantly as out of reach.
+ */
+export function formatMultiple(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const abs = Math.abs(value);
+  if (abs >= 1000) return `×${formatCompact(value, 0)}`;
+  return `×${value.toFixed(abs >= 10 ? 0 : 1)}`;
+}
+
+/**
+ * Distance to a level, as a percentage until that stops being readable.
+ *
+ * A 52-week high on a stock that has fallen 99% — or an all-time high on one
+ * that has reverse-split its way down — is a four-figure percentage in a
+ * column sized for "+45.68%". Past ten times the price the multiple says the
+ * same thing in half the characters.
+ */
+export function formatDistance(percent: number | null | undefined): string {
+  if (percent == null || !Number.isFinite(percent)) return '—';
+  if (Math.abs(percent) < 1000) return formatPercent(percent);
+  return formatMultiple(1 + percent / 100);
+}
+
 /** Float rotation: 0.42x, 6.8x, 72x. */
 export function formatRotation(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
   if (value >= 10) return `${Math.round(value)}x`;
   return `${value.toFixed(value >= 1 ? 1 : 2)}x`;
+}
+
+/**
+ * A percentage that has no direction: 4.1%, 0.4%, 13%.
+ *
+ * `formatPercent` signs everything, which is right for a change — a bar can
+ * close either way. It is wrong for a quantity that cannot be negative. A
+ * spread of "+0.4%", a float rotation of "+13%" or a headroom of "+4.1%"
+ * invite being read as changes, and the plus carries no information at all.
+ */
+export function formatUnsignedPercent(
+  value: number | null | undefined,
+  digits = 2,
+): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return `${Math.abs(value).toFixed(digits)}%`;
+}
+
+/**
+ * A short elapsed span, counting up: 0:04, 3:27, 14:59.
+ *
+ * Minutes and seconds throughout, with no hour field — this measures things
+ * that matter for minutes, and a reading that has reached an hour has
+ * already stopped meaning anything.
+ */
+export function formatElapsed(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '—';
+  const whole = Math.floor(seconds);
+  const minutes = Math.floor(whole / 60);
+  return `${minutes}:${String(whole % 60).padStart(2, '0')}`;
 }
 
 /** A spread in dollars, shown in cents below one dollar: 4¢, 38¢, $1.25. */

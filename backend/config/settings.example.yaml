@@ -46,13 +46,30 @@ history:
 
 scanner:
   # The trade-rate scanner is IBKR-only; there is no Alpaca equivalent to
-  # fall back to. Market-cap band and percent-change filters are set from
-  # the UI at runtime.
+  # fall back to. The market-cap band is per tier (app/domain/scanner.py,
+  # SCANNER_TIERS), not set here.
+  #
+  # HALF OF THIS BLOCK IS A FIRST-RUN SEED, NOT A SETTING
+  # -----------------------------------------------------
+  # The four filter keys below — scan_code, above_price, below_price,
+  # above_volume, change_perc_above — seed each tier's ScannerConfig the
+  # first time the terminal runs. After that config/state.yaml owns them:
+  # pressing Apply in the UI writes every filter there, and adopt_config
+  # reads it back at startup and wins. Editing them here once state.yaml
+  # exists changes nothing, silently.
+  #
+  # To make an edit here take effect, delete the `scanners:` block from
+  # config/state.yaml (it is regenerated), or just set the filter in the UI
+  # instead — which is what the UI is for.
+  #
+  # The rest of the block is read on every run and state.yaml never touches
+  # it: enabled, rank_window_seconds, location_code, instrument,
+  # min_refresh_seconds and exclude_stock_types.
   enabled: true
   scan_code: TOP_TRADE_RATE
-  above_price: 1.0
-  below_price: 20.0
-  above_volume: 100000
+  below_price: 50.0
+  change_perc_above: 10.0
+  rank_window_seconds: 5.0
 
 screener:
   # The TradingView screener needs no credentials and no TWS. Defaults are
@@ -67,3 +84,17 @@ screener:
   rel_vol_min: 5.0
   float_max: 20000000
   rows: 30
+
+edgar:
+  # SEC EDGAR is the fundamentals and filings source, because IBKR is not one
+  # on a retail account — every reqFundamentalData report answers error 10358.
+  # No key and no subscription, but SEC does require a User-Agent identifying
+  # the caller with a real contact address, and www.sec.gov answers 403
+  # without one while data.sec.gov answers 200 to the same request. Set this
+  # before the panel will show anything.
+  enabled: true
+  user_agent: "traderapp/1.0 (you@example.com)"
+  # How often the focused symbol's filing trail is re-read, watching for an
+  # offering that lands mid-session. One request a minute against SEC's
+  # ten-a-second allowance.
+  filing_poll_seconds: 60

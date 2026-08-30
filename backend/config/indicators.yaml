@@ -77,8 +77,24 @@ indicators:
   # ── Moving averages ────────────────────────────────────────────────
   # On the 10s chart each EMA runs with its 1-minute span times six (six
   # 10-second bars per minute), so the line tracks the same 1-minute EMA the
-  # rest of the day is planned around: 9 -> 54, 20 -> 120, 45 -> 270. Same
-  # id, same colour, same toggle across timeframes.
+  # rest of the day is planned around: 9 -> 54, 20 -> 120, 45 -> 270,
+  # 100 -> 600. Same id, same colour, same toggle across timeframes.
+  #
+  # EMA 100's olive is the one hue left, and it is a compromise made with the
+  # numbers in hand. Measured against every other line, band and candle body
+  # on both surfaces: for normal colour vision it is comfortably clear of
+  # everything (dE 23 to EMA 45, 45 to EMA 20, 63 to EMA 9, 72 to VWAP light;
+  # 30/53/70/87 dark). Under protan and deutan simulation it is not — it
+  # collapses onto EMA 20's orange (dE 7.9 light, 16.5 dark) and onto the
+  # amber confluence band (5.6 / 9.9). Green is not the collision anyone
+  # expects it to be: that pair stays at dE 61.
+  #
+  # Nothing better exists. Blue, orange, green and magenta already span the
+  # axes dichromats can separate, so every remaining gap collapses onto an
+  # existing line under simulation — cyan onto green at dE 2.3, indigo onto
+  # blue at 3.4, purple onto magenta at 12.8. A fifth categorical hue on this
+  # chart is not available; this one buys full separation for trichromats and
+  # spends the red-green channel to get it.
   - id: ema9
     type: ema
     label: EMA 9
@@ -135,6 +151,27 @@ indicators:
       1h: { enabled: true }
       4h: { enabled: true }
 
+  # The slow structural line: 100 minutes, which is the one the 10-second
+  # tape is read against when the fast fan has gone vertical and the question
+  # is how far price has travelled from anything durable.
+  - id: ema100
+    type: ema
+    label: EMA 100
+    span: 100
+    color: '#788e0b'
+    color_dark: '#beda2f'
+    line_width: 1
+    last_value: false
+    group: moving_averages
+    timeframes:
+      10s: { enabled: true, span: 600, label: EMA 600 }
+      1m: { enabled: true }
+      5m: { enabled: true }
+      15m: { enabled: true }
+      30m: { enabled: true }
+      1h: { enabled: true }
+      4h: { enabled: true }
+
   - id: ema50
     type: ema
     label: EMA 50
@@ -148,10 +185,12 @@ indicators:
       1d: { enabled: true }
 
   # ── Session benchmark ──────────────────────────────────────────────
-  # Windowed relative volume: today's 4am-to-here volume against the same
-  # window on prior sessions, off the 20-day minute base. Readout-only — a
-  # ratio has no business on a price pane; the top-panel strip reads it out
-  # per bar, 10-second charts included (stepping once a minute there).
+  # Windowed relative volume: today's 4am-to-here volume against a typical
+  # session's volume by the same time of day. The minute base supplies the
+  # exact figure for the few sessions it covers and the shape of the day;
+  # the daily base carries that shape back over 50 sessions. Readout-only —
+  # a ratio has no business on a price pane; the top-panel strip reads it
+  # out per bar, 10-second charts included (stepping once a minute there).
   - id: wrvol
     type: wrvol
     label: Windowed RVOL

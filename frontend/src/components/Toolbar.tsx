@@ -28,11 +28,11 @@ export function Toolbar({ onSubscribe, onTimeframe, onToggleTheme }: ToolbarProp
       <SymbolInput symbol={symbol} timeframe={timeframe} onSubscribe={onSubscribe} />
       <TimeframeTabs value={timeframe} onChange={onTimeframe} />
 
-      {/* Centred between the chart controls and the status cluster: the
-          "can I switch tickers right now" read lives where the eye rests. */}
-      <div className="mx-auto">
-        <ApiMeters />
-      </div>
+      {/* The slack in this row is where the instrument's name goes. It used
+          to sit in the panel below, beside a second copy of the ticker that
+          the input already shows; here it costs no height at all and the
+          panel below is left to carry nothing but numbers. */}
+      <Instrument />
 
       <div className="flex items-center gap-2.5">
         {status === 'loading' && (
@@ -40,6 +40,7 @@ export function Toolbar({ onSubscribe, onTimeframe, onToggleTheme }: ToolbarProp
             Loading…
           </span>
         )}
+        <ApiMeters />
         <Regime />
         <SessionClock />
         <SourceBadge />
@@ -54,6 +55,51 @@ export function Toolbar({ onSubscribe, onTimeframe, onToggleTheme }: ToolbarProp
         </button>
       </div>
     </header>
+  );
+}
+
+/**
+ * Who the ticker in the box actually is.
+ *
+ * Truncating rather than wrapping is deliberate: this is the one field on the
+ * header whose length is set by a data provider rather than by a format
+ * function, so it is the one field that must not be allowed to move anything
+ * else. It takes the leftover width and gives it back the moment the status
+ * cluster needs it.
+ */
+function Instrument() {
+  const info = useTerminalStore((state) => state.info);
+  if (!info?.description) return null;
+
+  return (
+    <div
+      className="flex min-w-0 flex-1 items-baseline gap-1.5 overflow-hidden"
+      data-testid="tb-instrument"
+    >
+      <span
+        className="truncate text-[11px] text-ink-2"
+        data-testid="tb-company"
+        title={info.description}
+      >
+        {info.description}
+      </span>
+      {info.exchange && (
+        <span
+          className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-ink-3"
+          title="Listing exchange"
+        >
+          {info.exchange}
+        </span>
+      )}
+      {info.sector && (
+        <span
+          className="hidden shrink-0 truncate text-[9px] uppercase tracking-wide text-ink-3 2xl:inline"
+          title="Sector"
+        >
+          {info.sector}
+        </span>
+      )}
+    </div>
   );
 }
 

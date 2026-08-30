@@ -4,13 +4,18 @@ import type { IndicatorSpec } from '@/types/protocol';
 
 import {
   defaultVisibility,
+  loadDockTab,
+  loadDockWidth,
   loadTheme,
   loadVisibility,
   loadZoom,
+  saveDockTab,
+  saveDockWidth,
   saveTheme,
   saveVisibility,
   saveZoom,
 } from './storage';
+import { DOCK_DEFAULT_WIDTH, DOCK_MAX_WIDTH, DOCK_MIN_WIDTH } from './dock';
 
 function spec(id: string, timeframes: Record<string, { enabled: boolean }>): IndicatorSpec {
   return {
@@ -151,5 +156,55 @@ describe('theme persistence', () => {
   it('ignores an unrecognised stored value', () => {
     localStorage.setItem('traderapp.theme', 'neon');
     expect(loadTheme()).toBe('dark');
+  });
+});
+
+describe('dock persistence', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('opens on the context charts until told otherwise', () => {
+    expect(loadDockTab()).toBe('charts');
+  });
+
+  it('round-trips a chosen tab', () => {
+    saveDockTab('fundamentals');
+    expect(loadDockTab()).toBe('fundamentals');
+  });
+
+  it('falls back to the charts when a saved tab no longer exists', () => {
+    localStorage.setItem('traderapp.dockTab', 'options');
+    expect(loadDockTab()).toBe('charts');
+  });
+
+  it('starts at the width the mini charts were tuned to', () => {
+    expect(loadDockWidth()).toBe(DOCK_DEFAULT_WIDTH);
+  });
+
+  it('round-trips a dragged width', () => {
+    saveDockWidth(500);
+    expect(loadDockWidth()).toBe(500);
+  });
+
+  it('clamps a width from a build with different bounds rather than discarding it', () => {
+    // The intent was "as wide as possible"; the nearest legal wide is closer
+    // to that than the default would be.
+    localStorage.setItem('traderapp.dockWidth', '4000');
+    expect(loadDockWidth()).toBe(DOCK_MAX_WIDTH);
+    localStorage.setItem('traderapp.dockWidth', '20');
+    expect(loadDockWidth()).toBe(DOCK_MIN_WIDTH);
+  });
+
+  it('ignores a corrupt width', () => {
+    localStorage.setItem('traderapp.dockWidth', 'wide');
+    expect(loadDockWidth()).toBe(DOCK_DEFAULT_WIDTH);
+  });
+
+  it('survives storage being unavailable', () => {
+    const spy = vi.spyOn(globalThis.localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded');
+    });
+    expect(() => saveDockWidth(400)).not.toThrow();
+    expect(() => saveDockTab('news')).not.toThrow();
+    spy.mockRestore();
   });
 });

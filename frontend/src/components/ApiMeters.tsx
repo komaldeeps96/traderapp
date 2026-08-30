@@ -29,7 +29,11 @@ export function ApiMeters() {
   if (!usage) return null;
 
   return (
-    <div className="flex items-center gap-2.5" data-testid="api-meters" aria-label="API request budgets">
+    <div
+      className="flex shrink-0 items-center gap-2"
+      data-testid="api-meters"
+      aria-label="API request budgets"
+    >
       <Meter label="ALP" window={usage.alpaca} />
       <Meter label="IBKR" window={usage.ibkr} />
     </div>
@@ -53,7 +57,7 @@ function Meter({ label, window: budget }: { label: string; window: ApiWindow }) 
     >
       <span className="text-[9px] font-bold tracking-wide text-ink-3">{label}</span>
       <span
-        className="relative h-1.5 w-14 overflow-hidden rounded-full bg-line"
+        className="relative h-1.5 w-10 shrink-0 overflow-hidden rounded-full bg-line"
         role="meter"
         aria-valuemin={0}
         aria-valuemax={budget.limit}
@@ -66,12 +70,14 @@ function Meter({ label, window: budget }: { label: string; window: ApiWindow }) 
           aria-hidden
         />
       </span>
+      {/* The window length is fixed per upstream, so it is a caption rather
+          than a reading — it rides the hover, and the header keeps the
+          horizontal room for the instrument's name instead. */}
       <span
         className={`tnum font-mono text-[9px] font-semibold leading-none ${TEXT[tone]}`}
         data-testid={`api-count-${label.toLowerCase()}`}
       >
         {budget.used}/{budget.limit}
-        <span className="text-ink-3"> · {windowText}</span>
       </span>
     </div>
   );

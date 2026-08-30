@@ -1,9 +1,9 @@
 import { Fragment, useLayoutEffect, useRef } from 'react';
 
-import { formatPercent, formatPrice } from '@/lib/format';
+import { formatDistance, formatLevel, formatPrice } from '@/lib/format';
 import { centredScrollTop } from '@/lib/scroll';
 import { useKeyLevels } from '@/hooks/useKeyLevels';
-import type { LevelCluster } from '@/store/selectors';
+import { isFarLevel, type LevelCluster } from '@/store/selectors';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
 import { EyeToggle } from './EyeToggle';
@@ -187,6 +187,11 @@ function BandRow({
   const anyVisible = cluster.members.some((member) => member.visible);
   const ids = cluster.members.map((member) => member.id);
   const lead = cluster.members[0]!;
+  // Out of reach: still listed, because "the all-time high on this name is
+  // millions of times the tape" is worth knowing and its absence would read
+  // as the provider never answering — but stepped down to the muted ink so
+  // it stops competing with the rungs a trade is actually planned against.
+  const far = isFarLevel(cluster.distancePercent);
 
   return (
     <tr
@@ -198,6 +203,12 @@ function BandRow({
       data-emphasis={cluster.emphasis}
       data-side={cluster.side}
       data-value={cluster.value}
+      data-far={far ? 'true' : undefined}
+      title={
+        far
+          ? 'More than ten times the price away — context, not a target. A split-adjusted all-time high compounds every reverse split into itself, so on a serial diluter this is an artefact of the adjustment rather than a price anyone traded.'
+          : undefined
+      }
     >
       <td className="py-1 pl-1.5 align-top">
         <EyeToggle
@@ -209,7 +220,9 @@ function BandRow({
         />
       </td>
 
-      <td className="min-w-0 py-1 pl-1 text-[10px] font-medium text-ink-2">
+      <td
+        className={`min-w-0 py-1 pl-1 text-[10px] font-medium ${far ? 'text-ink-3' : 'text-ink-2'}`}
+      >
         <span className="flex items-start gap-1.5">
           {/* Weight mirrors the chart: a thicker bar means more levels agree.
               Centred inside a line-height box so it sits on the first line of
@@ -254,8 +267,14 @@ function BandRow({
         </span>
       </td>
 
-      <td className="tnum py-1 pr-2 text-right align-top font-mono text-[11px] font-semibold text-ink">
-        {formatPrice(cluster.value)}
+      {/* formatLevel, not formatPrice: a split-adjusted high in the tens of
+          millions is eleven digits, and this column is 74 pixels wide. */}
+      <td
+        className={`tnum py-1 pr-2 text-right align-top font-mono text-[11px] font-semibold ${
+          far ? 'text-ink-3' : 'text-ink'
+        }`}
+      >
+        {formatLevel(cluster.value)}
         {stacked && cluster.high !== cluster.low && (
           <span className="block text-[9px] font-normal text-ink-3">
             {formatPrice(cluster.low)}–{formatPrice(cluster.high)}
@@ -265,10 +284,10 @@ function BandRow({
 
       <td
         className={`tnum py-1 pr-2 text-right align-top font-mono text-[10px] font-semibold ${
-          EMPHASIS_TEXT[cluster.emphasis]
+          far ? 'text-ink-3' : EMPHASIS_TEXT[cluster.emphasis]
         }`}
       >
-        {formatPercent(cluster.distancePercent)}
+        {formatDistance(cluster.distancePercent)}
       </td>
     </tr>
   );

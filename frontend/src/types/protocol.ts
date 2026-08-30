@@ -106,6 +106,13 @@ export interface InfoMessage {
   halt_up: number | null;
   halt_down: number | null;
   halt_active: boolean;
+  /**
+   * LULD band width for the session, fixed by the previous close: 10 above
+   * $3, 20 from $0.75–$3. Null when the fixed-cent band applies instead.
+   */
+  halt_band_pct: number | null;
+  /** The fixed band below $0.75, in cents. Null when a percentage applies. */
+  halt_band_cents: number | null;
   /** Days since the first daily bar; null once old enough not to matter. */
   listed_days: number | null;
   /** IBKR shortable magnitude: >2.5 easy, 1.5–2.5 locate, <1.5 none. */
@@ -115,6 +122,10 @@ export interface InfoMessage {
   halted: boolean;
   /** Halt transitions counted since the New York open. */
   halts_today: number;
+  /** When the current or most recent halt began, on the server clock. */
+  halt_halted_at: number | null;
+  /** When the most recent halt ended. Null until one does, and at each open. */
+  halt_resumed_at: number | null;
   /** Old shares per new share of the latest reverse split, e.g. 10 = 1:10. */
   reverse_split_ratio: number | null;
   reverse_split_days: number | null;
@@ -128,7 +139,216 @@ export interface InfoMessage {
   pullback_bars: number | null;
   /** The leg itself as a percentage of its trough. */
   pullback_leg_pct: number | null;
+  /** Just enough of the dilution read to colour the always-visible chip.
+   *  The full read is a REST call away — see `api.fundamentals`. */
+  dilution: DilutionSummary | null;
   generated_at: number;
+}
+
+/** How much supply can hit the tape, and whether they need to sell it. */
+export type DilutionTone = 'clean' | 'watch' | 'heavy' | 'serial';
+
+export interface DilutionSummary {
+  tone: DilutionTone;
+  /** Warrants outstanding over shares outstanding, as a fraction. */
+  warrant_overhang: number | null;
+  /** Exercise price. Whether the warrants are in the money is decided here,
+   *  against the live price, rather than on a server that would have to
+   *  recompute the whole read every tick to answer it. */
+  warrant_strike: number | null;
+  runway_months: number | null;
+  /** The sentences behind the tone — a grade you can check. */
+  reasons: string[];
+}
+
+/** A figure from an SEC filing, with the period end it was reported for. */
+export interface DatedValue {
+  value: number;
+  /** ISO date of the period end, not of the filing. */
+  as_of: string;
+  form: string;
+  stale_days: number;
+}
+
+export interface DilutionRead extends Omit<DilutionSummary, 'warrant_strike'> {
+  /** Overrides the summary's plain number: the full read ships every figure
+   *  with the period it was reported for, the strike included. */
+  warrant_strike: DatedValue | null;
+  shares_outstanding: DatedValue | null;
+  shares_issued: DatedValue | null;
+  shares_authorized: DatedValue | null;
+  warrants: DatedValue | null;
+  preferred: DatedValue | null;
+  convertible_notes: DatedValue | null;
+  cash: DatedValue | null;
+  annual_operating_cash_flow: DatedValue | null;
+  public_float: DatedValue | null;
+  /** Common plus warrants. Preferred is excluded on purpose — conversion
+   *  ratios live in the charter, not the XBRL facts. */
+  fully_diluted: number | null;
+  fully_diluted_ratio: number | null;
+  authorized_headroom: number | null;
+  /** Public float under $75M: Form S-3 General Instruction I.B.6 caps sales
+   *  at a third of float per rolling twelve months. Measured on the last
+   *  10-K cover, so it describes the company before the run. */
+  baby_shelf: boolean | null;
+  baby_shelf_capacity: number | null;
+  /** The same cap re-measured the way a sale would be — see `ShelfCapacity`. */
+  live_shelf: ShelfCapacity | null;
+  share_growth_12m: number | null;
+  offerings_12m: number;
+  delinquent: boolean;
+  /** 8-K item 3.01 — the company was told it fails a listing rule. */
+  listing_deficiency: boolean;
+  /** A Form 25 was filed. Alone this is weak: a large issuer files one to
+   *  remove a matured note. */
+  delisting_filed: boolean;
+}
+
+/**
+ * The baby-shelf ceiling, re-measured the way an actual sale would be.
+ *
+ * Public float is re-measured on the date of every takedown against a price
+ * from a 60-day look-back, so a run raises the ceiling it is running into —
+ * and past $75M of float the cap stops applying at all.
+ */
+export interface ShelfCapacity {
+  /** The 60-day high the measurement runs against. */
+  price: number;
+  /** Float shares at that price. */
+  public_float: number;
+  /** The one-third limit still binds. */
+  capped: boolean;
+  /** Dollars sellable in a rolling twelve months; null once uncapped. */
+  capacity: number | null;
+  /** Live float over the float on the last cover page. */
+  multiple: number | null;
+}
+
+/** What a headline does to the tape. */
+export type Catalyst = 'supply' | 'distress' | 'upside' | 'none';
+
+export interface Headline {
+  article_id: string;
+  provider: string;
+  /** Epoch seconds. */
+  time: number;
+  headline: string;
+  catalyst: Catalyst;
+  /** Duplicate bulletins and continuations folded into this row. */
+  related: string[];
+}
+
+export interface NewsResponse {
+  symbol: string;
+  /** The feeds this login is entitled to; empty without TWS. */
+  providers: Array<{ code: string; name: string }>;
+  headlines: Headline[];
+}
+
+export interface ArticleResponse {
+  provider: string;
+  article_id: string;
+  /** Plain text. The wire sends HTML; it is converted server-side so no
+   *  provider markup ever reaches the DOM. */
+  paragraphs: string[];
+}
+
+/** A live headline, pushed as it arrives on IBKR's generic tick 292. */
+export interface NewsMessage {
+  type: 'news';
+  symbol: string;
+  headline: Headline;
+}
+
+/** Why a filing is on screen. */
+export type FilingKind = 'dilution' | 'distress' | 'periodic' | 'ownership' | 'routine';
+
+export interface FilingRow {
+  form: string;
+  kind: FilingKind;
+  /** What the form means at the tape, not what the SEC calls it. */
+  note: string;
+  /** ISO date. */
+  filed: string;
+  /** Epoch seconds EDGAR accepted it, or null on older rows with no zone. */
+  accepted: number | null;
+  accession: string;
+  /** 8-K item numbers, e.g. ["3.01"]. */
+  items: string[];
+  url: string;
+}
+
+export interface FilingsResponse {
+  symbol: string;
+  available: boolean;
+  /** Set only when EDGAR itself is the problem — a rejected User-Agent, say —
+   *  so an empty panel never claims the company files nothing. */
+  note: string | null;
+  filings: FilingRow[];
+}
+
+/** A dilution or distress filing that landed while the symbol was open. */
+export interface FilingMessage {
+  type: 'filing';
+  symbol: string;
+  filing: FilingRow;
+}
+
+export interface CompanyProfile {
+  cik: number;
+  name: string;
+  sic: string;
+  sic_description: string;
+  exchanges: string[];
+  website: string;
+  state_of_incorporation: string;
+  fiscal_year_end: string;
+}
+
+/**
+ * TradingView's ratios and statements.
+ *
+ * The slow half of the panel. These ride the same row the info strip already
+ * fetches, so they cost nothing — which is the only reason they are here.
+ * None of them decides whether a trade is possible.
+ */
+export interface BusinessStats {
+  industry: string;
+  country: string;
+  employees: number | null;
+  price_earnings: number | null;
+  eps_ttm: number | null;
+  revenue_ttm: number | null;
+  gross_margin: number | null;
+  operating_margin: number | null;
+  net_income: number | null;
+  total_debt: number | null;
+  total_cash: number | null;
+  free_cash_flow: number | null;
+  ebitda: number | null;
+  debt_to_equity: number | null;
+  current_ratio: number | null;
+  enterprise_value: number | null;
+  return_on_equity: number | null;
+  price_to_book: number | null;
+  price_to_sales: number | null;
+  beta: number | null;
+  perf_ytd: number | null;
+  /** Epoch seconds of the next scheduled report. */
+  earnings_next: number | null;
+}
+
+export interface FundamentalsResponse {
+  symbol: string;
+  /** False when EDGAR is switched off in settings. */
+  available: boolean;
+  /** Set only when EDGAR itself is the problem, never when the company
+   *  simply has nothing on file. */
+  note: string | null;
+  dilution: DilutionRead | null;
+  profile: CompanyProfile | null;
+  business: BusinessStats | null;
 }
 
 // The four market-cap-tiered scanners, mirroring
@@ -220,6 +440,8 @@ export type ServerMessage =
   | ApiUsageMessage
   | ScannerMessage
   | RegimeMessage
+  | NewsMessage
+  | FilingMessage
   | ErrorMessage
   | PongMessage;
 

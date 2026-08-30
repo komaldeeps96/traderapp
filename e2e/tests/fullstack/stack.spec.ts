@@ -142,7 +142,7 @@ test.describe('end to end', () => {
   test('fills the info strip from its own bars', async ({ terminal }) => {
     // Day volume and previous close come from the backend's bar store — no
     // TradingView in this suite, so exactly the self-derived fields appear.
-    await expect(terminal.page.getByTestId('tp-dayvol')).not.toHaveText('—', {
+    await expect(terminal.page.getByTestId('tp-vol')).not.toHaveText('—', {
       timeout: 25_000,
     });
     await expect(terminal.page.getByTestId('tp-prevclose')).not.toHaveText('—');

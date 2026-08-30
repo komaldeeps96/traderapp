@@ -11,6 +11,7 @@ from bisect import bisect_right
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
+from statistics import median
 
 from ..domain.bars import Bar
 from ..domain.sessions import Session, ny_date, session_of
@@ -458,6 +459,30 @@ _WRVOL_START_SLACK_SECONDS = 600
 # identically under both EST and EDT. Mirrors the frontend's session lib.
 _NY_OFFSET_SECONDS = 16_200
 
+# How far back the denominator reaches, matching the 50-day baseline the
+# screener's relative volume uses. Only the first handful of those sessions
+# are covered by the minute base (history.intraday_days is 5, deliberately:
+# one Alpaca request per ticker switch); the rest are projected off the daily
+# base, which is already loaded years deep for the same symbol.
+_WRVOL_LOOKBACK_SESSIONS = 50
+
+
+def _arith_day(epoch: float) -> int:
+    return int((epoch - _NY_OFFSET_SECONDS) // 86_400)
+
+
+def _daily_bar_day(epoch: float) -> int:
+    """The arithmetic day index of a daily bar.
+
+    Daily bars anchor to New York *midnight* (``market/resample.py``), which
+    is outside the 4:00-20:00 window the offset arithmetic is valid over —
+    under EDT it lands on the previous day and the two bases would disagree
+    about which session they mean for eight months of the year. Nudging by
+    twelve hours puts the stamp at New York noon, unambiguously mid-session
+    under either offset.
+    """
+    return _arith_day(epoch + 43_200)
+
 
 @dataclass(slots=True)
 class _VolumeDay:
@@ -491,15 +516,43 @@ def _cum_at_or_before(day: _VolumeDay, tod: float) -> float | None:
     return day.cums[index] if index >= 0 else None
 
 
-def windowed_rvol(bars: Sequence[Bar], minute_bars: Sequence[Bar]) -> list[Number]:
+def windowed_rvol(
+    bars: Sequence[Bar],
+    minute_bars: Sequence[Bar],
+    daily_bars: Sequence[Bar] = (),
+) -> list[Number]:
     """Time-matched relative volume, stamped onto each chart bar.
 
-    Today's cumulative volume from the 4am open through the bar, over the
-    mean of the prior days' cumulative volume at the same time of day — "is
-    this pace hot for 10:15am", where a whole-day RVOL only answers "is it
-    hot against an average day". Both legs are read off the 1-minute base,
-    so on a 10-second chart the value steps once a minute; the sub-minute
-    lag was accepted in exchange for a history the 10s window cannot hold.
+    Today's cumulative volume from the 4am open through the bar, over a
+    typical day's cumulative volume at the same time of day — "is this pace
+    hot for 10:15am", where a whole-day RVOL only answers "is it hot against
+    an average day". Today's leg is read off the 1-minute base, so on a
+    10-second chart the value steps once a minute; the sub-minute lag was
+    accepted in exchange for a history the 10s window cannot hold.
+
+    The denominator has two sources, and the split is the point:
+
+    * The minute base gives the *exact* cumulative for the handful of
+      sessions it covers — five days, because a wider 1-minute fetch would
+      cost several Alpaca pages on every ticker switch instead of one.
+    * The daily base, already loaded years deep for the same symbol, gives
+      the *level* of every session back to ``_WRVOL_LOOKBACK_SESSIONS``. A
+      day's total volume is projected onto this time of day using the median
+      shape — the fraction of the session's volume done by now — measured
+      over the days where both bases exist.
+
+    That split follows what actually varies. Between two sessions the total
+    volume moves by orders of magnitude and the shape of the curve barely
+    moves, so estimating the large term from deep history and the small one
+    from shallow history is the right way round. Projection is skipped
+    entirely when no day carries both bases, because there is then nothing
+    to calibrate the shape against.
+
+    The pooled estimates are reduced by **median**, not mean. One prior
+    session that ran 50x poisons a mean denominator and quietly halves every
+    reading for days afterwards — the same contamination that makes the
+    screener's own 50-day average punish a stock for having recently been
+    interesting.
 
     ``None`` is the honest answer wherever a comparison does not exist: the
     oldest day in history, a bar whose day the minute base has not covered,
@@ -507,33 +560,67 @@ def windowed_rvol(bars: Sequence[Bar], minute_bars: Sequence[Bar]) -> list[Numbe
     """
     days = _volume_days(minute_bars)
     by_day = {entry.day: index for index, entry in enumerate(days)}
+    daily_volume = {
+        _daily_bar_day(bar.time): bar.volume for bar in daily_bars if bar.volume > 0
+    }
 
-    # Mean prior-day cumulative at a time of day, memoised per (day, minute):
-    # on a 10-second chart six consecutive bars share one lookup.
+    # Per-day setup: which prior sessions the minute base can answer for
+    # directly, and which daily bars are left to project from.
+    context: dict[int, tuple[list[_VolumeDay], list[float]]] = {}
+
+    def prior_context(day_index: int) -> tuple[list[_VolumeDay], list[float]]:
+        cached = context.get(day_index)
+        if cached is not None:
+            return cached
+        today = days[day_index]
+        direct = [
+            prior
+            for prior in days[:day_index]
+            if abs(prior.first_tod - today.first_tod) <= _WRVOL_START_SLACK_SECONDS
+        ]
+        covered = {prior.day for prior in direct}
+        # Most recent sessions first, so the window is the latest 50 rather
+        # than the oldest 50 of a forty-year daily history.
+        volumes = [
+            volume
+            for day, volume in sorted(daily_volume.items(), reverse=True)
+            if day < today.day and day not in covered
+        ][:_WRVOL_LOOKBACK_SESSIONS]
+        context[day_index] = (direct, volumes)
+        return context[day_index]
+
+    # Memoised per (day, minute): on a 10-second chart six consecutive bars
+    # share one lookup, and each lookup walks up to fifty sessions.
     denominators: dict[tuple[int, int], float | None] = {}
 
     def denominator(day_index: int, tod: float) -> float | None:
         key = (day_index, int(tod // 60))
         if key in denominators:
             return denominators[key]
-        today = days[day_index]
-        total = 0.0
-        counted = 0
-        for prior in days[:day_index]:
-            if abs(prior.first_tod - today.first_tod) > _WRVOL_START_SLACK_SECONDS:
-                continue
+
+        direct_days, volumes = prior_context(day_index)
+        estimates: list[float] = []
+        shapes: list[float] = []
+        for prior in direct_days:
             at = _cum_at_or_before(prior, tod)
             if at is None:
                 continue
-            total += at
-            counted += 1
-        value = (total / counted) if counted and total > 0 else None
-        denominators[key] = value
-        return value
+            estimates.append(at)
+            whole = daily_volume.get(prior.day)
+            if whole:
+                shapes.append(at / whole)
+
+        if shapes:
+            shape = median(shapes)
+            estimates.extend(volume * shape for volume in volumes)
+
+        value = median(estimates) if estimates else None
+        denominators[key] = value if value else None
+        return denominators[key]
 
     out: list[Number] = []
     for bar in bars:
-        day = int((bar.time - _NY_OFFSET_SECONDS) // 86_400)
+        day = _arith_day(bar.time)
         tod = (bar.time - _NY_OFFSET_SECONDS) % 86_400
         day_index = by_day.get(day)
         if day_index is None or day_index == 0:
@@ -545,9 +632,13 @@ def windowed_rvol(bars: Sequence[Bar], minute_bars: Sequence[Bar]) -> list[Numbe
     return out
 
 
-def windowed_rvol_last(bars: Sequence[Bar], minute_bars: Sequence[Bar]) -> Number:
+def windowed_rvol_last(
+    bars: Sequence[Bar],
+    minute_bars: Sequence[Bar],
+    daily_bars: Sequence[Bar] = (),
+) -> Number:
     """Just the latest bar's value — the once-a-second path."""
     if not bars:
         return None
-    values = windowed_rvol(bars[-1:], minute_bars)
+    values = windowed_rvol(bars[-1:], minute_bars, daily_bars)
     return values[-1] if values else None

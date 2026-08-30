@@ -19,6 +19,7 @@ from app.core.clock import UTC
 from app.core.settings import (
     CONFIG_DIR,
     AlpacaSettings,
+    EdgarSettings,
     IBKRSettings,
     RegimeSettings,
     ScannerSettings,
@@ -35,13 +36,15 @@ ALPACA_HOST = "https://data.alpaca.markets"
 def settings(tmp_path) -> Settings:
     """Alpaca-only: the configuration a user without TWS running would have.
 
-    The TradingView screener is off so no test ever leaves the machine.
+    The TradingView screener and EDGAR are off so no test ever leaves the
+    machine; ``edgar_client`` turns EDGAR back on against a stub transport.
     """
     return Settings(
         alpaca=AlpacaSettings(key_id="test-key", secret_key="test-secret", feed="iex"),
         ibkr=IBKRSettings(enabled=False),
         scanner=ScannerSettings(enabled=False),
         regime=RegimeSettings(enabled=False),
+        edgar=EdgarSettings(enabled=False),
         state_file=tmp_path / "state.yaml",
         indicators_file=CONFIG_DIR / "indicators.yaml",
         log_level="WARNING",
@@ -102,6 +105,30 @@ def no_real_stream(monkeypatch):
 @pytest.fixture
 def client(settings, alpaca_api) -> TestClient:
     with TestClient(create_app(settings)) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def edgar_client(settings, alpaca_api) -> TestClient:
+    """A client whose EDGAR provider answers from a stub rather than SEC.
+
+    The container builds its own provider, so the transport is swapped on the
+    built one — the alternative is threading a test-only argument through
+    ``AppContainer``, which the codebase deliberately does not do.
+    """
+    from app.providers.edgar import EdgarProvider
+    from app.services.container import get_container
+    from tests.integration.edgar_stub import edgar_transport
+
+    settings = settings.model_copy(update={"edgar": EdgarSettings(enabled=True)})
+    app = create_app(settings)
+    with TestClient(app) as test_client:
+        container = get_container()
+        container.edgar = EdgarProvider(
+            transport=edgar_transport(), user_agent="traderapp/1.0 (test@example.com)"
+        )
+        container.symbol_info._edgar = container.edgar
+        container.symbol_info._dilution_cache.clear()
         yield test_client
 
 

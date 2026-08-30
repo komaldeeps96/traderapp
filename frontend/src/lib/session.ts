@@ -30,13 +30,21 @@ export interface SessionView {
   weekend: boolean;
 }
 
-export function sessionView(now: Date = new Date()): SessionView {
+function nyClock(now: Date): { seconds: number; weekend: boolean } {
   const parts = NY_PARTS.formatToParts(now);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
   const weekday = get('weekday');
-  const weekend = weekday === 'Sat' || weekday === 'Sun';
   const hour = Number(get('hour')) % 24;
-  const minutes = hour * 60 + Number(get('minute'));
+  return {
+    seconds: hour * 3600 + Number(get('minute')) * 60 + Number(get('second')),
+    weekend: weekday === 'Sat' || weekday === 'Sun',
+  };
+}
+
+export function sessionView(now: Date = new Date()): SessionView {
+  const clock = nyClock(now);
+  const weekend = clock.weekend;
+  const minutes = Math.floor(clock.seconds / 60);
 
   let session: SessionName = 'CLOSED';
   if (!weekend) {
@@ -58,6 +66,72 @@ export function sessionView(now: Date = new Date()): SessionView {
 /** The session a historical bar printed in. */
 export function sessionAt(epochSeconds: number): SessionName {
   return sessionView(new Date(epochSeconds * 1000)).session;
+}
+
+// ── the news clock ─────────────────────────────────────────────────────
+
+/**
+ * Issuers schedule press releases, and they schedule them on the hour and
+ * the half hour. That is not a habit of any one trader's — it is a property
+ * of the wire calendar, and the whole shape of the morning follows from it:
+ * headline density peaks at 8:00 and 8:30, and so does the profit.
+ *
+ * 9:15 is the ragged end of it — "the last chance for breaking news, and a
+ * bit of a hail mary".
+ */
+export const NEWS_SLOTS = [7 * 60, 7 * 60 + 30, 8 * 60, 8 * 60 + 30, 9 * 60, 9 * 60 + 15];
+
+/** The two slots the release calendar and the P&L both peak behind. */
+const DENSE_SLOTS = new Set([8 * 60, 8 * 60 + 30]);
+
+/**
+ * Past this, a first trade has no runway: the window it would have to
+ * recover in shuts within the hour. Not a rule against managing what is
+ * already open — a rule against *starting* something.
+ */
+export const LAST_INITIATION_MINUTE = 9 * 60 + 15;
+
+/**
+ * How long after a mark a move is still presumed to belong to it.
+ *
+ * Measured wire-to-scanner latency runs three to fifteen seconds, so this is
+ * mostly reaction time. Two minutes also gives the other half of the rule:
+ * once a scheduled slot has passed in silence, the window is closed and the
+ * odds of a catalyst in the next half hour drop.
+ */
+export const NEWS_WATCH_SECONDS = 120;
+
+export interface NewsWindow {
+  /** Minutes from New York midnight of the slot in question. */
+  slot: number;
+  /** Watching the minutes after the mark rather than counting down to it. */
+  open: boolean;
+  /** Seconds until the slot, or since it — `open` says which. */
+  seconds: number;
+  /** 8:00 or 8:30. */
+  dense: boolean;
+}
+
+/** The next scheduled release window, or the one being watched right now. */
+export function newsWindow(now: Date = new Date()): NewsWindow | null {
+  const { seconds, weekend } = nyClock(now);
+  if (weekend) return null;
+  for (const slot of NEWS_SLOTS) {
+    const delta = seconds - slot * 60;
+    if (delta >= NEWS_WATCH_SECONDS) continue;
+    return {
+      slot,
+      open: delta >= 0,
+      seconds: Math.abs(delta),
+      dense: DENSE_SLOTS.has(slot),
+    };
+  }
+  return null;
+}
+
+/** Slot minutes as a wall-clock label: 510 → "8:30". */
+export function slotLabel(slot: number): string {
+  return `${Math.floor(slot / 60)}:${String(slot % 60).padStart(2, '0')}`;
 }
 
 /**

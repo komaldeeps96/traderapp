@@ -1,25 +1,32 @@
 import { describe, expect, it } from 'vitest';
 
 import type {
+  DilutionSummary,
   IndicatorSpec,
   InfoMessage,
   WireBar,
 } from '@/types/protocol';
 
 import {
+  athLevel,
   borrowStatus,
   budgetTone,
   buildBands,
+  buildDilutionView,
   buildInfoView,
   buildKeyLevels,
   buildLevelStyles,
   buildOhlcv,
   buildQuoteView,
   clusterLevels,
+  dilutionWorseThan,
   floatDisagreement,
+  headroom,
+  isFarLevel,
   levelIndicators,
   nearestLevels,
   overlayIndicators,
+  plottableAth,
   pullbackTone,
   spreadTone,
 } from './selectors';
@@ -485,11 +492,15 @@ describe('buildInfoView', () => {
     halt_up: 5.5,
     halt_down: 4.5,
     halt_active: true,
+    halt_band_pct: 10,
+    halt_band_cents: null,
     listed_days: null,
     shortable: null,
     shortable_shares: null,
     halted: false,
     halts_today: 0,
+    halt_halted_at: null,
+    halt_resumed_at: null,
     reverse_split_ratio: null,
     reverse_split_days: null,
     yahoo_float: null,
@@ -497,6 +508,7 @@ describe('buildInfoView', () => {
     pullback_vol_ratio: null,
     pullback_bars: null,
     pullback_leg_pct: null,
+    dilution: null,
     generated_at: 0,
   };
 
@@ -538,28 +550,160 @@ describe('buildInfoView', () => {
     expect(buildInfoView({ ...info, float_shares: null }, 5.0)!.floatSuspect).toBe(false);
   });
 
-  it('keeps the reference market cap static', () => {
-    // The live per-bar figure lives in the session strip; this one is the
-    // snapshot and must not wobble with the tape.
-    expect(buildInfoView(info, 5.0)!.marketCap).toBe(40_000_000);
-    expect(buildInfoView(info, 6.0)!.marketCap).toBe(40_000_000);
+  it('prices the reference market cap off the previous close', () => {
+    // 9M shares on yesterday's $4.00 — what the company was worth before
+    // today, and it must not wobble with the tape. The current-price twin
+    // lives beside it in the panel.
+    expect(buildInfoView(info, 5.0)!.marketCap).toBe(36_000_000);
+    expect(buildInfoView(info, 6.0)!.marketCap).toBe(36_000_000);
   });
 
-  it('measures the headroom to the all-time high', () => {
-    const view = buildInfoView({ ...info, all_time_high: 10.0 }, 5.0)!;
-    expect(view.allTimeHigh).toBe(10.0);
-    expect(view.athDistancePercent).toBeCloseTo(100);
+  it('falls back to the reported cap with no share count', () => {
+    const view = buildInfoView({ ...info, shares_outstanding: null }, 5.0)!;
+    expect(view.marketCap).toBe(40_000_000);
+    expect(view.reportedMarketCap).toBe(40_000_000);
   });
 
-  it('reads a negative ATH distance in blue sky', () => {
-    expect(buildInfoView({ ...info, all_time_high: 4.0 }, 5.0)!.athDistancePercent).toBeCloseTo(
-      -20,
-    );
+  it('carries the band tier, which the two headroom numbers do not say', () => {
+    // ±10% up and ±10% down is what a 20% band looks like from a price
+    // sitting in the middle of it. The tier is the session-long fact.
+    expect(buildInfoView(info, 5.0)!.haltBandPercent).toBe(10);
+    const cheap = { ...info, halt_band_pct: null, halt_band_cents: 15 };
+    expect(buildInfoView(cheap, 5.0)!.haltBandCents).toBe(15);
   });
 
-  it('leaves the ATH distance out without the reference or a price', () => {
-    expect(buildInfoView(info, 5.0)!.athDistancePercent).toBeNull();
-    expect(buildInfoView({ ...info, all_time_high: 10.0 }, null)!.athDistancePercent).toBeNull();
+  // 5 March 2026 is a Thursday and still on EST, so 14:00Z is 09:00 in New
+  // York and 15:30Z is 10:30 — either side of the cohort's boundary.
+  const NINE_AM = Date.UTC(2026, 2, 5, 14, 0) / 1000;
+  const TEN_THIRTY = Date.UTC(2026, 2, 5, 15, 30) / 1000;
+
+  const reopened = (resumedAt: number, secondsSince: number) => ({
+    ...info,
+    halted: false,
+    halts_today: 1,
+    halt_resumed_at: resumedAt,
+    generated_at: resumedAt + secondsSince,
+  });
+
+  it('has nothing to say about a stock that never halted', () => {
+    expect(buildInfoView(info, 5.0)!.reopen).toBeNull();
+  });
+
+  it('says nothing while the stock is still halted', () => {
+    const frozen = { ...reopened(NINE_AM, 30), halted: true };
+    expect(buildInfoView(frozen, 5.0)!.reopen).toBeNull();
+  });
+
+  it('counts up from the resume inside the measured window', () => {
+    const view = buildInfoView(reopened(NINE_AM, 95), 5.0)!;
+    expect(view.reopen).toEqual({ secondsSince: 95, tone: 'aligned', wideBand: false });
+  });
+
+  it('expires when the fifteen minutes the study covers are up', () => {
+    expect(buildInfoView(reopened(NINE_AM, 900), 5.0)!.reopen).not.toBeNull();
+    expect(buildInfoView(reopened(NINE_AM, 901), 5.0)!.reopen).toBeNull();
+  });
+
+  it('marks a reopen after ten as outside the cohort', () => {
+    expect(buildInfoView(reopened(TEN_THIRTY, 60), 5.0)!.reopen!.tone).toBe('late');
+  });
+
+  it('judges the hour on the resume, not on now', () => {
+    // Resumed at 09:58 with the window running past ten: the stock is still
+    // in the cohort it reopened into.
+    const justBefore = Date.UTC(2026, 2, 5, 14, 58) / 1000;
+    expect(buildInfoView(reopened(justBefore, 600), 5.0)!.reopen!.tone).toBe('aligned');
+  });
+
+  it('flags an already-extended reopen ahead of the hour', () => {
+    // prev_close 4.00, so 5.40 is +35% — the one bucket that measured
+    // negative, and it outranks a merely-uncovered hour.
+    expect(buildInfoView(reopened(NINE_AM, 60), 5.4)!.reopen!.tone).toBe('extended');
+    expect(buildInfoView(reopened(TEN_THIRTY, 60), 5.4)!.reopen!.tone).toBe('extended');
+  });
+
+  it('notes the wide band the study mildly preferred', () => {
+    const wide = { ...reopened(NINE_AM, 60), halt_band_pct: 20 };
+    expect(buildInfoView(wide, 5.0)!.reopen!.wideBand).toBe(true);
+  });
+});
+
+describe('isFarLevel', () => {
+  it('leaves a level anyone could reach alone', () => {
+    expect(isFarLevel(45.68)).toBe(false);
+    expect(isFarLevel(-99)).toBe(false);
+    expect(isFarLevel(999)).toBe(false);
+  });
+
+  it('marks anything past ten times the price', () => {
+    expect(isFarLevel(1001)).toBe(true);
+    // CHAI's split-adjusted high against a 38-cent tape.
+    expect(isFarLevel(24_283_875_452)).toBe(true);
+  });
+
+  it('says nothing without a distance', () => {
+    expect(isFarLevel(null)).toBe(false);
+  });
+});
+
+describe('athLevel', () => {
+  const withAth = (allTimeHigh: number | null) => ({ all_time_high: allTimeHigh });
+
+  it('is a key level like any other', () => {
+    const level = athLevel(withAth(22.0), {}, 10.0)!;
+    expect(level.id).toBe('ath');
+    expect(level.label).toBe('ATH');
+    expect(level.value).toBe(22.0);
+    expect(level.side).toBe('above');
+    expect(level.distancePercent).toBeCloseTo(120);
+    expect(level.visible).toBe(true);
+  });
+
+  it('follows its own eye in the panel', () => {
+    expect(athLevel(withAth(22.0), { ath: false }, 10.0)!.visible).toBe(false);
+  });
+
+  it('sits below the price in blue sky', () => {
+    expect(athLevel(withAth(8.0), {}, 10.0)!.side).toBe('below');
+  });
+
+  it('is still listed when the split adjustment broke it', () => {
+    // CHAI: a $93M split-adjusted high on a 38-cent tape. It stays in the
+    // ladder — the panel shows it out of reach rather than dropping it, so
+    // "this name's all-time high is meaningless" is visible rather than
+    // indistinguishable from the provider never answering.
+    const level = athLevel(withAth(93_250_082.12), {}, 0.384)!;
+    expect(level.value).toBe(93_250_082.12);
+    expect(isFarLevel(level.distancePercent)).toBe(true);
+  });
+
+  it('is left out without a usable high', () => {
+    expect(athLevel(withAth(null), {}, 10.0)).toBeNull();
+    expect(athLevel(withAth(0), {}, 10.0)).toBeNull();
+    expect(athLevel(null, {}, 10.0)).toBeNull();
+  });
+});
+
+describe('plottableAth', () => {
+  it('passes an ordinary high through', () => {
+    expect(plottableAth(22.0, 10.0)).toBe(22.0);
+  });
+
+  it('withholds an out-of-reach high from the chart', () => {
+    // Listed in the ladder, but a line ten times off-screen only puts a
+    // stray tag on the price axis.
+    expect(plottableAth(93_250_082.12, 0.384)).toBeNull();
+    expect(plottableAth(50, 1.0)).toBeNull();
+  });
+
+  it('draws what it cannot judge', () => {
+    // No price yet is not evidence the high is wrong.
+    expect(plottableAth(22.0, null)).toBe(22.0);
+  });
+
+  it('withholds a missing or impossible high', () => {
+    expect(plottableAth(null, 10)).toBeNull();
+    expect(plottableAth(0, 10)).toBeNull();
   });
 });
 
@@ -621,11 +765,15 @@ describe('buildInfoView tranches 2-3', () => {
     halt_up: null,
     halt_down: null,
     halt_active: false,
+    halt_band_pct: null,
+    halt_band_cents: null,
     listed_days: null,
     shortable: null,
     shortable_shares: null,
     halted: true,
     halts_today: 3,
+    halt_halted_at: null,
+    halt_resumed_at: null,
     reverse_split_ratio: 12.0,
     reverse_split_days: 45,
     yahoo_float: 7_500_000,
@@ -633,6 +781,7 @@ describe('buildInfoView tranches 2-3', () => {
     pullback_vol_ratio: 0.4,
     pullback_bars: 4,
     pullback_leg_pct: 20,
+    dilution: null,
     generated_at: 0,
   };
 
@@ -741,5 +890,171 @@ describe('buildBands', () => {
     const nearest = all.find((band) => band.low < 60)!;
     const alphaOf = (c: string) => Number(c.split(',').pop()!.replace(')', '').trim());
     expect(alphaOf(distant.color)).toBeLessThan(alphaOf(nearest.color));
+  });
+});
+
+describe('buildDilutionView', () => {
+  const summary = (overrides: Partial<DilutionSummary> = {}): DilutionSummary => ({
+    tone: 'serial',
+    warrant_overhang: 0.89,
+    warrant_strike: 3.0,
+    runway_months: 5.6,
+    reasons: ['warrants 89% of shares outstanding', '5.6 months of cash at current burn'],
+    ...overrides,
+  });
+
+  it('says nothing about a clean company', () => {
+    // An ordinary large cap should cost the strip no width at all.
+    expect(buildDilutionView(summary({ tone: 'clean' }), 4)).toBeNull();
+  });
+
+  it('says nothing without a read', () => {
+    expect(buildDilutionView(null, 4)).toBeNull();
+    expect(buildDilutionView(undefined, 4)).toBeNull();
+  });
+
+  it('flags warrants in the money against the live price', () => {
+    const view = buildDilutionView(summary(), 4.1)!;
+    expect(view.warrantsInTheMoney).toBe(true);
+    expect(view.label).toBe('W 89% ITM');
+  });
+
+  it('drops the ITM marker below the strike', () => {
+    const view = buildDilutionView(summary(), 2.5)!;
+    expect(view.warrantsInTheMoney).toBe(false);
+  });
+
+  it('cannot judge the strike without a price', () => {
+    const view = buildDilutionView(summary(), null)!;
+    expect(view.warrantsInTheMoney).toBeNull();
+  });
+
+  it('ranks by how soon the supply can arrive', () => {
+    // Out of the money, the warrants are latent; five months of cash means an
+    // offering is coming regardless of where the stock trades.
+    expect(buildDilutionView(summary(), 2.5)!.label).toBe('CASH 5.6MO');
+    // With the runway comfortable, the overhang is the thing worth saying.
+    expect(buildDilutionView(summary({ runway_months: 30 }), 2.5)!.label).toBe('W 89%');
+  });
+
+  it('falls back to the runway when there are no warrants', () => {
+    const view = buildDilutionView(
+      summary({ warrant_overhang: null, warrant_strike: null, runway_months: 4.2 }),
+      4,
+    )!;
+    expect(view.label).toBe('CASH 4.2MO');
+  });
+
+  it('prefers in-the-money warrants even over an urgent runway', () => {
+    // Warrants that can be exercised and sold today outrank an offering that
+    // is still weeks away.
+    const view = buildDilutionView(summary({ runway_months: 2 }), 4.1)!;
+    expect(view.label).toBe('W 89% ITM');
+  });
+
+  it('names the tone when nothing else is quantified', () => {
+    const view = buildDilutionView(
+      summary({
+        tone: 'heavy',
+        warrant_overhang: null,
+        warrant_strike: null,
+        runway_months: null,
+      }),
+      4,
+    )!;
+    expect(view.label).toBe('HEAVY');
+  });
+
+  it('ignores a warrant overhang too small to matter', () => {
+    const view = buildDilutionView(
+      summary({ tone: 'watch', warrant_overhang: 0.04, runway_months: null }),
+      4.1,
+    )!;
+    expect(view.label).toBe('WATCH');
+  });
+
+  it('carries every reason for the tooltip', () => {
+    const view = buildDilutionView(summary(), 4.1)!;
+    expect(view.detail).toContain('89% of shares outstanding');
+    expect(view.detail).toContain('5.6 months of cash');
+  });
+});
+
+describe('dilutionWorseThan', () => {
+  it('ranks the tones', () => {
+    expect(dilutionWorseThan('serial', 'heavy')).toBe(true);
+    expect(dilutionWorseThan('heavy', 'watch')).toBe(true);
+    expect(dilutionWorseThan('watch', 'clean')).toBe(true);
+    expect(dilutionWorseThan('clean', 'watch')).toBe(false);
+    expect(dilutionWorseThan('heavy', 'heavy')).toBe(false);
+  });
+});
+
+
+/**
+ * Headroom.
+ *
+ * The ladder makes the next level readable; this states it. Part of the
+ * decision it feeds is taken before the entry — a runner with a moving
+ * average sitting just above is a base hit whatever the setup looks like,
+ * and one with nothing overhead is worth laddering into.
+ *
+ * The fixture puts the price at 10 with a 20-day average at 10.40, a
+ * pre-market high at 12.50, a 52-week high at 18.00 that is switched off,
+ * and yesterday's close below at 9.80.
+ */
+describe('headroom', () => {
+  const at = (price: number) =>
+    headroom(buildKeyLevels(SPECS, VALUES, VISIBILITY, 'light', price), price);
+
+  it('names the nearest level overhead', () => {
+    const view = at(10)!;
+    expect(view.level?.label).toBe('1D SMA 20');
+    expect(view.percent).toBeCloseTo(4);
+    expect(view.tone).toBe('clear');
+  });
+
+  it('calls it capped when the target costs more to reach than it pays', () => {
+    // 10.30 to a 10.40 average is under 1%: there is no base hit in it once
+    // the round trip is paid for.
+    expect(at(10.3)!.tone).toBe('capped');
+  });
+
+  it('skips a level the trader has switched off', () => {
+    // The 52-week high at 18.00 is hidden, so it is not the thing in the way
+    // — but the pre-market high above the average still is.
+    const view = headroom(
+      buildKeyLevels(SPECS, VALUES, { ...VISIBILITY, d_sma20: false }, 'light', 10),
+      10,
+    );
+    expect(view!.level?.label).toBe('PM High');
+  });
+
+  it('reports blue sky with nothing left overhead', () => {
+    const view = at(20)!;
+    expect(view.tone).toBe('blue-sky');
+    expect(view.level).toBeNull();
+  });
+
+  it('does not mistake missing levels for open sky', () => {
+    expect(headroom([], 10)).toBeNull();
+  });
+
+  it('is silent without a price to measure from', () => {
+    expect(headroom(buildKeyLevels(SPECS, VALUES, VISIBILITY, 'light', null), null)).toBeNull();
+  });
+
+  it('ignores a level a thousand percent up', () => {
+    // A split-adjusted all-time high compounds every reverse split into
+    // itself. It belongs in the ladder as context, never as the next thing
+    // in the way.
+    const levels = buildKeyLevels(
+      SPECS,
+      { ...VALUES, pm_high: 900_000, d_sma20: 900_000 },
+      VISIBILITY,
+      'light',
+      10,
+    );
+    expect(headroom(levels, 10)!.tone).toBe('blue-sky');
   });
 });

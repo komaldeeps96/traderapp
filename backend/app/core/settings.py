@@ -94,6 +94,23 @@ class HistorySettings(BaseModel):
     ibkr_recent_seconds: int = Field(default=3600, ge=60)
 
 
+class EdgarSettings(BaseModel):
+    """SEC EDGAR — the fundamentals and filings source.
+
+    No key and no account, but SEC does require a User-Agent that identifies
+    the caller and carries a contact address, and blocks the ones that do
+    not. Set a real address here before running this against production
+    EDGAR; the default is deliberately obviously unset.
+    """
+
+    enabled: bool = True
+    user_agent: str = "traderapp/1.0 (contact: set edgar.user_agent in settings)"
+    # How often the filing trail of the focused symbol is re-read, looking for
+    # an offering that landed mid-session. Well inside SEC's rate limit at one
+    # symbol; the XBRL facts are not re-fetched on this cadence.
+    filing_poll_seconds: float = Field(default=60.0, ge=15.0)
+
+
 class RegimeSettings(BaseModel):
     """The TradingView market-regime poll.
 
@@ -218,6 +235,7 @@ class Settings(BaseSettings):
     history: HistorySettings = Field(default_factory=HistorySettings)
     scanner: ScannerSettings = Field(default_factory=ScannerSettings)
     regime: RegimeSettings = Field(default_factory=RegimeSettings)
+    edgar: EdgarSettings = Field(default_factory=EdgarSettings)
 
     indicators_file: Path = CONFIG_DIR / "indicators.yaml"
     state_file: Path = CONFIG_DIR / "state.yaml"

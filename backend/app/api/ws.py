@@ -103,6 +103,14 @@ def _prefetch_stats(container: AppContainer, symbol: str) -> None:
         with contextlib.suppress(Exception):
             await container.symbol_info.prefetch(symbol)
             container.market_data.touch(symbol)
+        # Separately suppressed: an IBKR news timeout must not cost the
+        # reference stats their touch, and vice versa.
+        with contextlib.suppress(Exception):
+            await container.news.prefetch(symbol)
+        # The watcher follows whichever chart is open; the baseline is taken
+        # on its first poll, so opening a company that raised last week does
+        # not fire an alarm about it.
+        container.filing_watch.watch(symbol)
 
     task = asyncio.create_task(run())
     _pending_prefetches.add(task)

@@ -41,35 +41,43 @@ test.describe('crosshair readout', () => {
     // Reference data for RVOL and rotation rides the info stream.
     await backend.pushInfo();
 
-    const strip = terminal.page.getByTestId('bar-strip');
+    const strip = terminal.page.getByTestId('session-row');
     await expect(strip).toHaveAttribute('data-hovering', 'false');
-    await expect(terminal.page.getByTestId('bs-cumvol')).not.toHaveText('');
-    await expect(terminal.page.getByTestId('bs-rvol')).toContainText('x');
-    await expect(terminal.page.getByTestId('bs-rotation')).toContainText('x');
+    await expect(terminal.page.getByTestId('tp-vol')).not.toHaveText('');
+    await expect(terminal.page.getByTestId('tp-rvol')).toContainText('x');
+    await expect(terminal.page.getByTestId('tp-rot')).toContainText('x');
 
     // Windowed RVOL is server-stamped per bar as a readout-only series:
-    // the strip reads it out, and the chart must NOT have painted it.
-    await expect(terminal.page.getByTestId('bs-wrvol')).toContainText('x');
+    // the row reads it out, and the chart must NOT have painted it.
+    await expect(terminal.page.getByTestId('tp-wrvol')).toContainText('x');
     const state = await terminal.chartState();
     expect(state.seriesIds).not.toContain('wrvol');
     expect(state.pointCounts['wrvol']).toBeGreaterThan(0);
 
     // Hovering an earlier bar must show a SMALLER cumulative volume — the
-    // day had done less by then. That is the whole point of the strip.
+    // day had done less by then. That is the whole point of the row.
     const parse = async () => {
-      const text = (await terminal.page.getByTestId('bs-cumvol').textContent()) ?? '';
+      const text = (await terminal.page.getByTestId('tp-vol').textContent()) ?? '';
       const value = Number.parseFloat(text);
       return text.includes('M') ? value * 1e6 : text.includes('K') ? value * 1e3 : value;
     };
-    const live = await parse();
-    const wrvolLive = await terminal.page.getByTestId('bs-wrvol').textContent();
-    await terminal.hoverChart(0.2);
+    await terminal.hoverChart(0.8);
     await expect(strip).toHaveAttribute('data-hovering', 'true');
-    await expect.poll(parse).toBeLessThan(live);
+    const late = await parse();
+    const wrvolLate = await terminal.page.getByTestId('tp-wrvol').textContent();
+
+    await terminal.hoverChart(0.2);
+    await expect.poll(parse).toBeLessThan(late);
     // The stamped series is a ramp, so an earlier bar reads a smaller value.
     await expect
-      .poll(async () => terminal.page.getByTestId('bs-wrvol').textContent())
-      .not.toBe(wrvolLive);
+      .poll(async () => terminal.page.getByTestId('tp-wrvol').textContent())
+      .not.toBe(wrvolLate);
+
+    // Off the chart the row goes back to the provider's own figure for the
+    // day rather than the chart's reconstruction of it.
+    await terminal.moveMouseAway();
+    await expect(strip).toHaveAttribute('data-hovering', 'false');
+    await expect(terminal.page.getByTestId('tp-vol')).toHaveText('14.20M');
   });
 
   test('keeps open, high, low and close consistent', async ({ terminal }) => {

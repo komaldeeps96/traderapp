@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 
 from ..core.settings import IBKRSettings, ScannerSettings
 from ..domain.bars import Bar
+from ..domain.news import extract_tickers
 from ..domain.quotes import Quote
 from ..domain.scanner import ScannerConfig, ScannerRow
 from ..domain.timeframes import Timeframe
@@ -78,6 +79,8 @@ TRADE_WINDOW_5M = 300
 TRADE_BUFFER_MAX_AGE = 360
 
 ScannerHandler = Callable[[list[ScannerRow]], Awaitable[None]]
+# (symbol, raw headline row) for a live headline off generic tick 292.
+NewsHandler = Callable[[str, dict], Awaitable[None]]
 
 # One market-data stream can serve every scanner tier that wants the
 # symbol. ib_async's own client-side ticker cache is keyed by contract hash
@@ -158,6 +161,10 @@ class IBKRProvider(MarketDataProvider):
         self._halt_state: dict[str, bool] = {}
         self._symbols: set[str] = set()
         self._pending: set[asyncio.Future] = set()
+        self._news_handlers: list[NewsHandler] = []
+        # (code, name) for the entitled feeds. Fetched once: entitlements do
+        # not change inside a session.
+        self._news_providers: list[tuple[str, str]] | None = None
 
         # Keyed by scanner_id — one entry per concurrently-running tier.
         self._scanner_handlers: dict[str, list[ScannerHandler]] = {}
@@ -249,6 +256,10 @@ class IBKRProvider(MarketDataProvider):
                     attempt = 0
                     self._connected_event.set()
                     self._ib.disconnectedEvent += self._on_disconnected
+                    # Live headlines arrive on this one event for every
+                    # subscribed contract at once — see _on_news_tick for why
+                    # attribution is done from the headline text.
+                    self._ib.tickNewsEvent += self._on_news_tick
                     await self._emit_status()
                     # Re-establish streams that were routed elsewhere while down.
                     await self._apply_streams(self._symbols)
@@ -470,7 +481,11 @@ class IBKRProvider(MarketDataProvider):
             try:
                 # 236 = shortable: delivers the borrow tier (tick 46) and
                 # the locate pool size (tick 89) on the same line.
-                quote_ticker = self._ib.reqMktData(contract, genericTickList="236", snapshot=False)
+                # 292 = news: live headlines from the entitled feeds, which is
+                # the one fundamentals-adjacent thing this account does get.
+                quote_ticker = self._ib.reqMktData(
+                    contract, genericTickList="236,292", snapshot=False
+                )
                 quote_ticker.updateEvent += functools.partial(self._on_quote, symbol)
             except Exception as exc:
                 logger.debug("IBKR quote subscription failed for %s: %s", symbol, exc)
@@ -499,6 +514,111 @@ class IBKRProvider(MarketDataProvider):
     def borrow_status(self, symbol: str) -> tuple[float | None, float | None] | None:
         """Latest (tier, shortable shares) for a streamed symbol, if seen."""
         return self._borrow.get(symbol)
+
+    # ── news ───────────────────────────────────────────────────────────
+    #
+    # The one research feed this login is entitled to. Eight providers
+    # (Briefing.com and Dow Jones), thirty days of history, live headlines on
+    # generic tick 292 and full article bodies — while every fundamentals
+    # request on the same connection answers error 10358.
+
+    def on_news(self, handler: NewsHandler) -> None:
+        """Register for live headlines. Called once, at wiring time."""
+        self._news_handlers.append(handler)
+
+    async def fetch_news_providers(self) -> list[tuple[str, str]]:
+        """(code, name) for every feed this login can read, cached per run."""
+        if self._news_providers is not None:
+            return self._news_providers
+        if not self.is_available:
+            return []
+        try:
+            providers = await self._ib.reqNewsProvidersAsync()
+        except Exception as exc:
+            logger.warning("IBKR news providers unavailable: %s", exc)
+            return []
+        self._news_providers = [(entry.code, entry.name) for entry in providers]
+        return self._news_providers
+
+    async def fetch_historical_news(self, symbol: str, days: int, limit: int) -> list[dict]:
+        """Recent headlines for a symbol, from every entitled provider.
+
+        ``reqHistoricalNews`` wants the provider codes joined with ``+`` and
+        answers nothing at all for an empty list, so a login with no news
+        subscription returns early rather than making a request that cannot
+        succeed.
+        """
+        providers = await self.fetch_news_providers()
+        if not providers or not self.is_available:
+            return []
+        contract = await self._contract(symbol)
+        if contract is None:
+            return []
+
+        codes = "+".join(code for code, _ in providers)
+        end = datetime.now(UTC)
+        start = end - timedelta(days=days)
+        try:
+            if self._budget is not None:
+                await self._budget.acquire()
+            rows = await self._ib.reqHistoricalNewsAsync(
+                contract.conId,
+                providerCodes=codes,
+                startDateTime=start.strftime("%Y-%m-%d %H:%M:%S"),
+                endDateTime=end.strftime("%Y-%m-%d %H:%M:%S"),
+                totalResults=limit,
+            )
+        except Exception as exc:
+            logger.warning("IBKR historical news failed for %s: %s", symbol, exc)
+            return []
+        return [_news_row(row) for row in rows or []]
+
+    async def fetch_news_article(self, provider_code: str, article_id: str) -> str:
+        """The article body, as the HTML fragment the wire sends."""
+        if not self.is_available:
+            return ""
+        try:
+            article = await self._ib.reqNewsArticleAsync(provider_code, article_id)
+        except Exception as exc:
+            logger.warning("IBKR article %s/%s failed: %s", provider_code, article_id, exc)
+            return ""
+        return article.articleText or ""
+
+    def _on_news_tick(self, news_tick) -> None:
+        """A live headline from tick 292.
+
+        Attribution is the awkward part. ``NewsTick`` carries no contract —
+        ib_async's wrapper receives the request id and drops it — so the only
+        thing on the wire tying a headline to a company is the trailing
+        ``>CELU`` marker. Failing that, a single streamed symbol is
+        unambiguous: the headline arrived on that line and there is nowhere
+        else it could belong. With several symbols streaming and no marker the
+        headline is dropped rather than guessed onto the wrong chart; the
+        thirty-day backfill picks it up on the next panel load.
+        """
+        headline = getattr(news_tick, "headline", "") or ""
+        symbol = self._news_symbol(headline)
+        if symbol is None:
+            return
+        row = {
+            "article_id": getattr(news_tick, "articleId", "") or "",
+            "provider": getattr(news_tick, "providerCode", "") or "",
+            "headline": headline,
+            "time": _news_epoch(getattr(news_tick, "timeStamp", None)),
+        }
+        for handler in self._news_handlers:
+            self._schedule(handler(symbol, row))
+
+    def _news_symbol(self, headline: str) -> str | None:
+        if not headline:
+            return None
+        marked = extract_tickers(headline)
+        for ticker in marked:
+            if ticker in self._symbols:
+                return ticker
+        if not marked and len(self._symbols) == 1:
+            return next(iter(self._symbols))
+        return None
 
     def _on_quote(self, symbol: str, ticker) -> None:
         # Borrow reads ride the same line but are not gated on a valid book —
@@ -932,3 +1052,31 @@ def _clean(value: object) -> float | None:
     if math.isnan(number):
         return None
     return number
+
+
+def _news_row(row) -> dict:
+    """One ``reqHistoricalNews`` result, flattened for the news service."""
+    return {
+        "article_id": getattr(row, "articleId", "") or "",
+        "provider": getattr(row, "providerCode", "") or "",
+        "headline": getattr(row, "headline", "") or "",
+        "time": _news_epoch(getattr(row, "time", None)),
+    }
+
+
+def _news_epoch(value: object) -> int:
+    """Epoch seconds from whatever the news path hands over.
+
+    Historical news carries a ``datetime``; the live 292 tick carries epoch
+    milliseconds as a string. Both arrive here, and a headline with no usable
+    time sorts to the bottom rather than to 1970 in the middle of the list.
+    """
+    if isinstance(value, datetime):
+        stamped = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return int(stamped.timestamp())
+    try:
+        number = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+    # Milliseconds if it is far past any plausible epoch-seconds timestamp.
+    return number // 1000 if number > 10_000_000_000 else number

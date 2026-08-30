@@ -30,6 +30,12 @@ ALPACA_WINDOW_SECONDS = 60
 IBKR_LIMIT = 60
 IBKR_WINDOW_SECONDS = 600
 
+# SEC asks for no more than ten requests a second and blocks on sustained
+# excess. Nine leaves room for the occasional retry without ever touching the
+# published limit.
+EDGAR_LIMIT = 9
+EDGAR_WINDOW_SECONDS = 1
+
 _POLL_SECONDS = 0.2
 
 
@@ -76,6 +82,11 @@ class ApiBudget:
     def __init__(self) -> None:
         self.alpaca = ProviderBudget("alpaca", ALPACA_LIMIT, ALPACA_WINDOW_SECONDS)
         self.ibkr = ProviderBudget("ibkr", IBKR_LIMIT, IBKR_WINDOW_SECONDS)
+        self.edgar = ProviderBudget("edgar", EDGAR_LIMIT, EDGAR_WINDOW_SECONDS)
 
     def snapshot(self) -> dict:
-        return {"alpaca": self.alpaca.snapshot(), "ibkr": self.ibkr.snapshot()}
+        return {
+            "alpaca": self.alpaca.snapshot(),
+            "ibkr": self.ibkr.snapshot(),
+            "edgar": self.edgar.snapshot(),
+        }

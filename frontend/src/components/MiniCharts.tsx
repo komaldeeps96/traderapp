@@ -2,21 +2,16 @@ import { useEffect, useRef } from 'react';
 
 import { ChartEngine } from '@/chart/ChartEngine';
 import { getMiniEngine, setMiniEngine } from '@/chart/engineRef';
-import {
-  MINI_COLUMN_QUERY,
-  MINI_COLUMN_WIDTH,
-  MINI_TIMEFRAME_CHOICES,
-  miniConfig,
-} from '@/chart/mini';
+import { MINI_TIMEFRAME_CHOICES, miniConfig } from '@/chart/mini';
 import type { Timeframe } from '@/types/protocol';
-import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { hydrateMini } from '@/hooks/useTerminal';
 import { loadTheme } from '@/lib/storage';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
 import { ChartButton } from './ChartButton';
 
 /**
- * The column of context charts to the right of the main one.
+ * The column of context charts — the dock's first tab.
  *
  * 1-minute above 5-minute, both on whatever symbol the main chart is showing.
  * The main chart usually sits on the 10-second tape, which is the wrong
@@ -25,20 +20,20 @@ import { ChartButton } from './ChartButton';
  *
  * They are read-only in every sense: no crosshair callback, so hovering one
  * cannot disturb the main chart's OHLCV readout, and no toolbar of their own.
+ *
+ * The rail, its width and the breakpoint below which none of this is built
+ * belong to `Dock`; this renders only the charts inside it.
  */
 export function MiniCharts({
   onTimeframeChange,
 }: {
   onTimeframeChange: (slot: number, timeframe: Timeframe) => void;
 }) {
-  const wideEnough = useMediaQuery(MINI_COLUMN_QUERY);
   const timeframes = useTerminalStore((state) => state.miniTimeframes);
-  if (!wideEnough) return null;
 
   return (
-    <aside
-      className="flex h-full shrink-0 flex-col border-l border-line bg-surface"
-      style={{ width: MINI_COLUMN_WIDTH }}
+    <div
+      className="flex min-h-0 flex-1 flex-col"
       aria-label="Context charts"
       data-testid="mini-charts"
     >
@@ -50,7 +45,7 @@ export function MiniCharts({
           onTimeframeChange={onTimeframeChange}
         />
       ))}
-    </aside>
+    </div>
   );
 }
 
@@ -89,6 +84,11 @@ function MiniChart({
       mini: miniConfig(timeframe),
     });
     setMiniEngine(slot, engine);
+    // The wire sends one snapshot per subscription, and this engine may have
+    // been built long after it arrived — returning to the dock's charts tab,
+    // or the window crossing the breakpoint. Replay the last one for this
+    // timeframe; a no-op on first load, where it is still in flight.
+    hydrateMini(slot, timeframe);
 
     // Changing the slot's timeframe lands here via the dependency: the old
     // engine is torn down and a blank one waits for the new subscription's

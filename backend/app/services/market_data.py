@@ -516,6 +516,10 @@ class MarketDataService:
                 self._level_index.get(symbol),
                 self._session_levels(symbol, timeframe, bars),
                 minute_bars=self._store.get(symbol, Timeframe.M1),
+                # The windowed relative volume reaches past the minute base
+                # into the daily one for its denominator, so the live value
+                # matches the series the snapshot drew.
+                daily_bars=self._store.get(symbol, Timeframe.D1),
             ),
         )
 

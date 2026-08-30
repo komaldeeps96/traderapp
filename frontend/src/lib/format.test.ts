@@ -4,11 +4,16 @@ import {
   computeChange,
   formatBarTime,
   formatChange,
-  formatSpread,
   formatCompact,
+  formatElapsed,
+  formatLevel,
   formatMoney,
+  formatMultiple,
+  formatNewsTime,
   formatPercent,
   formatPrice,
+  formatSpread,
+  formatUnsignedPercent,
   percentDistance,
   priceDecimals,
 } from './format';
@@ -158,6 +163,45 @@ describe('formatSpread', () => {
   });
 });
 
+describe('formatUnsignedPercent', () => {
+  it('drops a sign that carries nothing', () => {
+    // A spread, a rotation and a headroom cannot be negative; "+0.4%" reads
+    // as a change rather than a quantity.
+    expect(formatUnsignedPercent(0.4, 1)).toBe('0.4%');
+    expect(formatUnsignedPercent(13, 0)).toBe('13%');
+  });
+
+  it('never reports a magnitude as negative', () => {
+    expect(formatUnsignedPercent(-4.1, 1)).toBe('4.1%');
+  });
+
+  it('handles absence', () => {
+    expect(formatUnsignedPercent(null)).toBe('—');
+    expect(formatUnsignedPercent(Number.NaN)).toBe('—');
+  });
+});
+
+describe('formatElapsed', () => {
+  it('pads the seconds so the width does not jump', () => {
+    expect(formatElapsed(4)).toBe('0:04');
+    expect(formatElapsed(64)).toBe('1:04');
+    expect(formatElapsed(899)).toBe('14:59');
+  });
+
+  it('truncates rather than rounds, so it never runs ahead', () => {
+    expect(formatElapsed(59.9)).toBe('0:59');
+  });
+
+  it('keeps counting in minutes past the hour', () => {
+    expect(formatElapsed(3661)).toBe('61:01');
+  });
+
+  it('handles absence and nonsense', () => {
+    expect(formatElapsed(null)).toBe('—');
+    expect(formatElapsed(-1)).toBe('—');
+  });
+});
+
 describe('formatChange', () => {
   it('matches the dollar precision to the price level', () => {
     // +3.5 cents on a 37-cent stock: two decimals would report +0.04.
@@ -175,12 +219,58 @@ describe('formatChange', () => {
   });
 });
 
+describe('formatLevel', () => {
+  it('renders an ordinary level as a price', () => {
+    expect(formatLevel(22.5)).toBe('22.50');
+    expect(formatLevel(0.384)).toBe('0.3840');
+  });
+
+  it('compacts a reverse-split artefact instead of printing every digit', () => {
+    // CHAI's split-adjusted all-time high, against a 38-cent tape.
+    expect(formatLevel(93_250_082.12)).toBe('93.3M');
+  });
+
+  it('renders a dash for missing values', () => {
+    expect(formatLevel(null)).toBe('—');
+    expect(formatLevel(Number.NaN)).toBe('—');
+  });
+});
+
+describe('formatMultiple', () => {
+  it('reads a small multiple to one decimal', () => {
+    expect(formatMultiple(2.42)).toBe('×2.4');
+  });
+
+  it('drops the decimal past ten', () => {
+    expect(formatMultiple(18.3)).toBe('×18');
+  });
+
+  it('compacts the multiples percentages cannot express', () => {
+    expect(formatMultiple(242_838_754)).toBe('×243M');
+  });
+
+  it('renders a dash for missing values', () => {
+    expect(formatMultiple(null)).toBe('—');
+  });
+});
+
 describe('formatBarTime', () => {
   // 2024-03-05 14:30 UTC is 09:30 in New York — the opening bell.
   const openingBell = Date.UTC(2024, 2, 5, 14, 30) / 1000;
 
   it('renders intraday bars in New York time', () => {
     expect(formatBarTime(openingBell, '1m')).toContain('09:30');
+  });
+
+  it('drops the date for a bar from the session on screen', () => {
+    // The bar the clock is read against needs no "Mar 5," in front of it.
+    expect(formatBarTime(openingBell, '1m', openingBell * 1000)).toBe('09:30');
+    expect(formatBarTime(openingBell, '10s', openingBell * 1000)).toBe('09:30:00');
+  });
+
+  it('keeps the date once the bar is from an earlier day', () => {
+    const nextDay = (openingBell + 24 * 3600) * 1000;
+    expect(formatBarTime(openingBell, '1m', nextDay)).toContain('Mar 5');
   });
 
   it('renders daily bars as a date', () => {
@@ -193,5 +283,28 @@ describe('formatBarTime', () => {
     // Guards against a chart that puts the US open in the wrong place for
     // anyone outside New York.
     expect(formatBarTime(openingBell, '1m')).not.toContain('14:30');
+  });
+});
+
+describe('formatNewsTime', () => {
+  // 2026-08-28 14:30 UTC = 10:30 New York.
+  const today = Date.UTC(2026, 7, 28, 18, 0, 0);
+
+  it('shows the clock for a headline from today', () => {
+    const when = Date.UTC(2026, 7, 28, 14, 30, 0) / 1000;
+    expect(formatNewsTime(when, today)).toBe('10:30');
+  });
+
+  it('shows the date for an older headline', () => {
+    // A feed reaching back thirty days that shows only "09:01" makes a June
+    // filing read as this morning's news.
+    const when = Date.UTC(2026, 5, 25, 13, 1, 0) / 1000;
+    expect(formatNewsTime(when, today)).toBe('Jun 25');
+  });
+
+  it('uses New York days, not the viewer\'s', () => {
+    // 03:30 UTC on the 29th is still the evening of the 28th in New York.
+    const when = Date.UTC(2026, 7, 29, 3, 30, 0) / 1000;
+    expect(formatNewsTime(when, today)).toBe('23:30');
   });
 });

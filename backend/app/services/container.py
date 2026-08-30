@@ -14,6 +14,8 @@ from ..core.settings import Settings, get_settings
 from ..domain.protocol import (
     DataSource,
     api_usage_message,
+    filing_message,
+    news_message,
     regime_message,
     scanner_message,
     status_message,
@@ -23,15 +25,18 @@ from ..indicators.engine import IndicatorEngine
 from ..indicators.spec import load_indicator_specs
 from ..market.store import BarStore
 from ..providers.alpaca import AlpacaProvider
+from ..providers.edgar import EdgarProvider
 from ..providers.ibkr import IBKRProvider
 from ..providers.router import FeedRouter
 from ..providers.yahoo import YahooFloatProvider
 from ..services.api_budget import ApiBudget
 from ..services.broadcaster import ChartBroadcaster
 from ..services.corporate_actions import ReverseSplitService
+from ..services.filing_watch import FilingWatchService
 from ..services.halts import HaltTracker
 from ..services.hub import SubscriptionHub
 from ..services.market_data import MarketDataService
+from ..services.news import NewsService
 from ..services.quotes import QuoteService
 from ..services.regime import RegimeService
 from ..services.scanner import ScannerService
@@ -63,6 +68,13 @@ class AppContainer:
         self.router.on_halt(self._on_halt)
         self.splits = ReverseSplitService(self.alpaca.fetch_reverse_splits)
         self.yahoo = YahooFloatProvider()
+        # EDGAR is the fundamentals source, because IBKR is not one on this
+        # account — every reqFundamentalData report answers error 10358.
+        self.edgar = (
+            EdgarProvider(self.api_budget.edgar, user_agent=self.settings.edgar.user_agent)
+            if self.settings.edgar.enabled
+            else None
+        )
         self.symbol_info = SymbolInfoService(
             self.store,
             self.tv,
@@ -70,7 +82,21 @@ class AppContainer:
             halts=self.halts.status,
             splits=self.splits,
             yahoo=self.yahoo,
+            edgar=self.edgar,
         )
+        # IBKR is the news provider — the one research feed this account is
+        # entitled to, while every fundamentals request answers error 10358.
+        self.news = NewsService(self.ibkr if self.settings.ibkr.enabled else None)
+        self.ibkr.on_news(self._on_news)
+
+        # A 424B5 landing while a runner is open is the surprise this whole
+        # feature exists to remove. One request a minute against SEC's
+        # ten-a-second allowance.
+        self.filing_watch = FilingWatchService(
+            self.edgar, self.settings.edgar.filing_poll_seconds
+        )
+        self.filing_watch.on_alert(self._on_filing)
+
         self.hub = SubscriptionHub(self.router, self.market_data)
         self.broadcaster = ChartBroadcaster(
             self.hub, self.market_data, self.quotes, self.symbol_info, self.api_budget
@@ -110,6 +136,7 @@ class AppContainer:
         for scanner in self.scanners.values():
             await scanner.start()
         await self.regime.start()
+        await self.filing_watch.start()
         logger.info(
             "Ready — data source: %s%s",
             self.router.active_source.value,
@@ -121,8 +148,11 @@ class AppContainer:
         for scanner in self.scanners.values():
             await scanner.stop()
         await self.regime.stop()
+        await self.filing_watch.stop()
         await self.router.stop()
         await self.yahoo.close()
+        if self.edgar is not None:
+            await self.edgar.close()
         # Last: the router is quiet by now, so nothing can schedule a new load
         # while this is collecting the outstanding ones.
         await self.market_data.stop()
@@ -177,6 +207,20 @@ class AppContainer:
         if self.router.active_source is DataSource.IBKR:
             for symbol in self.market_data.loaded_symbols:
                 self.market_data.schedule_recent_repair(symbol)
+
+    async def _on_news(self, symbol: str, row: dict) -> None:
+        """A live headline: fold it in and push it, if it is genuinely new.
+
+        ``add_live`` returns ``None`` when the headline collapsed into a story
+        already on screen — the starred bulletin that precedes a press release
+        by seconds — so the panel does not flash the same story twice.
+        """
+        headline = self.news.add_live(symbol, row)
+        if headline is not None:
+            self.hub.broadcast(news_message(symbol, headline.to_dict()))
+
+    async def _on_filing(self, symbol: str, filing) -> None:
+        self.hub.broadcast(filing_message(symbol, filing.to_dict()))
 
     async def _on_halt(self, symbol: str, halted: bool) -> None:
         self.halts.mark(symbol, halted)

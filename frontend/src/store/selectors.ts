@@ -7,7 +7,15 @@
 
 import type { PriceBand } from '@/chart/bands';
 import { computeChange, percentDistance, type Change } from '@/lib/format';
-import type { InfoMessage, IndicatorSpec, QuoteMessage, WireBar } from '@/types/protocol';
+import { sessionView } from '@/lib/session';
+import type {
+  DilutionSummary,
+  DilutionTone,
+  IndicatorSpec,
+  InfoMessage,
+  QuoteMessage,
+  WireBar,
+} from '@/types/protocol';
 
 import type { Readout } from './useTerminalStore';
 
@@ -65,6 +73,119 @@ export function buildKeyLevels(
   }
 
   return levels.sort((a, b) => b.value - a.value);
+}
+
+// ── headroom ───────────────────────────────────────────────────────────
+
+/**
+ * The next thing in the way, and how much room there is before it.
+ *
+ * The daily chart is not background here — it is the variable that selects
+ * which regime the trade is in. Clear overhead and a runner has somewhere to
+ * go, so it is worth laddering into and holding; a 200-day moving average
+ * sitting just above and the same setup is a base hit at best, because the
+ * move stops there. Both are decisions about size and target taken before
+ * the entry, off one number, and the ladder in the sidebar makes them
+ * readable but never states them.
+ *
+ * Hidden levels are excluded. The ladder is the trader's own account of what
+ * counts as resistance on this name, and naming a level they have switched
+ * off as the thing in the way would contradict it.
+ */
+export type HeadroomTone = 'blue-sky' | 'clear' | 'capped';
+
+export interface HeadroomView {
+  /** The nearest level above the price; null in blue sky. */
+  level: KeyLevel | null;
+  percent: number | null;
+  tone: HeadroomTone;
+}
+
+/**
+ * Under this much room there is no base hit in the trade.
+ *
+ * A 15–20 cent target on a $5–10 name is 2–4%, and the round trip costs 10–20
+ * cents of slippage before it. Three percent is where the target stops
+ * covering its own execution.
+ */
+export const CAPPED_HEADROOM_PERCENT = 3;
+
+export function headroom(levels: KeyLevel[], price: number | null): HeadroomView | null {
+  // No levels at all is missing data, not open sky.
+  if (price == null || levels.length === 0) return null;
+
+  // A level a thousand percent up is context, not a ceiling — see
+  // `FAR_LEVEL_PERCENT`. Naming it as the next resistance would be a lie
+  // told with a real number.
+  const candidates = levels.filter(
+    (level) => level.visible && !isFarLevel(level.distancePercent),
+  );
+  const nearest = nearestLevels(candidates).above;
+
+  if (nearest === null) return { level: null, percent: null, tone: 'blue-sky' };
+  const percent = nearest.distancePercent;
+  return {
+    level: nearest,
+    percent,
+    tone: percent != null && percent < CAPPED_HEADROOM_PERCENT ? 'capped' : 'clear',
+  };
+}
+
+/** The id the all-time high goes by everywhere — store, panel, chart. */
+export const ATH_LEVEL_ID = 'ath';
+
+/**
+ * Past this distance a level is out of reach and reads as such.
+ *
+ * Ten times the price is not a target, a stop or a magnet; it is context. It
+ * arises honestly — a dollar stock that once traded at fifty — and it arises
+ * from broken data, because a split-adjusted all-time high compounds every
+ * reverse split into itself: CHAI prints $93,250,082 against a $0.38 tape.
+ * Both stay in the ladder, quiet, at the top where they belong. Neither is
+ * drawn on the chart, where a line that far out is off-screen in every
+ * session and only puts a stray tag on the axis.
+ */
+export const FAR_LEVEL_PERCENT = 1000;
+
+export function isFarLevel(distancePercent: number | null | undefined): boolean {
+  return distancePercent != null && distancePercent > FAR_LEVEL_PERCENT;
+}
+
+/**
+ * The all-time high as a key level.
+ *
+ * It arrives on the info stream rather than as a per-bar series, so it is not
+ * one of the levels the backend streams — but it is the same kind of thing as
+ * the 52-week high sitting next to it in the list, and reading it there is
+ * how it gets used: sorted into the ladder, with the distance to it, and an
+ * eye to take it off the chart. That is why it is no longer a field in the
+ * panel above.
+ *
+ * It is listed however far away it is, including when reverse splits have put
+ * it millions of times above the tape. The ladder marks it out of reach
+ * rather than dropping it (see FAR_LEVEL_PERCENT): silence would be
+ * indistinguishable from the provider never answering, and "the all-time high
+ * is meaningless on this name" is itself worth knowing.
+ */
+export function athLevel(
+  info: Pick<InfoMessage, 'all_time_high'> | null,
+  visibility: Record<string, boolean>,
+  referencePrice: number | null,
+): KeyLevel | null {
+  const value = info?.all_time_high ?? null;
+  if (value == null || !Number.isFinite(value) || value <= 0) return null;
+
+  const distancePercent = percentDistance(referencePrice, value);
+  return {
+    id: ATH_LEVEL_ID,
+    label: 'ATH',
+    color: NEUTRAL_LEVEL.dark,
+    value,
+    distancePercent,
+    side: sideOf(distancePercent),
+    visible: visibility[ATH_LEVEL_ID] ?? true,
+    group: 'key_levels',
+  };
 }
 
 function sideOf(distancePercent: number | null): KeyLevel['side'] {
@@ -425,7 +546,17 @@ export function budgetTone(used: number, limit: number): BudgetTone {
 
 export interface InfoView {
   floatShares: number | null;
+  /**
+   * Market cap on the previous close: shares outstanding × yesterday's close.
+   *
+   * The day's reference, and deliberately fixed for the whole session — it is
+   * what the name was worth before the move, so "a $12M company up 50%" has
+   * one meaning at 09:31 and the same meaning at 15:59. Its moving twin is
+   * the current cap in the panel beside it.
+   */
   marketCap: number | null;
+  /** TradingView's own snapshot, the fallback with no share count. */
+  reportedMarketCap: number | null;
   dayVolume: number;
   pmVolume: number;
   avgVol10d: number | null;
@@ -440,6 +571,13 @@ export interface InfoView {
   haltUp: number | null;
   haltDown: number | null;
   haltActive: boolean;
+  /**
+   * The session's LULD band width — 10 or 20 percent, or the fixed cents
+   * below $0.75. Fixed by last night's close, so it is a property of the
+   * name for the whole day rather than of the moment.
+   */
+  haltBandPercent: number | null;
+  haltBandCents: number | null;
   /** Distance from the last price to each band, in dollars. */
   haltUpDistance: number | null;
   haltDownDistance: number | null;
@@ -448,14 +586,13 @@ export interface InfoView {
   haltDownPercent: number | null;
   /** Days since listing, when young enough to matter. */
   listedDays: number | null;
-  allTimeHigh: number | null;
-  /** Headroom to the all-time high, % of price; negative means blue sky. */
-  athDistancePercent: number | null;
   borrow: BorrowStatus | null;
   shortableShares: number | null;
   /** Halted right now. */
   halted: boolean;
   haltsToday: number;
+  /** Live only inside the fifteen minutes the reopen study covers. */
+  reopen: ReopenView | null;
   /** The latest reverse split: 10 means 1-for-10, `daysAgo` its recency. */
   reverseSplit: { ratio: number; daysAgo: number } | null;
   yahooFloat: number | null;
@@ -490,6 +627,16 @@ export const RECENT_SPLIT_DAYS = 365;
 
 /** Sources disagreeing on the float by at least this much get the badge. */
 export const FLOAT_DISAGREE_PERCENT = 25;
+
+/** The all-time high, or null when it is too far above the tape to draw. */
+export function plottableAth(
+  allTimeHigh: number | null,
+  lastPrice: number | null,
+): number | null {
+  if (allTimeHigh == null || !Number.isFinite(allTimeHigh) || allTimeHigh <= 0) return null;
+  if (isFarLevel(percentDistance(lastPrice, allTimeHigh))) return null;
+  return allTimeHigh;
+}
 
 /**
  * How far the two float sources diverge, as a percentage of the smaller.
@@ -534,6 +681,68 @@ export function pullbackTone(
   return 'ok';
 }
 
+// ── the reopen window ──────────────────────────────────────────────────
+
+/**
+ * The fifteen minutes after a halt lifts.
+ *
+ * This is the one condition in the playbook with a large measured effect
+ * behind it. Across 66,785 reopens the following fifteen minutes averaged
+ * +0.33%; the 2,805 that reopened before 10:00 ET averaged **+3.10%**
+ * (median +2.44%, t = 9.2, 61% up). The same study found the sign flips on a
+ * name that has already run: the 3,121 reopens on stocks extended 30–100%
+ * averaged **−1.09%** (t = −4.6). A wide 20% band beat a narrow 10% one,
+ * +0.66% against +0.19% — real but small next to the other two.
+ *
+ * None of that has ever been traded, and nothing here says to. The read
+ * states which of the measured conditions hold right now and gets out of the
+ * way; `extended` is the one that says something happened, because it is the
+ * only bucket that measured negative.
+ */
+export const REOPEN_WINDOW_SECONDS = 15 * 60;
+
+/** Reopens after this New York minute fall outside the measured cohort. */
+export const REOPEN_LATE_MINUTE = 10 * 60;
+
+/** Day change at or above this put the reopen in the negative bucket. */
+export const REOPEN_EXTENDED_PERCENT = 30;
+
+/** The wide LULD tier, which the study mildly preferred. */
+const WIDE_BAND_PERCENT = 20;
+
+export type ReopenTone = 'aligned' | 'late' | 'extended';
+
+export interface ReopenView {
+  /** Seconds since the tape came back. */
+  secondsSince: number;
+  tone: ReopenTone;
+  /** On the 20% band rather than the 10% one. */
+  wideBand: boolean;
+}
+
+/**
+ * Both clocks here are the server's — `generated_at` and the resume stamp
+ * come from the same process — so a client whose clock is minutes out still
+ * reads the right elapsed time.
+ *
+ * The time-of-day test runs against the *resume*, not against now: the
+ * cohort is defined by when the stock came back, and a reopen at 09:58 stays
+ * in it while its window plays out past ten.
+ */
+export function reopenRead(info: InfoMessage, changePercent: number | null): ReopenView | null {
+  if (info.halted || info.halt_resumed_at == null) return null;
+  const secondsSince = info.generated_at - info.halt_resumed_at;
+  if (secondsSince < 0 || secondsSince > REOPEN_WINDOW_SECONDS) return null;
+
+  const resumedMinute = sessionView(new Date(info.halt_resumed_at * 1000)).minutes;
+  const extended = changePercent != null && changePercent >= REOPEN_EXTENDED_PERCENT;
+  return {
+    secondsSince,
+    tone: extended ? 'extended' : resumedMinute >= REOPEN_LATE_MINUTE ? 'late' : 'aligned',
+    wideBand: info.halt_band_pct === WIDE_BAND_PERCENT,
+  };
+}
+
 export function buildInfoView(info: InfoMessage | null, lastPrice: number | null): InfoView | null {
   if (!info) return null;
   const sessionChange =
@@ -542,9 +751,15 @@ export function buildInfoView(info: InfoMessage | null, lastPrice: number | null
       : null;
   return {
     floatShares: info.float_shares,
-    // The reference snapshot, deliberately static — its live counterpart
-    // ticks per bar in the session strip, the way RVOL and ROT pair up.
-    marketCap: info.market_cap,
+    // Derived from the previous close rather than taken from TradingView,
+    // because TradingView's snapshot is priced at whenever it last refreshed
+    // — which on a runner is neither yesterday nor now. The reported figure
+    // stays as the fallback for names with no share count.
+    marketCap:
+      info.shares_outstanding != null && info.shares_outstanding > 0 && info.prev_close != null
+        ? info.shares_outstanding * info.prev_close
+        : info.market_cap,
+    reportedMarketCap: info.market_cap,
     dayVolume: info.day_volume,
     pmVolume: info.pm_volume,
     avgVol10d: info.avg_vol_10d,
@@ -556,6 +771,8 @@ export function buildInfoView(info: InfoMessage | null, lastPrice: number | null
     haltUp: info.halt_up,
     haltDown: info.halt_down,
     haltActive: info.halt_active,
+    haltBandPercent: info.halt_band_pct,
+    haltBandCents: info.halt_band_cents,
     haltUpDistance:
       info.halt_up != null && lastPrice != null ? info.halt_up - lastPrice : null,
     haltDownDistance:
@@ -569,15 +786,11 @@ export function buildInfoView(info: InfoMessage | null, lastPrice: number | null
         ? ((lastPrice - info.halt_down) / lastPrice) * 100
         : null,
     listedDays: info.listed_days,
-    allTimeHigh: info.all_time_high,
-    athDistancePercent:
-      info.all_time_high != null && lastPrice != null && lastPrice > 0
-        ? ((info.all_time_high - lastPrice) / lastPrice) * 100
-        : null,
     borrow: borrowStatus(info.shortable),
     shortableShares: info.shortable_shares,
     halted: info.halted,
     haltsToday: info.halts_today,
+    reopen: reopenRead(info, sessionChange?.percent ?? null),
     reverseSplit:
       info.reverse_split_ratio != null && info.reverse_split_days != null
         ? { ratio: info.reverse_split_ratio, daysAgo: info.reverse_split_days }
@@ -627,4 +840,84 @@ export function paneIndicators(specs: IndicatorSpec[], timeframe: string): Indic
     (spec) =>
       spec.pane !== 'price' && !spec.readout_only && spec.timeframes[timeframe] !== undefined,
   );
+}
+
+// ── dilution ───────────────────────────────────────────────────────────
+
+/**
+ * The supply read, in the idiom the strip already uses for spread, pullback
+ * and borrow: a word beside the numbers, never instead of them.
+ *
+ * `clean` says nothing and renders nothing — an ordinary large cap should
+ * cost the strip no width at all. Everything above it earns its place.
+ */
+export interface DilutionView {
+  /** Never `clean`: a clean read produces no chip at all. */
+  tone: Exclude<DilutionTone, 'clean'>;
+  /** The compact chip text, e.g. `W 89%` or `CASH 5.6M`. */
+  label: string;
+  /** Every reason, for the title attribute. */
+  detail: string;
+  /** Warrants trading above their strike, so exercise is live supply.
+   *  Decided here because this is where the live price is. */
+  warrantsInTheMoney: boolean | null;
+}
+
+const DILUTION_RANK: Record<DilutionTone, number> = {
+  clean: 0,
+  watch: 1,
+  heavy: 2,
+  serial: 3,
+};
+
+/**
+ * Build the chip, or null when there is nothing worth saying.
+ *
+ * The label picks the single worst fact rather than concatenating them: the
+ * strip has room for one chip, and "89% warrants" stops a trade faster than a
+ * three-item list nobody reads at speed. The rest go to the tooltip.
+ */
+export function buildDilutionView(
+  dilution: DilutionSummary | null | undefined,
+  lastPrice: number | null,
+): DilutionView | null {
+  if (!dilution || dilution.tone === 'clean') return null;
+
+  const inTheMoney =
+    dilution.warrant_strike != null && lastPrice != null
+      ? lastPrice > dilution.warrant_strike
+      : null;
+
+  return {
+    tone: dilution.tone,
+    label: dilutionLabel(dilution, inTheMoney),
+    detail: dilution.reasons.join(' · '),
+    warrantsInTheMoney: inTheMoney,
+  };
+}
+
+/**
+ * The single worst fact, ranked by how soon the supply can reach the tape:
+ *
+ *   1. warrants in the money — exercisable and sellable today
+ *   2. under six months of cash — an offering is coming whatever the price
+ *   3. a large overhang out of the money — supply that arms if it runs
+ *   4. under eighteen months of cash — eventual
+ */
+function dilutionLabel(dilution: DilutionSummary, inTheMoney: boolean | null): string {
+  const overhang = dilution.warrant_overhang;
+  const runway = dilution.runway_months;
+
+  if (overhang != null && overhang >= 0.1 && inTheMoney) {
+    return `W ${Math.round(overhang * 100)}% ITM`;
+  }
+  if (runway != null && runway < 6) return `CASH ${runway.toFixed(1)}MO`;
+  if (overhang != null && overhang >= 0.1) return `W ${Math.round(overhang * 100)}%`;
+  if (runway != null && runway < 18) return `CASH ${runway.toFixed(1)}MO`;
+  return dilution.tone.toUpperCase();
+}
+
+/** Whether `a` is a worse read than `b` — for sorting, and for tests. */
+export function dilutionWorseThan(a: DilutionTone, b: DilutionTone): boolean {
+  return DILUTION_RANK[a] > DILUTION_RANK[b];
 }

@@ -1,6 +1,10 @@
 /** REST calls for the configuration the chart needs before it can draw. */
 
 import type {
+  ArticleResponse,
+  FilingsResponse,
+  FundamentalsResponse,
+  NewsResponse,
   IndicatorSpec,
   ScannerTiersResponse,
   SessionInfo,
@@ -48,4 +52,20 @@ export const api = {
   session: (signal?: AbortSignal) => getJson<SessionInfo>('/api/session', signal),
   scannerTiers: (signal?: AbortSignal) =>
     getJson<ScannerTiersResponse>('/api/scanner/tiers', signal),
+  // Warmed server-side at subscribe time, so this is normally a cache read.
+  fundamentals: (symbol: string, signal?: AbortSignal) =>
+    getJson<FundamentalsResponse>(`/api/fundamentals/${encodeURIComponent(symbol)}`, signal),
+  filings: (symbol: string, signal?: AbortSignal) =>
+    getJson<FilingsResponse>(`/api/filings/${encodeURIComponent(symbol)}`, signal),
+  news: (symbol: string, signal?: AbortSignal) =>
+    getJson<NewsResponse>(`/api/news/${encodeURIComponent(symbol)}`, signal),
+  // Provider and id are query parameters: IBKR article ids carry a "$"
+  // (DJ-N$1f364634), which is legal in a query string and a nuisance in a path.
+  article: (symbol: string, provider: string, articleId: string, signal?: AbortSignal) =>
+    getJson<ArticleResponse>(
+      `/api/news/${encodeURIComponent(symbol)}/article?provider=${encodeURIComponent(
+        provider,
+      )}&article_id=${encodeURIComponent(articleId)}`,
+      signal,
+    ),
 };

@@ -14,6 +14,7 @@ import { getEngine, getMiniEngine, miniEngineEntries } from '@/chart/engineRef';
 import { api } from '@/lib/http';
 import { applyTheme, loadTheme, saveTheme, type Theme } from '@/lib/storage';
 import { createWsClient, type WsClient } from '@/lib/wsClient';
+import { ATH_LEVEL_ID, plottableAth } from '@/store/selectors';
 import { useTerminalStore } from '@/store/useTerminalStore';
 import type {
   BarMessage,
@@ -43,6 +44,9 @@ export function useTerminal() {
     if (normalised !== useTerminalStore.getState().symbol) {
       getEngine()?.clear();
       for (const [, engine] of miniEngineEntries()) engine.clear();
+      // Otherwise a mini remounted before the new snapshot lands would be
+      // rehydrated with the old instrument's candles.
+      forgetMiniSnapshots();
     }
     useTerminalStore.getState().requestChart(normalised, timeframe);
     clientRef.current?.subscribe(normalised, timeframe, miniExtras());
@@ -68,13 +72,12 @@ export function useTerminal() {
   const toggleIndicator = useCallback((id: string) => {
     useTerminalStore.getState().toggleIndicator(id);
     const visible = useTerminalStore.getState().visibility[id] ?? false;
-    getEngine()?.setIndicatorVisible(id, visible);
+    applyLevelVisibility(id, visible);
   }, []);
 
   const setIndicatorGroup = useCallback((ids: string[], visible: boolean) => {
     useTerminalStore.getState().setAllIndicators(ids, visible);
-    const engine = getEngine();
-    for (const id of ids) engine?.setIndicatorVisible(id, visible);
+    for (const id of ids) applyLevelVisibility(id, visible);
   }, []);
 
   const configureScanner = useCallback((scannerId: ScannerTierId, overrides: ScannerOverrides) => {
@@ -169,6 +172,14 @@ export function handleMessage(message: ServerMessage): void {
       });
       break;
 
+    case 'news':
+      store.addHeadline(message.symbol, message.headline);
+      break;
+
+    case 'filing':
+      store.addFiling(message.symbol, message.filing);
+      break;
+
     case 'snapshot': {
       // The minis are fed first and independently: the same 1-minute snapshot
       // legitimately belongs to both when the main chart is also on 1m.
@@ -238,7 +249,12 @@ export function handleMessage(message: ServerMessage): void {
     case 'info':
       if (message.symbol === store.symbol) {
         store.setInfo(message);
-        getEngine()?.setAllTimeHigh(message.all_time_high);
+        // A high ten times off-screen is a price line nobody will ever see;
+        // drawing it only puts a stray tag on the axis, so it stays in the
+        // ladder and off the chart. See FAR_LEVEL_PERCENT. An eye closed in
+        // the key levels panel keeps it off too — info repeats on every
+        // volume tick, and without this the line would come straight back.
+        applyLevelVisibility(ATH_LEVEL_ID, store.visibility[ATH_LEVEL_ID] ?? true);
       }
       break;
 
@@ -272,6 +288,26 @@ export function handleMessage(message: ServerMessage): void {
   }
 }
 
+/**
+ * Show or hide one key level on the chart.
+ *
+ * Every level but one is a streamed series the engine can simply hide. The
+ * all-time high is a price line the engine draws from a scalar off the info
+ * stream, so its eye has to put the number back rather than flip a flag.
+ */
+function applyLevelVisibility(id: string, visible: boolean): void {
+  const engine = getEngine();
+  if (!engine) return;
+  if (id !== ATH_LEVEL_ID) {
+    engine.setIndicatorVisible(id, visible);
+    return;
+  }
+  const state = useTerminalStore.getState();
+  engine.setAllTimeHigh(
+    visible ? plottableAth(state.info?.all_time_high ?? null, state.live?.bar.c ?? null) : null,
+  );
+}
+
 function isCurrent(symbol: string, timeframe: string): boolean {
   const state = useTerminalStore.getState();
   return state.symbol === symbol && state.timeframe === timeframe;
@@ -303,8 +339,45 @@ function minisFor(symbol: string, timeframe: string): ChartEngine[] {
   return engines;
 }
 
+/**
+ * The most recent snapshot per timeframe, so a mini can be rebuilt from it.
+ *
+ * The minis are fed by the wire, and the wire sends a snapshot once per
+ * subscription. A mini engine that is created *after* that snapshot arrived —
+ * the dock returning to its charts tab, or the window crossing the
+ * breakpoint — would otherwise sit empty until the next symbol switch. Keyed
+ * by symbol as well as timeframe so a stale entry cannot repopulate a chart
+ * with the previous instrument's candles.
+ */
+const lastMiniSnapshots = new Map<string, SnapshotMessage>();
+
 function applyMiniSnapshot(message: SnapshotMessage): void {
+  if (message.symbol === useTerminalStore.getState().symbol) {
+    lastMiniSnapshots.set(miniKey(message.symbol, message.timeframe), message);
+  }
   for (const engine of minisFor(message.symbol, message.timeframe)) applyToMini(engine, message);
+}
+
+function miniKey(symbol: string, timeframe: string): string {
+  return `${symbol}:${timeframe}`;
+}
+
+/**
+ * Fill a freshly mounted mini from the last snapshot its timeframe received.
+ *
+ * A no-op when nothing has arrived yet, which is the ordinary first-load
+ * case: the snapshot is still in flight and will paint the engine on arrival.
+ */
+export function hydrateMini(slot: number, timeframe: Timeframe): void {
+  const { symbol } = useTerminalStore.getState();
+  const engine = getMiniEngine(slot);
+  const snapshot = lastMiniSnapshots.get(miniKey(symbol, timeframe));
+  if (engine && snapshot) applyToMini(engine, snapshot);
+}
+
+/** Drop the remembered snapshots; called when the symbol changes. */
+function forgetMiniSnapshots(): void {
+  lastMiniSnapshots.clear();
 }
 
 function applyToMini(engine: ChartEngine, message: SnapshotMessage): void {

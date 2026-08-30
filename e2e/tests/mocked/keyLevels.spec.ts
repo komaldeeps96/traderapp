@@ -20,6 +20,64 @@ test.describe('key levels', () => {
     await expect(terminal.keyLevels).toContainText('52W High');
   });
 
+  test('lists the all-time high as a level, not a panel field', async ({
+    terminal,
+    backend,
+  }) => {
+    // It rides the info stream rather than the bar stream, so it is joined
+    // into the ladder client-side — but from there it is a level like any
+    // other: sorted by price, with a distance, and its own eye.
+    await terminal.waitForChart();
+    await backend.pushInfo();
+
+    await expect(terminal.keyLevels).toContainText('ATH');
+    await expect(terminal.page.getByTestId('tp-ath')).toHaveCount(0);
+    await expect.poll(async () => (await terminal.chartState()).athLine).toBe(22.0);
+
+    // The fixture's ATH of 22 sits above the ~$10 tape, so it must be above
+    // the price marker.
+    const rows = await terminal.page.$$eval(
+      '[data-testid^="level-row-"], [data-testid="price-marker"]',
+      (nodes) =>
+        nodes.map(
+          (node) => [node.getAttribute('data-testid') ?? '', node.textContent ?? ''] as const,
+        ),
+    );
+    const athIndex = rows.findIndex(([, text]) => text.includes('ATH'));
+    expect(athIndex).toBeGreaterThanOrEqual(0);
+    expect(athIndex).toBeLessThan(rows.findIndex(([id]) => id === 'price-marker'));
+  });
+
+  test('keeps a reverse-split artefact as a muted row', async ({ terminal, backend }) => {
+    // A $93M split-adjusted high on a ten-dollar tape is not a rung on the
+    // ladder — but dropping it would be indistinguishable from the provider
+    // never answering, so it stays, quiet, at the top.
+    await terminal.waitForChart();
+    await backend.pushInfo({ all_time_high: 93_250_082.12 });
+
+    const row = terminal.page.locator('[data-testid^="level-row-"][data-far="true"]');
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText('ATH');
+    // Compacted, or eleven digits would burst a 74-pixel column.
+    await expect(row).toContainText('93.3M');
+    await expect(row).not.toContainText('93250082');
+    // And the distance reads as a multiple rather than a ten-digit percent.
+    await expect(row).toContainText('×');
+
+    // Out of reach is not drawn: a line that far off-screen only leaves a
+    // stray tag on the price axis.
+    await expect.poll(async () => (await terminal.chartState()).athLine).toBeNull();
+  });
+
+  test('leaves a reachable all-time high at full weight', async ({ terminal, backend }) => {
+    await terminal.waitForChart();
+    await backend.pushInfo();
+
+    await expect(
+      terminal.page.locator('[data-testid^="level-row-"][data-far="true"]'),
+    ).toHaveCount(0);
+  });
+
   test('sorts from highest price to lowest', async ({ terminal }) => {
     await terminal.waitForChart();
     const prices = await terminal.keyLevelValues();
@@ -361,5 +419,39 @@ test.describe('price label priority', () => {
     // The 52-week low is nowhere near; it keeps its label.
     expect(state.axisYieldedToPrice).not.toContain('low_52w');
     expect(state.axisLabels.low_52w).toBe(true);
+  });
+});
+
+
+/**
+ * Headroom.
+ *
+ * The ladder makes the next level readable; the chip states it, because part
+ * of the decision is taken before the entry. A moving average sitting just
+ * above turns a good setup into a base hit, and nothing overhead is the
+ * condition that licenses holding and laddering instead of scalping.
+ */
+test.describe('headroom', () => {
+  test('names how far the next level overhead is', async ({ terminal }) => {
+    await terminal.waitForChart();
+    const chip = terminal.page.getByTestId('tp-headroom');
+    await expect(chip).toContainText('ROOM');
+    await expect(chip).toHaveAttribute('data-tone', /clear|capped/);
+  });
+
+  test('reads blue sky once the price clears the whole ladder', async ({
+    terminal,
+    backend,
+  }) => {
+    await terminal.waitForChart();
+    await expect(terminal.page.getByTestId('tp-headroom')).toContainText('ROOM');
+
+    // Above every level there is nothing left to stop at — and nothing left
+    // to aim at either, which is the same fact read the other way.
+    await backend.send(makeNextBar(backend.lastSnapshot()!, { c: 500 }));
+
+    const chip = terminal.page.getByTestId('tp-headroom');
+    await expect(chip).toHaveText('BLUE SKY');
+    await expect(chip).toHaveAttribute('data-tone', 'blue-sky');
   });
 });

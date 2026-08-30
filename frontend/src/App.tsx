@@ -1,8 +1,8 @@
 import { Chart } from '@/components/Chart';
 import { ChartControls } from '@/components/ChartControls';
 import { ChartLegend } from '@/components/ChartLegend';
+import { Dock } from '@/components/Dock';
 import { KeyLevelsPanel } from '@/components/KeyLevelsPanel';
-import { MiniCharts } from '@/components/MiniCharts';
 import { ScannerPanel } from '@/components/ScannerPanel';
 import { Toolbar } from '@/components/Toolbar';
 import { TopPanel } from '@/components/TopPanel';
@@ -16,8 +16,10 @@ import { SCANNER_TIER_IDS } from '@/types/protocol';
  * One dense column of market discovery on the left — four IBKR trade-rate
  * scanners, one per market-cap tier, stacked and always visible together —
  * then the key levels for whatever is loaded — the chart column in the
- * middle with the symbol strip above it, and the 1m/5m context charts down
- * the right (above 1280px; below that the main chart takes the width).
+ * middle with the symbol strip above it, and the dock down the right (above
+ * 1280px; below that the main chart takes the width). The dock opens on the
+ * 1m/5m context charts and carries the pre-trade check — fundamentals, news
+ * and SEC filings — behind its other tabs.
  *
  * The TradingView screener used to sit above the scanners and was removed
  * from the UI: that job is done on a second monitor by a standard screener.
@@ -100,7 +102,7 @@ export default function App() {
             )}
           </div>
 
-          <MiniCharts onTimeframeChange={setMiniTimeframe} />
+          <Dock onMiniTimeframeChange={setMiniTimeframe} />
         </div>
       </main>
     </div>

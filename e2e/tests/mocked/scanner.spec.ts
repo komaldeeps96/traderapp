@@ -85,6 +85,11 @@ test.describe('scanner with IBKR', () => {
     await terminal.waitForChart();
     await terminal.page.getByTestId('scanner-small_cap-filter-toggle').click();
 
+    // The draft hydrates from the pushed config exactly once, so a config
+    // that lands *after* these fields are edited silently overwrites them.
+    // Waiting for the seeded value proves hydration has already happened.
+    await expect(terminal.page.getByTestId('scanner-small_cap-above_price')).toHaveValue('1');
+
     await terminal.page.getByTestId('scanner-small_cap-above_price').fill('2');
     await terminal.page.getByTestId('scanner-small_cap-below_price').fill('15');
     // Volume is entered in thousands.
@@ -110,6 +115,11 @@ test.describe('scanner with IBKR', () => {
 
     // The mock's default config seeds above_price/below_price; emptying the
     // fields and applying must actually relax them, not silently keep them.
+    // The draft hydrates from the pushed config exactly once, so a config
+    // that lands *after* these fields are edited silently overwrites them.
+    // Waiting for the seeded value proves hydration has already happened.
+    await expect(terminal.page.getByTestId('scanner-mid_cap-above_price')).toHaveValue('1');
+
     await terminal.page.getByTestId('scanner-mid_cap-above_price').fill('');
     await terminal.page.getByTestId('scanner-mid_cap-below_price').fill('');
     await terminal.page.getByTestId('scanner-mid_cap-apply').click();

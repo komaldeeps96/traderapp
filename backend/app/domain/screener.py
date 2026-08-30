@@ -48,6 +48,39 @@ class SymbolStats:
     # Split-adjusted; after a heavy reverse split this can sit absurdly far
     # above price, which is itself information about the chart's history.
     all_time_high: float | None = None
+
+    # ── the slow half ──────────────────────────────────────────────────
+    #
+    # Ratios and statements, for the fundamentals panel's lower section.
+    # Deliberately separate from the fields above: those decide whether a
+    # trade is possible at all — float, rotation, the all-time high — and
+    # these never do. A P/E ratio has stopped no trade in this workflow.
+    # They ride the same single query, so they cost nothing to carry.
+    industry: str = ""
+    country: str = ""
+    employees: float | None = None
+    price_earnings: float | None = None
+    eps_ttm: float | None = None
+    revenue_ttm: float | None = None
+    gross_margin: float | None = None
+    operating_margin: float | None = None
+    net_income: float | None = None
+    total_debt: float | None = None
+    total_cash: float | None = None
+    free_cash_flow: float | None = None
+    ebitda: float | None = None
+    debt_to_equity: float | None = None
+    current_ratio: float | None = None
+    enterprise_value: float | None = None
+    return_on_equity: float | None = None
+    price_to_book: float | None = None
+    price_to_sales: float | None = None
+    beta: float | None = None
+    perf_ytd: float | None = None
+    # Epoch seconds of the next scheduled report — a date to avoid, or to
+    # trade, but never to be surprised by.
+    earnings_next: float | None = None
+
     fetched_at: float = 0.0
 
     def to_dict(self) -> dict:

@@ -137,9 +137,22 @@ export class TerminalPage {
     return this.page.getByTestId('chart-controls');
   }
 
-  /** The 1m/5m context column. Absent below its breakpoint. */
+  /** The 1m/5m context charts. Absent below the dock's breakpoint. */
   get miniCharts(): Locator {
     return this.page.getByTestId('mini-charts');
+  }
+
+  /** The right-hand rail that holds them, and the other three tabs. */
+  get dock(): Locator {
+    return this.page.getByTestId('dock');
+  }
+
+  dockTab(id: 'charts' | 'fundamentals' | 'news' | 'filings'): Locator {
+    return this.page.getByTestId(`dock-tab-${id}`);
+  }
+
+  dockPanel(id: 'fundamentals' | 'news' | 'filings'): Locator {
+    return this.page.getByTestId(`dock-${id}`);
   }
 
   miniChart(timeframe: string): Locator {

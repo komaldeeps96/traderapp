@@ -109,6 +109,11 @@ export const INDICATORS: IndicatorSpec[] = [
     last_value: false,
     timeframes: { ...INTRADAY, '10s': { enabled: true, label: 'EMA 270' } },
   }),
+  line('ema100', 'EMA 100', 'moving_averages', '#788e0b', '#beda2f', {
+    type: 'ema',
+    last_value: false,
+    timeframes: { ...INTRADAY, '10s': { enabled: true, label: 'EMA 600' } },
+  }),
   line('vwap', 'VWAP', 'session', '#93126b', '#bc0b97', {
     type: 'vwap',
     last_value: false,
@@ -334,10 +339,14 @@ export function makeSeries(bars: WireBar[], manyLevels = false): Record<string, 
   const last = bars.at(-1)!;
 
   const series: Record<string, SeriesPoint[]> = {};
+  // Spans are the 1-minute ones at every timeframe: the fixture does not
+  // model the 10s chart's x6 mapping, and a 600-span line would have no
+  // points at all in a 240-bar window.
   for (const [id, span] of [
     ['ema9', 9],
     ['ema20', 20],
     ['ema45', 45],
+    ['ema100', 100],
   ] as const) {
     series[id] = ema(closes, span)
       .map((value, i) => (value == null ? null : ([bars[i].t, round(value)] as SeriesPoint)))
@@ -570,11 +579,15 @@ export function makeInfo(symbol = 'AAPL', overrides: Partial<Record<string, unkn
     halt_up: 11.0,
     halt_down: 9.0,
     halt_active: false,
+    halt_band_pct: 10,
+    halt_band_cents: null,
     listed_days: null,
     shortable: 2.9,
     shortable_shares: 1_500_000,
     halted: false,
     halts_today: 0,
+    halt_halted_at: null,
+    halt_resumed_at: null,
     reverse_split_ratio: null,
     reverse_split_days: null,
     yahoo_float: null,
@@ -582,9 +595,244 @@ export function makeInfo(symbol = 'AAPL', overrides: Partial<Record<string, unkn
     pullback_vol_ratio: null,
     pullback_bars: null,
     pullback_leg_pct: null,
+    dilution: null,
     generated_at: SESSION_START + 240 * 10,
     ...overrides,
   };
+}
+
+/**
+ * A dilution read shaped like Celularity's, which is what the panel was
+ * designed against: 25.8M warrants over 28.9M shares, five months of cash, a
+ * baby shelf and a filing trail full of offerings.
+ */
+export function makeDilutionSummary(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    tone: 'serial' as const,
+    warrant_overhang: 0.89,
+    warrant_strike: 3.0,
+    runway_months: 5.6,
+    reasons: [
+      'warrants 89% of shares outstanding',
+      '5.6 months of cash at current burn',
+      'public float under $75M — baby shelf limits apply',
+    ],
+    ...overrides,
+  };
+}
+
+function dated(value: number, asOf: string, staleDays: number, form = '10-K') {
+  return { value, as_of: asOf, form, stale_days: staleDays };
+}
+
+export function makeFundamentals(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    symbol,
+    available: true,
+    profile: {
+      cik: 1752828,
+      name: 'Fixture Industries Inc',
+      sic: '2834',
+      sic_description: 'Pharmaceutical Preparations',
+      exchanges: ['Nasdaq'],
+      website: '',
+      state_of_incorporation: 'Delaware',
+      fiscal_year_end: '1231',
+    },
+    business: {
+      industry: 'Miscellaneous Commercial Services',
+      country: 'United States',
+      employees: 115,
+      price_earnings: null,
+      eps_ttm: -3.584,
+      revenue_ttm: 26_550_000,
+      gross_margin: -3.08,
+      operating_margin: -220.5,
+      net_income: -91_716_000,
+      total_debt: 74_713_000,
+      total_cash: 6_175_000,
+      free_cash_flow: -13_254_000,
+      ebitda: -70_000_000,
+      debt_to_equity: null,
+      current_ratio: 0.1525,
+      enterprise_value: 160_000_000,
+      return_on_equity: null,
+      price_to_book: 2.1,
+      price_to_sales: 3.4,
+      beta: 1.158,
+      perf_ytd: 42.34,
+      earnings_next: 1787918400,
+    },
+    dilution: {
+      ...makeDilutionSummary(),
+      shares_outstanding: dated(28_945_961, '2026-04-28', 122),
+      shares_issued: dated(28_837_787, '2025-12-31', 240),
+      shares_authorized: dated(730_000_000, '2025-12-31', 240),
+      warrants: dated(25_774_577, '2025-12-31', 240),
+      warrant_strike: dated(3.0, '2024-11-25', 641),
+      preferred: dated(1_732_084, '2025-12-31', 240),
+      convertible_notes: dated(922_000, '2025-12-31', 240),
+      cash: dated(6_175_000, '2025-12-31', 240),
+      annual_operating_cash_flow: dated(-13_254_000, '2025-12-31', 240),
+      public_float: dated(28_400_000, '2025-06-30', 424),
+      fully_diluted: 54_720_538,
+      fully_diluted_ratio: 1.89,
+      authorized_headroom: 701_162_213,
+      baby_shelf: true,
+      baby_shelf_capacity: 9_466_667,
+      // The same cap re-measured at the 60-day high: 28.9M float shares at
+      // $2.10 is $60.7M of float, so still capped — but at more than twice
+      // the ceiling the cover page implies.
+      live_shelf: {
+        price: 2.1,
+        public_float: 60_690_000,
+        capped: true,
+        capacity: 20_230_000,
+        multiple: 2.14,
+      },
+      share_growth_12m: 0.209,
+      offerings_12m: 3,
+      delinquent: true,
+      listing_deficiency: true,
+      delisting_filed: true,
+    },
+    ...overrides,
+  };
+}
+
+/**
+ * Headlines shaped like the ones IBKR actually sends — the real CELU feed,
+ * complete with a supply story, a distress pair and an ordinary row.
+ */
+export function makeHeadline(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    article_id: 'DJ-N$1f364634',
+    provider: 'DJ-N',
+    time: SESSION_START + 240 * 10,
+    headline: 'Celularity Announces Pricing of $8M Public Offering',
+    catalyst: 'supply' as const,
+    related: [],
+    ...overrides,
+  };
+}
+
+export function makeNews(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    symbol,
+    providers: [
+      { code: 'DJ-N', name: 'Dow Jones Global Equity Trader' },
+      { code: 'BRFG', name: 'Briefing.com General Market Columns' },
+    ],
+    headlines: [
+      makeHeadline(),
+      makeHeadline({
+        article_id: 'DJ-N$2',
+        headline: 'Celularity: Not in Compliance With Nasdaq Listing Rule 5250(C)(1)',
+        catalyst: 'distress',
+        time: SESSION_START + 200 * 10,
+      }),
+      makeHeadline({
+        article_id: 'DJ-N$3',
+        headline: 'Celularity and MuseCell Announce U.S. Manufacturing Collaboration',
+        catalyst: 'upside',
+        time: SESSION_START + 150 * 10,
+        related: ['DJ-N$3b', 'DJ-N$3c'],
+      }),
+      makeHeadline({
+        article_id: 'DJ-N$4',
+        headline: 'Celularity Names Steven N. Gordon Chief Operating Officer',
+        catalyst: 'none',
+        time: SESSION_START + 100 * 10,
+      }),
+    ],
+    ...overrides,
+  };
+}
+
+export function makeArticle(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    provider: 'DJ-N',
+    article_id: 'DJ-N$1f364634',
+    paragraphs: [
+      'Celularity Inc. (CELU) announced the pricing of an underwritten public offering.',
+      'The full text of this SEC filing can be retrieved at: https://www.sec.gov/Archives/edgar/data/1752828/',
+    ],
+    ...overrides,
+  };
+}
+
+export function makeNewsMessage(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    type: 'news' as const,
+    symbol,
+    headline: makeHeadline(overrides),
+  };
+}
+
+/** A filing trail shaped like Celularity's: offerings, a late report, a
+ *  delisting notice and the routine rows they sit among. */
+export function makeFiling(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    form: '424B5',
+    kind: 'dilution' as const,
+    note: 'shelf takedown — shares being sold now',
+    filed: '2026-08-27',
+    accepted: 1787702400,
+    accession: '0001493152-26-000878',
+    items: [] as string[],
+    url: 'https://www.sec.gov/Archives/edgar/data/1752828/000149315226000878/p.htm',
+    ...overrides,
+  };
+}
+
+/** A long dilution trail, for exercising the recent/older split. */
+export function makeLongFilingTrail(count: number) {
+  return Array.from({ length: count }, (_, index) =>
+    makeFiling({
+      accession: `long-${index}`,
+      filed: `20${String(26 - Math.floor(index / 12)).padStart(2, '0')}-01-01`,
+      note: `offering number ${index}`,
+    }),
+  );
+}
+
+export function makeFilings(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    symbol,
+    available: true,
+    filings: [
+      makeFiling(),
+      makeFiling({
+        form: 'NT 10-Q',
+        kind: 'distress',
+        note: 'quarterly report filed late',
+        filed: '2026-08-14',
+        accession: '0001493152-26-038318',
+      }),
+      makeFiling({
+        form: '10-K',
+        kind: 'periodic',
+        note: 'annual report',
+        filed: '2026-04-30',
+        accession: '0001493152-26-020000',
+      }),
+      makeFiling({
+        form: '4',
+        kind: 'ownership',
+        note: 'insider bought or sold',
+        filed: '2026-06-23',
+        accession: '0001493152-26-029000',
+      }),
+    ],
+    ...overrides,
+  };
+}
+
+export function makeFilingMessage(
+  symbol = 'AAPL',
+  overrides: Partial<Record<string, unknown>> = {},
+) {
+  return { type: 'filing' as const, symbol, filing: makeFiling(overrides) };
 }
 
 export function makeRegimeMessage(running = true) {

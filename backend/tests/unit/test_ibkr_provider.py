@@ -568,9 +568,12 @@ class TestTickConditions:
 
 
 class TestBorrowStatus:
-    async def test_the_quote_line_asks_for_shortable(self, provider, ib):
+    async def test_the_quote_line_asks_for_shortable_and_news(self, provider, ib):
+        """One market-data line carries both: 236 is the borrow tier and pool,
+        292 is the live news feed — the one research entitlement this account
+        has, while every fundamentals request answers error 10358."""
         await provider.set_stream_symbols({"AAPL"})
-        assert ib.generic_ticks["AAPL"] == "236"
+        assert ib.generic_ticks["AAPL"] == "236,292"
 
     async def test_captures_tier_and_pool_from_the_quote_line(self, provider, ib):
         await provider.set_stream_symbols({"AAPL"})
@@ -990,3 +993,73 @@ class TestScannerStreams:
 
     async def test_an_update_for_an_unknown_symbol_is_ignored(self, provider):
         provider._on_scanner_tick("GONE", FakeTicker())
+
+
+class TestNews:
+    """Live headlines off generic tick 292.
+
+    ``NewsTick`` carries no contract — ib_async's wrapper receives the request
+    id and drops it — so the symbol has to come from the headline's trailing
+    ``>CELU`` marker, or from there being only one streamed symbol.
+    """
+
+    class FakeNewsTick:
+        def __init__(self, headline: str, provider_code: str = "DJ-N", article_id: str = "a1"):
+            self.headline = headline
+            self.providerCode = provider_code
+            self.articleId = article_id
+            self.timeStamp = "1787702400000"
+            self.extraData = ""
+
+    def collect(self, provider):
+        seen: list[tuple[str, dict]] = []
+
+        async def handler(symbol: str, row: dict) -> None:
+            seen.append((symbol, row))
+
+        provider.on_news(handler)
+        return seen
+
+    async def test_attributes_by_the_ticker_marker(self, on_loop, ib):
+        await on_loop.set_stream_symbols({"AAPL", "CELU"})
+        seen = self.collect(on_loop)
+        on_loop._on_news_tick(self.FakeNewsTick("Celularity prices offering >CELU"))
+        await asyncio.sleep(0)
+        assert [symbol for symbol, _ in seen] == ["CELU"]
+
+    async def test_a_single_streamed_symbol_needs_no_marker(self, on_loop, ib):
+        await on_loop.set_stream_symbols({"CELU"})
+        seen = self.collect(on_loop)
+        on_loop._on_news_tick(self.FakeNewsTick("Celularity names new COO"))
+        await asyncio.sleep(0)
+        assert [symbol for symbol, _ in seen] == ["CELU"]
+
+    async def test_an_unmarked_headline_is_dropped_rather_than_guessed(self, on_loop, ib):
+        """Onto the wrong chart is worse than not at all — the thirty-day
+        backfill picks it up on the next panel load."""
+        await on_loop.set_stream_symbols({"AAPL", "CELU"})
+        seen = self.collect(on_loop)
+        on_loop._on_news_tick(self.FakeNewsTick("Some market-wide column"))
+        await asyncio.sleep(0)
+        assert seen == []
+
+    async def test_a_headline_for_a_symbol_nobody_watches_is_dropped(self, on_loop, ib):
+        await on_loop.set_stream_symbols({"AAPL"})
+        seen = self.collect(on_loop)
+        on_loop._on_news_tick(self.FakeNewsTick("Something happened >ZZZZ"))
+        await asyncio.sleep(0)
+        assert seen == []
+
+    async def test_the_millisecond_timestamp_becomes_epoch_seconds(self, on_loop, ib):
+        await on_loop.set_stream_symbols({"CELU"})
+        seen = self.collect(on_loop)
+        on_loop._on_news_tick(self.FakeNewsTick("Celularity prices offering"))
+        await asyncio.sleep(0)
+        assert seen[0][1]["time"] == 1787702400
+
+    async def test_an_empty_headline_is_ignored(self, on_loop, ib):
+        await on_loop.set_stream_symbols({"CELU"})
+        seen = self.collect(on_loop)
+        on_loop._on_news_tick(self.FakeNewsTick(""))
+        await asyncio.sleep(0)
+        assert seen == []

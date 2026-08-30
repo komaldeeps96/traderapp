@@ -1,4 +1,4 @@
-import { makeSnapshot } from '../../fixtures/data';
+import { makeNextBar, makeSnapshot, REGULAR_OPEN } from '../../fixtures/data';
 import { expect, test } from '../../fixtures/test';
 
 /**
@@ -7,11 +7,18 @@ import { expect, test } from '../../fixtures/test';
  */
 
 test.describe('top panel', () => {
-  test('shows the symbol header with last price and change', async ({ terminal }) => {
+  test('shows the last price and change, and names the instrument once', async ({
+    terminal,
+  }) => {
     await terminal.waitForChart();
-    await expect(terminal.page.getByTestId('tp-symbol')).toHaveText('AAPL');
     await expect(terminal.page.getByTestId('tp-last')).not.toHaveText('—');
     await expect(terminal.page.getByTestId('tp-change')).toContainText('%');
+
+    // The ticker is the input's job; the header carries the name beside it
+    // rather than a second copy of the symbol.
+    await expect(terminal.symbolInput).toHaveValue('AAPL');
+    await expect(terminal.page.getByTestId('tb-company')).toHaveText('Fixture Industries');
+    await expect(terminal.page.getByTestId('tp-symbol')).toHaveCount(0);
   });
 
   test('shows the bid, ask and spread from the quote stream', async ({ terminal, backend }) => {
@@ -43,20 +50,37 @@ test.describe('top panel', () => {
     await backend.pushInfo();
 
     await expect(terminal.page.getByTestId('tp-float')).toHaveText('8.50M');
-    // The reference row keeps TradingView's static snapshot; its live
-    // counterpart ticks per bar in the session strip above.
-    await expect(terminal.page.getByTestId('tp-mktcap')).toHaveText('$62.00M');
-    // 12M shares outstanding times the ~$10 tape.
-    await expect(terminal.page.getByTestId('bs-mcap')).toContainText('$12');
-    await expect(terminal.page.getByTestId('tp-rotation')).toHaveText('1.7x');
-    await expect(terminal.page.getByTestId('tp-relvol')).toHaveText('7.5x');
-    await expect(terminal.page.getByTestId('tp-dayvol')).toHaveText('14.20M');
+    await expect(terminal.page.getByTestId('tp-rot')).toHaveText('1.7x');
+    await expect(terminal.page.getByTestId('tp-rvol')).toHaveText('7.5x');
+    await expect(terminal.page.getByTestId('tp-vol')).toHaveText('14.20M');
+    // Two caps: 12M shares on yesterday's $8.40 close, and the same shares
+    // on the ~$10 tape. The pair is the read — what the company was worth
+    // before the move against what it is being bid at now.
+    await expect(terminal.page.getByTestId('tp-mcap')).toHaveText('$100.80M');
+    await expect(terminal.page.getByTestId('tp-cmcap')).toContainText('$12');
 
-    // Without a share count the live figure has nothing to derive from and
-    // stands down; the snapshot stays.
+    // Without a share count neither can be derived; the reference falls back
+    // to TradingView's snapshot and the current one stands down.
     await backend.pushInfo({ shares_outstanding: null });
-    await expect(terminal.page.getByTestId('bs-mcap')).toHaveCount(0);
-    await expect(terminal.page.getByTestId('tp-mktcap')).toHaveText('$62.00M');
+    await expect(terminal.page.getByTestId('tp-mcap')).toHaveText('$62.00M');
+    await expect(terminal.page.getByTestId('tp-cmcap')).toHaveText('—');
+  });
+
+  test('the reference cap holds still while the current one tracks the tape', async ({
+    terminal,
+    backend,
+  }) => {
+    await terminal.waitForChart();
+    await backend.pushInfo();
+    await expect(terminal.page.getByTestId('tp-mcap')).toHaveText('$100.80M');
+
+    const current = await terminal.page.getByTestId('tp-cmcap').textContent();
+    await terminal.hoverChart(0.2);
+    // The current cap rewinds with the crosshair; the reference does not.
+    await expect.poll(async () => terminal.page.getByTestId('tp-cmcap').textContent()).not.toBe(
+      current,
+    );
+    await expect(terminal.page.getByTestId('tp-mcap')).toHaveText('$100.80M');
   });
 
   test('shows borrow status, the IPO badge and a suspect float', async ({
@@ -75,23 +99,6 @@ test.describe('top panel', () => {
     await backend.pushInfo({ shortable: 1.2, listed_days: null });
     await expect(terminal.page.getByTestId('tp-borrow')).toHaveText('NO BORROW');
     await expect(terminal.page.getByTestId('tp-ipo')).toHaveCount(0);
-  });
-
-  test('shows the all-time high with its headroom, and draws its line', async ({
-    terminal,
-    backend,
-  }) => {
-    await terminal.waitForChart();
-    // The fixture's ATH is 22.0; the mock tape trades around 10.
-    await backend.pushInfo();
-
-    await expect(terminal.page.getByTestId('tp-ath')).toContainText('22.00');
-    await expect(terminal.page.getByTestId('tp-ath')).toContainText('%');
-    await expect.poll(async () => (await terminal.chartState()).athLine).toBe(22.0);
-
-    // Blue sky reads as such.
-    await backend.pushInfo({ all_time_high: 5.0 });
-    await expect(terminal.page.getByTestId('tp-ath')).toContainText('-');
   });
 
   test('shows halts, the reverse split, the pullback and float disagreement', async ({
@@ -121,6 +128,85 @@ test.describe('top panel', () => {
     // Resumed but scarred: the chip stays as a count.
     await backend.pushInfo({ halted: false, halts_today: 3 });
     await expect(terminal.page.getByTestId('tp-halted')).toHaveText('HALTS 3');
+  });
+
+  /**
+   * The reopen window.
+   *
+   * The one condition in the playbook with a large measured effect behind
+   * it, so what earns a browser test is that the strip actually reaches the
+   * three states — the measured cohort, the hour that falls outside it, and
+   * the already-extended case that measured negative — and that it clears
+   * itself when the fifteen minutes are up rather than sitting there all day.
+   */
+  test('reads the minutes after a resume', async ({ terminal, backend }) => {
+    await terminal.waitForChart();
+
+    // Resumed at 09:40 New York, ninety seconds ago, up 19% on the day.
+    const resumed = REGULAR_OPEN + 600;
+    await backend.pushInfo({
+      halted: false,
+      halts_today: 1,
+      halt_resumed_at: resumed,
+      generated_at: resumed + 90,
+    });
+
+    const reopen = terminal.page.getByTestId('tp-reopen');
+    await expect(reopen).toHaveText('REOPEN 1:30');
+    await expect(reopen).toHaveAttribute('data-tone', 'aligned');
+
+    // Sixteen minutes later the measurement has nothing left to say.
+    await backend.pushInfo({ generated_at: resumed + 960 });
+    await expect(reopen).toHaveCount(0);
+  });
+
+  test('separates a late reopen from an already-extended one', async ({ terminal, backend }) => {
+    await terminal.waitForChart();
+
+    // 10:35 New York — past the hour the cohort covers.
+    await backend.pushInfo({
+      halted: false,
+      halts_today: 1,
+      halt_resumed_at: REGULAR_OPEN + 3900,
+      generated_at: REGULAR_OPEN + 3960,
+    });
+    await expect(terminal.page.getByTestId('tp-reopen')).toHaveAttribute('data-tone', 'late');
+
+    // Inside the hour, but reopening on a stock already up 40% from the
+    // fixture's 8.40 close — the one bucket that measured negative.
+    await backend.send(makeNextBar(backend.lastSnapshot()!, { c: 11.8 }));
+    await backend.pushInfo({
+      halt_resumed_at: REGULAR_OPEN + 600,
+      generated_at: REGULAR_OPEN + 660,
+    });
+    await expect(terminal.page.getByTestId('tp-reopen')).toHaveAttribute('data-tone', 'extended');
+  });
+
+  test('names the LULD band tier beside the headroom', async ({ terminal, backend }) => {
+    await terminal.waitForChart();
+    await backend.pushInfo({ halt_active: true, halt_band_pct: 20 });
+    // Two headroom percentages do not say how wide the band is; the tier is
+    // fixed by last night's close and decides whether a break has room.
+    const chip = terminal.page.getByTestId('tp-halt');
+    await expect(chip).toContainText('LULD 20%');
+    // The arrows carry the direction, so the distances are unsigned: a "+"
+    // beside a down arrow reads as a move rather than a distance.
+    await expect(chip).not.toContainText('+');
+  });
+
+  test('says a band is already past rather than reporting negative room', async ({
+    terminal,
+    backend,
+  }) => {
+    // The band reference is a five-minute mean, so on a fast mover price
+    // trades through the upper band routinely. "−6.8%" beside "+23.7%" reads
+    // as room in both directions when one side is simply gone.
+    await terminal.waitForChart();
+    await backend.pushInfo({ halt_active: true, halt_up: 9.0, halt_down: 8.0, halt_ref: 8.5 });
+
+    const chip = terminal.page.getByTestId('tp-halt');
+    await expect(chip).toContainText('↑PAST');
+    await expect(chip).not.toContainText('-');
   });
 
   test('drops the quote when the symbol changes', async ({ terminal, backend }) => {
@@ -201,9 +287,14 @@ test.describe('api budget meters', () => {
     await terminal.waitForChart();
     await expect(terminal.page.getByTestId('api-meter-alp')).toHaveAttribute('data-tone', 'ok');
     await expect(terminal.page.getByTestId('api-meter-ibkr')).toHaveAttribute('data-tone', 'ok');
-    // The counts and window ride next to the bar, not only in the tooltip.
-    await expect(terminal.page.getByTestId('api-count-alp')).toHaveText('12/200 · 1m');
-    await expect(terminal.page.getByTestId('api-count-ibkr')).toHaveText('4/60 · 10m');
+    // The counts ride next to the bar, not only in the tooltip; the window
+    // length is fixed per upstream and stays on the hover.
+    await expect(terminal.page.getByTestId('api-count-alp')).toHaveText('12/200');
+    await expect(terminal.page.getByTestId('api-count-ibkr')).toHaveText('4/60');
+    await expect(terminal.page.getByTestId('api-meter-alp')).toHaveAttribute(
+      'title',
+      /in the last 1m/,
+    );
   });
 
   test('turns amber then red as a window fills', async ({ terminal, backend }) => {
@@ -241,6 +332,65 @@ test.describe('session clock', () => {
     // It moved onto each chart's price axis, under the last-price label.
     await terminal.waitForChart();
     await expect(terminal.page.getByTestId('candle-countdown')).toHaveCount(0);
+  });
+});
+
+/**
+ * The news clock.
+ *
+ * Issuers schedule press releases on the hour and the half hour, densest at
+ * 8:00 and 8:30, and the morning's whole opportunity set follows that
+ * calendar. So the clock that matters is not "how long until the open" but
+ * "how long until news can land" — and then whether it did. The wall clock
+ * is frozen here because the chip is a function of it and nothing else.
+ *
+ * 5 March 2024 is on EST, so New York is UTC−5.
+ */
+test.describe('news slot clock', () => {
+  const nyTime = (hour: number, minute: number, second = 0) =>
+    new Date(Date.UTC(2024, 2, 5, hour + 5, minute, second));
+
+  test('counts down to the next scheduled window', async ({ terminal }) => {
+    await terminal.page.clock.setFixedTime(nyTime(8, 28, 30));
+    await terminal.waitForChart();
+
+    const chip = terminal.page.getByTestId('news-slot');
+    await expect(chip).toHaveText('8:30 1:30');
+    await expect(chip).toHaveAttribute('data-state', 'waiting');
+    // 8:00 and 8:30 are the two the release calendar peaks behind.
+    await expect(chip).toHaveAttribute('data-dense', 'true');
+  });
+
+  test('switches to watching once the mark passes', async ({ terminal }) => {
+    await terminal.page.clock.setFixedTime(nyTime(8, 30, 42));
+    await terminal.waitForChart();
+
+    const chip = terminal.page.getByTestId('news-slot');
+    await expect(chip).toHaveText('8:30 +0:42');
+    await expect(chip).toHaveAttribute('data-state', 'open');
+  });
+
+  test('drops the countdown when the next window is hours away', async ({ terminal }) => {
+    // A terminal left open overnight would otherwise read "7:00 300:00",
+    // which is five hours stated in minutes.
+    await terminal.page.clock.setFixedTime(nyTime(2, 0));
+    await terminal.waitForChart();
+    await expect(terminal.page.getByTestId('news-slot')).toHaveText('7:00');
+  });
+
+  test('keeps the countdown once the window is within the hour', async ({ terminal }) => {
+    await terminal.page.clock.setFixedTime(nyTime(6, 40));
+    await terminal.waitForChart();
+    await expect(terminal.page.getByTestId('news-slot')).toHaveText('7:00 20:00');
+  });
+
+  test('stops counting past the last initiation time', async ({ terminal }) => {
+    await terminal.page.clock.setFixedTime(nyTime(9, 20));
+    await terminal.waitForChart();
+
+    const chip = terminal.page.getByTestId('news-slot');
+    await expect(chip).toHaveText('NO NEW');
+    await expect(chip).toHaveAttribute('data-state', 'late');
   });
 });
 

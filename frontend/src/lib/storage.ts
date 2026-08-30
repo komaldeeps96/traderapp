@@ -10,12 +10,21 @@ import {
   MINI_SLOT_COUNT,
   MINI_TIMEFRAME_CHOICES,
 } from '@/chart/mini';
+import {
+  clampDockWidth,
+  isDockTabId,
+  DOCK_DEFAULT_TAB,
+  DOCK_DEFAULT_WIDTH,
+  type DockTabId,
+} from '@/lib/dock';
 import type { IndicatorSpec, Timeframe } from '@/types/protocol';
 
 const THEME_KEY = 'traderapp.theme';
 const VISIBILITY_KEY = 'traderapp.indicators';
 const ZOOM_KEY = 'traderapp.zoom';
 const MINI_TF_KEY = 'traderapp.miniTimeframes';
+const DOCK_TAB_KEY = 'traderapp.dockTab';
+const DOCK_WIDTH_KEY = 'traderapp.dockWidth';
 
 // A saved zoom outside these bounds is a corrupt value, not a preference.
 const ZOOM_MIN_BARS = 10;
@@ -110,6 +119,49 @@ export function loadMiniTimeframes(): Timeframe[] {
 
 export function saveMiniTimeframes(timeframes: readonly Timeframe[]): void {
   writeJson(MINI_TF_KEY, [...timeframes]);
+}
+
+/**
+ * Which dock tab was last open, and how wide the rail was dragged.
+ *
+ * A tab removed from a later build falls back to the charts rather than
+ * leaving the dock showing nothing, and a width from a build with different
+ * bounds is clamped into the current ones instead of being discarded — the
+ * user's intent was "wide", and the nearest legal wide is closer to it than
+ * the default.
+ */
+export function loadDockTab(): DockTabId {
+  try {
+    const saved = localStorage.getItem(DOCK_TAB_KEY);
+    return isDockTabId(saved) ? saved : DOCK_DEFAULT_TAB;
+  } catch {
+    return DOCK_DEFAULT_TAB;
+  }
+}
+
+export function saveDockTab(tab: DockTabId): void {
+  try {
+    localStorage.setItem(DOCK_TAB_KEY, tab);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadDockWidth(): number {
+  try {
+    const saved = Number(localStorage.getItem(DOCK_WIDTH_KEY));
+    return saved > 0 ? clampDockWidth(saved) : DOCK_DEFAULT_WIDTH;
+  } catch {
+    return DOCK_DEFAULT_WIDTH;
+  }
+}
+
+export function saveDockWidth(width: number): void {
+  try {
+    localStorage.setItem(DOCK_WIDTH_KEY, String(clampDockWidth(width)));
+  } catch {
+    /* ignore */
+  }
 }
 
 type ZoomStore = Record<string, number>;
