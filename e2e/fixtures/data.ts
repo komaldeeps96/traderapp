@@ -1078,3 +1078,54 @@ export function makeOwnership(symbol = 'AAPL', overrides: Partial<Record<string,
     ...overrides,
   };
 }
+
+/**
+ * An industry peer set.
+ *
+ * Percentages are fractions, as the endpoint emits them — TradingView's
+ * whole percents are converted once on the backend so the ranking median
+ * and the table cell cannot disagree.
+ */
+export function makePeers(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
+  const row = (sym: string, extra: Record<string, unknown>) => ({
+    symbol: sym,
+    name: `${sym} Inc.`,
+    industry: 'Telecommunications Equipment',
+    market_cap: 1_000_000_000,
+    price_earnings: 20,
+    price_sales: 2,
+    price_book: 2,
+    gross_margin: 0.35,
+    operating_margin: 0.1,
+    return_on_equity: 0.05,
+    debt_to_equity: 0.2,
+    revenue: 500_000_000,
+    perf_ytd: 0.02,
+    next_earnings: 1793194200,
+    ...extra,
+  });
+  return {
+    symbol,
+    available: true,
+    industry: 'Telecommunications Equipment',
+    rows: [
+      row(symbol, {
+        market_cap: 4_665_759_424_245,
+        price_earnings: 36.65,
+        price_book: 43.44,
+        gross_margin: 0.4865,
+        return_on_equity: 1.4875,
+      }),
+      row('CSCO', { market_cap: 433_280_000_000, price_book: null }),
+      row('MSI', { market_cap: 80_430_000_000 }),
+    ],
+    ranks: [
+      { key: 'market_cap', label: 'Market cap', unit: 'money', value: 4_665_759_424_245, median: 401_130_000, position: 1, total: 3 },
+      { key: 'price_book', label: 'P/B', unit: 'multiple', value: 43.44, median: 2.33, position: 27, total: 28 },
+      { key: 'return_on_equity', label: 'Return on equity', unit: 'percent', value: 1.4875, median: 0.049, position: 1, total: 29 },
+      { key: 'price_earnings', label: 'P/E', unit: 'multiple', value: null, median: 37.8, position: null, total: 19 },
+    ],
+    note: null,
+    ...overrides,
+  };
+}

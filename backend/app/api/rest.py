@@ -247,6 +247,29 @@ async def filings(symbol: str) -> dict:
     }
 
 
+@router.get("/peers/{symbol}")
+async def peers(symbol: str) -> dict:
+    """The company beside the ones it competes with.
+
+    Ranked against its own industry rather than against every filer: a 39x
+    earnings multiple is expensive for a utility and cheap for a chip
+    designer, and a percentile across all US issuers cannot tell them apart.
+    """
+    container = _container()
+    resolved = _symbol(symbol)
+    if not container.settings.regime.enabled:
+        return {
+            "symbol": resolved,
+            "available": False,
+            "industry": "",
+            "rows": [],
+            "ranks": [],
+            "note": None,
+        }
+    comparison = await container.peers.compare(resolved)
+    return {"symbol": resolved, "available": True, **comparison}
+
+
 @router.get("/ownership/{symbol}")
 async def ownership(symbol: str) -> dict:
     """What insiders have done, with the payroll set aside.

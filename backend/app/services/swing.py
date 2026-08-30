@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from tradingview_screener import Query, col
 
 from ..core.clock import now_epoch
+from ..domain.screener import finite
 from .tv import _common_stock_terms
 
 logger = logging.getLogger(__name__)
@@ -150,18 +151,21 @@ def _distance_to_sma(close: float | None, sma: float | None) -> float | None:
 
 
 def _passes(screen: SwingScreen, row: dict) -> bool:
-    off_high = row.get("off_high")
+    # Re-checked here rather than trusted from `_shape`, because this is the
+    # function whose failure is silent: every comparison against NaN is False,
+    # so a row carrying one passes each test *by failing it*.
+    off_high = finite(row.get("off_high"))
     # `off_high` is negative below the high, so "within 10%" is >= -10.
     if screen.max_off_high is not None and (off_high is None or off_high < -screen.max_off_high):
         return False
     if screen.min_off_high is not None and (off_high is None or off_high > -screen.min_off_high):
         return False
     if screen.min_rvol is not None:
-        rvol = row.get("rvol")
+        rvol = finite(row.get("rvol"))
         if rvol is None or rvol < screen.min_rvol:
             return False
     if screen.near_sma50 is not None:
-        distance = row.get("distance_to_sma50")
+        distance = finite(row.get("distance_to_sma50"))
         if distance is None or distance > screen.near_sma50:
             return False
     return True
@@ -267,8 +271,7 @@ def _shape(payload) -> list[dict]:
     index = {name: position for position, name in enumerate(COLUMNS)}
 
     def number(row, name):
-        value = row[index[name]]
-        return float(value) if isinstance(value, (int, float)) else None
+        return finite(row[index[name]])
 
     def text(row, name):
         value = row[index[name]]

@@ -19,7 +19,7 @@ from collections.abc import Callable
 from tradingview_screener import Query, col
 from tradingview_screener.query import And
 
-from ..domain.screener import MarketRegime, SymbolStats
+from ..domain.screener import MarketRegime, SymbolStats, finite
 from ..domain.sessions import Session, session_of
 
 logger = logging.getLogger(__name__)
@@ -92,10 +92,7 @@ def _common_stock_terms() -> list:
 
 
 def _value(row: list, column: str) -> float | None:
-    value = row[_INDEX[column]]
-    if isinstance(value, (int, float)):
-        return float(value)
-    return None
+    return finite(row[_INDEX[column]])
 
 
 def _text(row: list, column: str) -> str:

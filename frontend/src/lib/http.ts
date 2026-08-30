@@ -8,6 +8,7 @@ import type {
   FundamentalsResponse,
   MetricsResponse,
   OwnershipResponse,
+  PeersResponse,
   NewsResponse,
   IndicatorSpec,
   ScannerTiersResponse,
@@ -78,6 +79,8 @@ export const api = {
   // Priced per filing, so it is fetched when the tab opens and never warmed.
   ownership: (symbol: string, signal?: AbortSignal) =>
     getJson<OwnershipResponse>(`/api/ownership/${encodeURIComponent(symbol)}`, signal),
+  peers: (symbol: string, signal?: AbortSignal) =>
+    getJson<PeersResponse>(`/api/peers/${encodeURIComponent(symbol)}`, signal),
   filings: (symbol: string, signal?: AbortSignal) =>
     getJson<FilingsResponse>(`/api/filings/${encodeURIComponent(symbol)}`, signal),
   news: (symbol: string, signal?: AbortSignal) =>

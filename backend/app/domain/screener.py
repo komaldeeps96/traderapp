@@ -7,7 +7,28 @@ cap — that IBKR withholds without a fundamentals entitlement.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
+
+
+def finite(value: object) -> float | None:
+    """A real number, or nothing at all.
+
+    Every screener row arrives through pandas, which fills a missing cell
+    with NaN — and `isinstance(nan, float)` is True, so a plain type check
+    lets it straight through. NaN then poisons whatever it touches, and
+    silently: every comparison against it is False, so a row carrying one
+    passes a filter *because* it failed the test, and sorting a list with a
+    few in it puts everything in an arbitrary order.
+
+    That is not hypothetical. It ranked Apple first of thirty-one on
+    price-to-book, at 43x against a peer median of 2x, because three peers
+    reported no book value.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
 
 
 @dataclass(slots=True)

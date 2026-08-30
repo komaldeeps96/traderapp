@@ -38,6 +38,7 @@ from ..services.hub import SubscriptionHub
 from ..services.market_data import MarketDataService
 from ..services.news import NewsService
 from ..services.ownership import OwnershipService
+from ..services.peers import PeerService
 from ..services.quotes import QuoteService
 from ..services.regime import RegimeService
 from ..services.scanner import ScannerService
@@ -115,6 +116,7 @@ class AppContainer:
         # with no TWS running — which is most of the time outside a session.
         self.swing = SwingService()
         self.ownership = OwnershipService(self.edgar)
+        self.peers = PeerService(self.tv)
         self.state = StateStore(
             self.settings.state_file,
             self.settings.default_symbol,

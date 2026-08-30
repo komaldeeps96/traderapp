@@ -689,6 +689,44 @@ export interface OwnershipResponse {
   trades: InsiderTrade[];
 }
 
+export interface PeerRow {
+  symbol: string;
+  name: string;
+  industry: string;
+  market_cap: number | null;
+  price_earnings: number | null;
+  price_sales: number | null;
+  price_book: number | null;
+  gross_margin: number | null;
+  operating_margin: number | null;
+  return_on_equity: number | null;
+  debt_to_equity: number | null;
+  revenue: number | null;
+  perf_ytd: number | null;
+  /** Epoch seconds of the next scheduled report. */
+  next_earnings: number | null;
+}
+
+export interface PeerRank {
+  key: string;
+  label: string;
+  unit: string;
+  value: number | null;
+  median: number | null;
+  /** 1 is best on this measure. Null when the company does not report it. */
+  position: number | null;
+  total: number;
+}
+
+export interface PeersResponse {
+  symbol: string;
+  available: boolean;
+  industry: string;
+  rows: PeerRow[];
+  ranks: PeerRank[];
+  note: string | null;
+}
+
 export interface ScannerTiersResponse {
   scan_codes: Array<{ code: string; label: string }>;
   tiers: Array<{ id: ScannerTierId; label: string }>;

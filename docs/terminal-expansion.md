@@ -27,8 +27,8 @@ Standing decisions from the brief:
 | 5 | Metrics and valuation tab | **done** |
 | 6 | Swing scanner tab | **done** |
 | 7 | Ownership — insider Form 4 trail | **done** |
-| 8 | `frames` percentiles — where a ratio sits in the market | next |
-| 9 | Events and peers | |
+| 8 | Peers — ranked against its own industry | **done** |
+| 9 | Events — earnings dates and 8-K items | next |
 | 10 | Segments (bulk data sets), FINRA short interest | |
 
 ## Phase 1 — every indicator on every timeframe
@@ -453,3 +453,55 @@ not before.
 - One visual test failed during the full sequential pass and passed alone on
   a quiet machine — contention, per the rule in CLAUDE.md, and re-checked
   rather than assumed either way.
+
+## Phase 8 — peers
+
+`/api/peers/{symbol}` and a fifth main tab, ranking a company against its own
+industry on nine measures with the industry median beside each.
+
+This **replaces** the planned SEC `frames` percentile work. Frames would give
+a percentile across some six thousand filers, and "80th percentile gross
+margin among all US issuers" says almost nothing — the comparison set is
+dominated by businesses with no relationship to this one. A 39× earnings
+multiple is expensive for a utility and cheap for a chip designer, and only
+the industry can tell them apart. It is also one TradingView request instead
+of two large frame fetches per ratio.
+
+Which end counts as first depends on the measure: a low P/E ranks well, a low
+gross margin does not. The backend owns that; the table only draws it.
+
+**Apple, live:** 1/29 on return on equity and 2/30 on operating margin, but
+27/28 on price-to-book and 26/29 on leverage. The most profitable name in the
+industry and the most expensive — which is the sentence a peer table exists
+to produce.
+
+### A NaN that had been silently wrong
+
+The first peer table put Apple **first of thirty-one** on price-to-book, at
+43× against a peer median of 2×. Three peers reported no book value, and
+pandas fills a missing cell with NaN — for which `isinstance(nan, float)` is
+**True**, so the type guard let it straight through.
+
+NaN then fails silently rather than loudly. Every comparison against it is
+False, so a row carrying one **passes a filter by failing its test**, and
+sorting a list containing a few puts everything in arbitrary order.
+
+The same guard was in three places — `tv.py`, `swing.py` and `peers.py` — so
+the swing screens could have shown a stock with no 52-week high inside a
+"within 10% of the high" screen, and `SymbolStats` could have carried a NaN
+market cap. All three now go through one `finite()` in the domain layer, and
+`_passes` re-checks rather than trusting its caller, because it is the
+function whose failure is invisible.
+
+A second scaling bug rode along: TradingView quotes margins as whole
+percents, and converting them in the table cell but not in the ranking strip
+produced an industry median return on equity of **690%**. The conversion now
+happens once, at the boundary.
+
+### Verified
+
+- 1148 backend, 338 frontend, 305 chromium, 19 fullstack, 5 visual.
+- Fifteen new unit tests cover the NaN guard alone, including that a filter
+  rejects a NaN rather than passing it.
+- In the browser against live TradingView: 31 industry peers, Apple's own row
+  highlighted, ranks and medians agreeing.

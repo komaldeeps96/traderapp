@@ -14,7 +14,13 @@
  * bars, at the same zoom, not reset to the right edge.
  */
 
-export const MAIN_TAB_IDS = ['chart', 'financials', 'metrics', 'ownership'] as const;
+export const MAIN_TAB_IDS = [
+  'chart',
+  'financials',
+  'metrics',
+  'ownership',
+  'peers',
+] as const;
 
 export type MainTabId = (typeof MAIN_TAB_IDS)[number];
 
@@ -23,6 +29,7 @@ export const MAIN_TAB_LABELS: Record<MainTabId, string> = {
   financials: 'Financials',
   metrics: 'Metrics',
   ownership: 'Insiders',
+  peers: 'Peers',
 };
 
 /** Spelled out for screen readers and hover. */
@@ -31,6 +38,7 @@ export const MAIN_TAB_TITLES: Record<MainTabId, string> = {
   financials: 'Income statement, balance sheet and cash flow',
   metrics: 'Ratios, growth and valuation multiples',
   ownership: 'What insiders have bought and sold',
+  peers: 'The same numbers, beside the industry',
 };
 
 export const MAIN_DEFAULT_TAB: MainTabId = 'chart';
