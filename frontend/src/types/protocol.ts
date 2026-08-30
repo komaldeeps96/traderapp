@@ -561,8 +561,12 @@ export interface FinancialsResponse {
   symbol: string;
   available: boolean;
   note: string | null;
-  /** The currency the filer states its statements in — not always USD. */
+  /** Always USD once converted; the filer's own currency is `native_currency`. */
   currency: string;
+  native_currency: string;
+  converted: boolean;
+  /** Periods whose FX rate could not be fetched, so were left unconverted. */
+  unconverted_periods?: string[];
   symbol_prefix: string;
   period: FinancialPeriodKind;
   periods: FinancialPeriod[];

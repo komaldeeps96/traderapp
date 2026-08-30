@@ -24,7 +24,7 @@ from ..domain.scanner import SCAN_CODES, SCANNER_TIERS
 from ..domain.sessions import ny_date
 from ..domain.timeframes import Timeframe
 from ..services.container import AppContainer, get_container
-from ..services.financials import build_statements
+from ..services.financials import build_statements, convert_to_usd
 from ..services.metrics import build_metrics
 from ..services.ownership import summarise
 from ..services.scanner import UNAVAILABLE_NOTE
@@ -172,6 +172,9 @@ async def financials(symbol: str, period: str = "annual", limit: int = 8) -> dic
 
     await container.edgar.prefetch(resolved)
     built = build_statements(container.edgar.peek_facts(resolved), annual=annual, limit=limit)
+    # Everything on this screen is quoted in dollars, so a filer reporting in
+    # its own currency is converted rather than captioned and left alone.
+    built = await convert_to_usd(built, container.fx)
     return {
         "symbol": resolved,
         "available": True,
@@ -212,11 +215,18 @@ async def metrics(symbol: str, period: str = "annual", limit: int = 8) -> dict:
         }
 
     await container.edgar.prefetch(resolved)
+    facts = container.edgar.peek_facts(resolved)
+    # Built and converted once, then handed to the ratios: a foreign filer
+    # must not be converted twice, and the two tabs must not disagree.
+    statements = await convert_to_usd(
+        build_statements(facts, annual=annual, limit=limit), container.fx
+    )
     built = build_metrics(
-        container.edgar.peek_facts(resolved),
+        facts,
         annual=annual,
         limit=limit,
         market_cap=market_cap,
+        statements=statements,
     )
     return {
         "symbol": resolved,

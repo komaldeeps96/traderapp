@@ -1,22 +1,23 @@
-import { makeFinancials, makeMetrics } from '../../fixtures/data';
+import { makeFinancials } from '../../fixtures/data';
 import { expect, test } from '../../fixtures/test';
 
 /**
- * Foreign private issuers.
+ * Foreign private issuers, restated in dollars.
  *
- * A company filing a 40-F or 20-F tags under `ifrs-full` rather than
- * `us-gaap`, in its own currency. The facts were always in the same free
- * `companyfacts` payload the terminal already fetched — the tabs were empty
- * because the parser looked in one taxonomy, and that is most of the
- * Canadian small-cap universe.
+ * A 40-F or 20-F filer tags under `ifrs-full` and reports in its own
+ * currency. Everything else on this screen is quoted in dollars, so those
+ * statements are converted rather than captioned and left alone — at each
+ * period's own rate, so a 2019 figure is what it was worth in 2019.
  *
- * What has to hold once they render: the currency is stated, and nothing
- * silently mixes it with the USD market cap.
+ * What has to hold: the conversion is disclosed, and a period whose rate
+ * could not be fetched is named rather than dropped into a dollar column.
  */
 
-const CANADIAN = {
+const CONVERTED = {
   ...makeFinancials(),
-  currency: 'CAD',
+  currency: 'USD',
+  native_currency: 'CAD',
+  converted: true,
   symbol_prefix: '$',
   statements: [
     {
@@ -26,84 +27,78 @@ const CANADIAN = {
         {
           key: 'revenue',
           label: 'Revenue',
-          unit: 'CAD',
+          unit: 'USD',
+          kind: 'money',
+          instant: false,
           concepts: ['Revenue'],
-          values: [946_400_000, 920_450_000],
+          values: [677_100_000, 672_300_000],
         },
         {
           key: 'eps_diluted',
           label: 'EPS, diluted',
-          unit: 'CAD/shares',
+          unit: 'USD/shares',
+          kind: 'per_share',
+          instant: false,
           concepts: ['DilutedEarningsLossPerShare'],
-          values: [-0.06, -0.36],
+          values: [-0.04, -0.26],
         },
       ],
     },
   ],
 };
 
-test.describe('a filer reporting in another currency', () => {
-  // `terminal` is requested so the mock backend's own routes are installed
-  // first: Playwright uses the last matching route registered, and a hook
-  // asking only for `page` registers before the fixtures and loses.
+// `terminal` is requested so the mock backend's own routes install first:
+// Playwright uses the last matching route registered, and a hook asking only
+// for `page` registers before the fixtures and loses.
+test.describe('a filer that reports in another currency', () => {
   test.beforeEach(async ({ page, terminal }) => {
     await terminal.waitForChart();
-    await page.route('**/api/financials/**', (route) => route.fulfill({ json: CANADIAN }));
-  });
-
-  test('says which currency the statements are in', async ({ terminal }) => {
-    // A figure with no currency beside it cannot be compared to anything.
+    await page.route('**/api/financials/**', (route) => route.fulfill({ json: CONVERTED }));
     await terminal.page.getByTestId('main-tab-financials').click();
-    await expect(terminal.page.getByTestId('financials-currency')).toContainText('CAD');
   });
 
-  test('does not put per-share figures through the money branch', async ({ terminal }) => {
-    // The unit is "CAD/shares", not "USD/shares". Matching the literal sent
-    // an EPS of -0.06 down the money path, where it rendered as "-$0".
-    await terminal.page.getByTestId('main-tab-financials').click();
-    const eps = terminal.page.getByTestId('financials-row-eps_diluted').locator('..');
-    await expect(eps).toContainText('-0.06');
-  });
-});
-
-test.describe('valuation across a currency boundary', () => {
-  test.beforeEach(async ({ page, terminal }) => {
-    await terminal.waitForChart();
-    await page.route('**/api/metrics/**', (route) =>
-      route.fulfill({
-        json: {
-          ...makeMetrics(),
-          currency: 'CAD',
-          valuation: {
-            market_cap: 336_450_000,
-            enterprise_value: null,
-            basis: 'annual',
-            note: 'Statements are in CAD and the market cap is in USD; multiples would be wrong by the exchange rate.',
-            multiples: [
-              { key: 'pe', label: 'P/E', value: null },
-              { key: 'ps', label: 'P/S', value: null },
-            ],
-          },
-        },
-      }),
+  test('says the figures were converted, and from what', async ({ terminal }) => {
+    // A converted number that does not say so is worse than an unconverted
+    // one: it cannot be checked against the filing it came from.
+    await expect(terminal.page.getByTestId('financials-currency')).toContainText(
+      'converted from CAD',
     );
   });
 
-  test('refuses the multiples rather than computing them wrong', async ({ terminal }) => {
-    // A P/E of 12 where the truth is 17 looks like nothing at all.
-    await terminal.page.getByTestId('main-tab-metrics').click();
-    await expect(terminal.page.getByTestId('multiple-pe')).toContainText('—');
+  test('shows the converted figures in dollars', async ({ terminal }) => {
+    const revenue = terminal.page.getByTestId('financials-row-revenue').locator('..');
+    await expect(revenue).toContainText('$677.10M');
   });
 
-  test('says why, so the dashes do not read as missing data', async ({ terminal }) => {
-    await terminal.page.getByTestId('main-tab-metrics').click();
-    await expect(terminal.page.getByTestId('valuation-note')).toContainText('exchange rate');
+  test('does not put per-share figures through the money branch', async ({ terminal }) => {
+    // Matching the literal 'USD/shares' broke the moment a filer quoted
+    // 'CAD/shares'; the check is on shape, and an EPS is never compacted.
+    const eps = terminal.page.getByTestId('financials-row-eps_diluted').locator('..');
+    await expect(eps).toContainText('-0.04');
+  });
+});
+
+test.describe('a period with no exchange rate', () => {
+  test.beforeEach(async ({ page, terminal }) => {
+    await terminal.waitForChart();
+    await page.route('**/api/financials/**', (route) =>
+      route.fulfill({ json: { ...CONVERTED, unconverted_periods: ['FY2024'] } }),
+    );
+    await terminal.page.getByTestId('main-tab-financials').click();
   });
 
-  test('still shows the ratios that need no conversion', async ({ terminal }) => {
-    // A margin is one currency over itself, so it is still a fact.
-    await terminal.page.getByTestId('main-tab-metrics').click();
-    const margin = terminal.page.getByTestId('metric-row-gross_margin').locator('..');
-    await expect(margin).toContainText('46.9%');
+  test('is named rather than silently missing', async ({ terminal }) => {
+    // A blank column in a converted table reads as "the company reported
+    // nothing", which is a different and much worse claim.
+    await expect(terminal.page.getByTestId('financials-unconverted')).toContainText('FY2024');
+  });
+});
+
+test.describe('a US filer', () => {
+  test('is not captioned as converted', async ({ terminal }) => {
+    await terminal.waitForChart();
+    await terminal.page.getByTestId('main-tab-financials').click();
+    await expect(terminal.page.getByTestId('financials-currency')).toContainText('in USD');
+    await expect(terminal.page.getByTestId('financials-currency')).not.toContainText('converted');
   });
 });

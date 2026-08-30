@@ -33,6 +33,7 @@ from ..services.api_budget import ApiBudget
 from ..services.broadcaster import ChartBroadcaster
 from ..services.corporate_actions import ReverseSplitService
 from ..services.filing_watch import FilingWatchService
+from ..services.fx import FxService
 from ..services.halts import HaltTracker
 from ..services.hub import SubscriptionHub
 from ..services.market_data import MarketDataService
@@ -117,6 +118,8 @@ class AppContainer:
         self.swing = SwingService()
         self.ownership = OwnershipService(self.edgar)
         self.peers = PeerService(self.tv)
+        # Shared so a rate is fetched once per period, not once per tab.
+        self.fx = FxService()
         self.state = StateStore(
             self.settings.state_file,
             self.settings.default_symbol,

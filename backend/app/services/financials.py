@@ -42,6 +42,7 @@ Chain = tuple[tuple[str, str], ...]
 # What a line is measured in. The literal unit key depends on the company:
 # a Canadian issuer reports money in CAD and earnings per share in
 # "CAD/shares", so the kind is declared here and resolved per filer.
+USD_CODE = "USD"
 MONEY = "money"
 PER_SHARE = "per_share"
 SHARES = "shares"
@@ -554,6 +555,8 @@ def build_statements(facts: dict | None, annual: bool, limit: int = 8) -> dict:
             lines.append(
                 {
                     "statement": statement_key,
+                    "instant": spec.instant,
+                    "kind": spec.unit,
                     "statement_label": statement_label,
                     "key": spec.key,
                     "label": spec.label,
@@ -565,6 +568,16 @@ def build_statements(facts: dict | None, annual: bool, limit: int = 8) -> dict:
 
     periods = sorted(ends, reverse=True)[:limit]
     keys = [_period_key(end, annual, year_end_month) for end in periods]
+    # The window each period covers, taken from whichever duration fact set
+    # the axis. Conversion needs it: a flow goes at the average rate across
+    # the period, and the average needs both ends.
+    starts = {
+        end: fact.start
+        for line in lines
+        if not line["instant"]
+        for end, fact in line["_values"].items()
+        if fact.start is not None
+    }
 
     return {
         # Stated rather than assumed: a foreign private issuer reports in its
@@ -576,6 +589,7 @@ def build_statements(facts: dict | None, annual: bool, limit: int = 8) -> dict:
             {
                 "key": key,
                 "end": end.isoformat(),
+                "start": starts[end].isoformat() if starts.get(end) else None,
                 "fiscal_year": fiscal_year_of(end),
             }
             for key, end in zip(keys, periods, strict=True)
@@ -589,6 +603,8 @@ def build_statements(facts: dict | None, annual: bool, limit: int = 8) -> dict:
                         "key": line["key"],
                         "label": line["label"],
                         "unit": line["unit"],
+                        "kind": line["kind"],
+                        "instant": line["instant"],
                         "concepts": line["concepts"],
                         "values": [
                             (
@@ -607,3 +623,68 @@ def build_statements(facts: dict | None, annual: bool, limit: int = 8) -> dict:
             if any(line["statement"] == statement_key for line in lines)
         ],
     }
+
+
+async def convert_to_usd(built: dict, fx) -> dict:
+    """Restate a statement set in dollars.
+
+    Separate from `build_statements`, and async, because it reaches the
+    network: the builder stays pure and testable, and this is the only part
+    that can fail.
+
+    Each period is converted at its own rate rather than at today's, so a
+    2019 figure is what it was worth in 2019. A single current rate would
+    push this year's exchange move back through ten years of history and
+    call the result growth.
+
+    Two rates per period, because a balance and a flow are not converted the
+    same way — IAS 21 puts flows at the average across the period and
+    balances at the closing rate on the sheet date.
+
+    A period whose rate cannot be fetched keeps its own currency and is
+    reported as unconverted rather than silently mixed into a dollar column.
+    """
+    native = built.get("currency", USD_CODE)
+    if native == USD_CODE:
+        built["native_currency"] = USD_CODE
+        built["converted"] = False
+        return built
+
+    closing: dict[str, float | None] = {}
+    average: dict[str, float | None] = {}
+    for period in built.get("periods", []):
+        end = _to_date(period.get("end"))
+        start = _to_date(period.get("start"))
+        if end is None:
+            continue
+        closing[period["key"]] = await fx.closing_rate(native, end)
+        average[period["key"]] = (
+            await fx.average_rate(native, start, end)
+            if start is not None
+            else closing[period["key"]]
+        )
+        period["fx_closing"] = closing[period["key"]]
+        period["fx_average"] = average[period["key"]]
+
+    keys = [period["key"] for period in built.get("periods", [])]
+    unconverted = [key for key in keys if closing.get(key) is None or average.get(key) is None]
+
+    for statement in built.get("statements", []):
+        for line in statement.get("lines", []):
+            if line.get("kind") == SHARES:
+                continue
+            rates = closing if line.get("instant") else average
+            line["values"] = [
+                None if value is None or rates.get(key) is None else round(value * rates[key], 4)
+                for key, value in zip(keys, line["values"], strict=True)
+            ]
+            line["unit"] = unit_key(line.get("kind", MONEY), USD_CODE)
+
+    built["native_currency"] = native
+    built["currency"] = USD_CODE
+    built["symbol_prefix"] = currency_symbol(USD_CODE)
+    built["converted"] = True
+    # Named rather than counted: a column silently missing from a converted
+    # table is the one thing worse than an unconverted one.
+    built["unconverted_periods"] = unconverted
+    return built

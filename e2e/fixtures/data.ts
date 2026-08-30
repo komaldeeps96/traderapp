@@ -870,6 +870,8 @@ export function makeFinancials(
     available: true,
     note: null,
     currency: 'USD',
+    native_currency: 'USD',
+    converted: false,
     symbol_prefix: '$',
     period: 'annual',
     periods: [
@@ -933,6 +935,8 @@ export function makeMetrics(symbol = 'AAPL', overrides: Partial<Record<string, u
     symbol,
     available: true,
     currency: 'USD',
+    native_currency: 'USD',
+    converted: false,
     symbol_prefix: '$',
     period: 'annual',
     periods: [

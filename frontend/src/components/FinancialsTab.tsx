@@ -97,6 +97,16 @@ export function FinancialsTab() {
             title="The currency this company files its statements in"
           >
             in {data.currency}
+            {data.converted && ` · converted from ${data.native_currency}`}
+          </span>
+        )}
+        {(data?.unconverted_periods?.length ?? 0) > 0 && (
+          <span
+            className="font-mono text-[10px] text-down"
+            data-testid="financials-unconverted"
+            title="No exchange rate could be fetched for these periods, so they are left out rather than mixed into a dollar column"
+          >
+            no rate for {data!.unconverted_periods!.join(', ')}
           </span>
         )}
         {data?.note && (

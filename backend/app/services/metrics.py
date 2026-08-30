@@ -166,9 +166,16 @@ def build_metrics(
     annual: bool,
     limit: int = 8,
     market_cap: float | None = None,
+    statements: dict | None = None,
 ) -> dict:
-    """Ratios per period, plus valuation against the current market cap."""
-    statements = build_statements(facts, annual=annual, limit=limit)
+    """Ratios per period, plus valuation against the current market cap.
+
+    A caller that has already built and converted the statements passes them
+    in, so a foreign filer is not parsed twice and — more to the point — is
+    not converted twice.
+    """
+    if statements is None:
+        statements = build_statements(facts, annual=annual, limit=limit)
     currency = statements.get("currency", "USD")
     values: dict[str, list[float | None]] = {
         line["key"]: line["values"]
