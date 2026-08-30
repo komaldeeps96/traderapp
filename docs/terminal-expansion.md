@@ -25,8 +25,8 @@ Standing decisions from the brief:
 | 3 | Financials API — EDGAR `companyfacts` → statements | **done** |
 | 4 | Main tab shell, Chart as tab one, Financials tab | **done** |
 | 5 | Metrics and valuation tab | **done** |
-| 6 | `frames` percentiles — where a ratio sits in the market | next |
-| 7 | Swing scanner tab | |
+| 6 | Swing scanner tab | **done** |
+| 7 | `frames` percentiles — where a ratio sits in the market | next |
 | 8 | Ownership — Form 4, 13D/G, 13F | |
 | 9 | Events and peers | |
 | 10 | Segments (bulk data sets), FINRA short interest | |
@@ -341,3 +341,66 @@ info-strip fixture's market cap is $62M, nowhere near the boundary.
 - In the browser against live data: AAPL, eight fiscal years, with the
   valuation strip priced off the live market cap and interest coverage
   correctly blank in the two years Apple reported no interest expense.
+
+## Phase 6 — the scanner column gets tabs
+
+**Day** holds the four market-cap scanners unchanged. **Swing** is new, and
+answers a different question from a different source.
+
+The day scanners rank the tape — trade rate, rotation — and answer "what is
+moving *now*". They need IBKR, so they are dark whenever TWS is not running,
+which is most of the time outside a session. A swing setup is a question
+about daily structure: what has been working, and is it at a place worth
+buying. It answers from TradingView, so **that tab fills with nothing else
+connected** — which is most of when a swing trader is actually looking.
+
+Four screens, each stating its own setup in a line, because two of them
+differ only in how far off the high they want and no name carries that:
+
+| screen | what it wants |
+|---|---|
+| Trend continuation | above a rising 50 and 200, within 10% of the 52-week high |
+| Breakout | at the high on ≥1.5× relative volume |
+| Pullback to the 50 | above the 200, 5–25% off the high, back at the 50-day |
+| Momentum leaders | strongest month, above the 50-day |
+
+### The filters cannot be sent
+
+TradingView's query language compares a column against a *number*, never
+against another column — `col('close') > col('price_52_week_high') * 0.9`
+raises `TypeError: unsupported operand type(s) for *`. So "within 10% of the
+high" and "back at the 50-day" cannot travel in the request. The coarse terms
+go to the server; the proximity tests run locally on rows that came back,
+which is why each screen fetches 300 and shows fifteen.
+
+That split is where the tests concentrate: `off_high` is *negative* below the
+high, and a sign error there silently turns the pullback screen into a second
+breakout screen. There is a test for exactly that inversion.
+
+### A bug that took down the whole terminal
+
+Clicking Swing unmounted the entire app — chart, scanners, key levels —
+leaving a white screen. `payload.screens[0]` assumed the array existed, and
+the payload arrived without it, so the throw propagated out of React.
+
+The bad payload was the mock's fault: **Playwright uses the last matching
+route registered**, so `'**/api/swing/*'` silently answered
+`/api/swing/screens` too, returning the rows fixture. But the mock only
+*revealed* the fault. One panel's malformed response must never take the
+chart down with it, so the panel now validates the shape it got, and an e2e
+test feeds it `{unexpected: true}` and asserts the terminal survives.
+
+(The same precedence rule bit the financials mock an hour earlier, where the
+comment claimed the opposite. Both are now single handlers that read the URL
+rather than two globs racing.)
+
+### Verified
+
+- 1105 backend, 338 frontend, 289 chromium, 19 fullstack, 5 visual.
+- 19 unit tests drive the service through an injected fetch, so nothing
+  leaves the machine.
+- In the browser against live TradingView: all four screens returning real
+  candidates with **no IBKR connected**. Breakout returned two names, both
+  within 2% of the high at 1.73× and 1.69× volume — a strict screen on a
+  quiet day, which is the honest answer rather than a padded list.
+- Sidebar visual baselines regenerated; the new strip was asserted first.

@@ -16,6 +16,11 @@ import {
   type MainTabId,
 } from '@/lib/mainTabs';
 import {
+  SCANNER_DEFAULT_TAB,
+  isScannerTabId,
+  type ScannerTabId,
+} from '@/lib/scannerTabs';
+import {
   clampDockWidth,
   isDockTabId,
   DOCK_DEFAULT_TAB,
@@ -30,6 +35,7 @@ const ZOOM_KEY = 'traderapp.zoom';
 const MINI_TF_KEY = 'traderapp.miniTimeframes';
 const DOCK_TAB_KEY = 'traderapp.dockTab';
 const MAIN_TAB_KEY = 'traderapp.mainTab';
+const SCANNER_TAB_KEY = 'traderapp.scannerTab';
 const DOCK_WIDTH_KEY = 'traderapp.dockWidth';
 
 // A saved zoom outside these bounds is a corrupt value, not a preference.
@@ -263,6 +269,24 @@ export function loadMainTab(): MainTabId {
 export function saveMainTab(tab: MainTabId): void {
   try {
     localStorage.setItem(MAIN_TAB_KEY, tab);
+  } catch {
+    // Private browsing or a full quota: the tab simply does not persist.
+  }
+}
+
+/** Which scanner tab was last open. */
+export function loadScannerTab(): ScannerTabId {
+  try {
+    const saved = localStorage.getItem(SCANNER_TAB_KEY);
+    return isScannerTabId(saved) ? saved : SCANNER_DEFAULT_TAB;
+  } catch {
+    return SCANNER_DEFAULT_TAB;
+  }
+}
+
+export function saveScannerTab(tab: ScannerTabId): void {
+  try {
+    localStorage.setItem(SCANNER_TAB_KEY, tab);
   } catch {
     // Private browsing or a full quota: the tab simply does not persist.
   }

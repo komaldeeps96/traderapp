@@ -23,6 +23,8 @@ import {
   makeFinancials,
   makeFundamentals,
   makeMetrics,
+  makeSwingRows,
+  makeSwingScreens,
   makeInfo,
   makeNews,
   makeQuote,
@@ -136,6 +138,18 @@ export async function installMockBackend(
     });
   });
   await json(page, '**/api/metrics/**', makeMetrics());
+  // One handler, because both URLs are one path segment deep and Playwright
+  // uses the *last* matching route registered — so a '**/api/swing/*' pattern
+  // silently answers /api/swing/screens too.
+  await page.route('**/api/swing/*', (route) => {
+    const catalogue = new URL(route.request().url()).pathname.endsWith('/screens');
+    void route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify(catalogue ? makeSwingScreens() : makeSwingRows()),
+    });
+  });
   await json(page, '**/api/filings/**', makeFilings());
   // Order matters: the article route is registered first so the broader news
   // pattern does not swallow it.

@@ -41,6 +41,7 @@ from ..services.quotes import QuoteService
 from ..services.regime import RegimeService
 from ..services.scanner import ScannerService
 from ..services.state import StateStore
+from ..services.swing import SwingService
 from ..services.symbol_info import SymbolInfoService
 from ..services.tv import TVDataService
 
@@ -109,6 +110,9 @@ class AppContainer:
             for tier in SCANNER_TIERS
         }
         self.regime = RegimeService(self.tv, self.settings.regime)
+        # Answers from TradingView alone, so the swing screens still work
+        # with no TWS running — which is most of the time outside a session.
+        self.swing = SwingService()
         self.state = StateStore(
             self.settings.state_file,
             self.settings.default_symbol,
@@ -122,6 +126,8 @@ class AppContainer:
             if saved_scanner is not None:
                 scanner.adopt_config(saved_scanner)
             scanner.on_update(functools.partial(self._broadcast_scanner, scanner_id))
+
+        self.swing.adopt_config(self.state.swing_config())
 
         self.regime.on_update(self._broadcast_regime)
         self.router.on_status_change(self._on_source_change)

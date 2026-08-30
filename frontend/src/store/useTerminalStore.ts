@@ -11,14 +11,17 @@ import { create } from 'zustand';
 import { sendCommand } from '@/lib/commands';
 import { clampDockWidth, type DockTabId } from '@/lib/dock';
 import type { MainTabId } from '@/lib/mainTabs';
+import type { ScannerTabId } from '@/lib/scannerTabs';
 import {
   loadDockTab,
   loadMainTab,
+  loadScannerTab,
   loadDockWidth,
   loadMiniTimeframes,
   loadVisibility,
   saveDockTab,
   saveMainTab,
+  saveScannerTab,
   saveDockWidth,
   saveMiniTimeframes,
   visibilityOverrides,
@@ -110,6 +113,7 @@ interface TerminalState {
   // the right-hand dock — which tab is open and how wide the rail is
   dockTab: DockTabId;
   mainTab: MainTabId;
+  scannerTab: ScannerTabId;
   dockWidth: number;
 
   // news: the backfill and every live headline merged into one list, held
@@ -158,6 +162,7 @@ interface TerminalState {
   setMiniTimeframe: (slot: number, timeframe: Timeframe) => void;
   setDockTab: (tab: DockTabId) => void;
   setMainTab: (tab: MainTabId) => void;
+  setScannerTab: (tab: ScannerTabId) => void;
   setDockWidth: (width: number) => void;
   setNews: (
     symbol: string,
@@ -215,6 +220,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   miniTimeframes: loadMiniTimeframes(),
   dockTab: loadDockTab(),
   mainTab: loadMainTab(),
+  scannerTab: loadScannerTab(),
   dockWidth: loadDockWidth(),
 
   news: [],
@@ -363,6 +369,11 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
           ? state.dockAlerts
           : { ...state.dockAlerts, filings: (state.dockAlerts.filings ?? 0) + 1 },
     });
+  },
+
+  setScannerTab: (scannerTab) => {
+    saveScannerTab(scannerTab);
+    set({ scannerTab });
   },
 
   setMainTab: (mainTab) => {

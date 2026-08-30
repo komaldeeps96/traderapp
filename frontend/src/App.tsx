@@ -7,6 +7,8 @@ import { KeyLevelsPanel } from '@/components/KeyLevelsPanel';
 import { MainTabs } from '@/components/MainTabs';
 import { MetricsTab } from '@/components/MetricsTab';
 import { ScannerPanel } from '@/components/ScannerPanel';
+import { ScannerTabs } from '@/components/ScannerTabs';
+import { SwingPanel } from '@/components/SwingPanel';
 import { Toolbar } from '@/components/Toolbar';
 import { TopPanel } from '@/components/TopPanel';
 import { useTerminal } from '@/hooks/useTerminal';
@@ -44,6 +46,7 @@ export default function App() {
   const error = useTerminalStore((state) => state.error);
   const status = useTerminalStore((state) => state.status);
   const mainTab = useTerminalStore((state) => state.mainTab);
+  const scannerTab = useTerminalStore((state) => state.scannerTab);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-surface">
@@ -57,15 +60,20 @@ export default function App() {
             deep, the rest five) clear it on a laptop without scrolling; a
             shorter window scrolls the column rather than shaving every
             panel down to the same half-visible height. */}
+        <ScannerTabs />
         <div className="scroll-thin flex max-h-[68%] min-h-0 flex-col overflow-y-auto">
-          {SCANNER_TIER_IDS.map((scannerId) => (
-            <ScannerPanel
-              key={scannerId}
-              scannerId={scannerId}
-              onSelect={(symbol) => subscribe(symbol, timeframe)}
-              onConfigure={(overrides) => configureScanner(scannerId, overrides)}
-            />
-          ))}
+          {scannerTab === 'day' ? (
+            SCANNER_TIER_IDS.map((scannerId) => (
+              <ScannerPanel
+                key={scannerId}
+                scannerId={scannerId}
+                onSelect={(symbol) => subscribe(symbol, timeframe)}
+                onConfigure={(overrides) => configureScanner(scannerId, overrides)}
+              />
+            ))
+          ) : (
+            <SwingPanel onSelect={(symbol) => subscribe(symbol, timeframe)} />
+          )}
         </div>
         <KeyLevelsPanel onToggle={toggleIndicator} onToggleGroup={setIndicatorGroup} />
       </aside>

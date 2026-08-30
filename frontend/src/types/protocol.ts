@@ -600,6 +600,49 @@ export interface MetricsResponse {
   valuation: Valuation | null;
 }
 
+export interface SwingScreen {
+  id: string;
+  label: string;
+  note: string;
+}
+
+export interface SwingConfig {
+  min_market_cap: number;
+  min_avg_volume: number;
+  rows: number;
+}
+
+export interface SwingRow {
+  symbol: string;
+  name: string;
+  sector: string;
+  close: number | null;
+  change: number | null;
+  rvol: number | null;
+  market_cap: number | null;
+  avg_volume: number | null;
+  perf_week: number | null;
+  perf_month: number | null;
+  perf_quarter: number | null;
+  adr: number | null;
+  /** Negative below the 52-week high; zero at it. */
+  off_high: number | null;
+  distance_to_sma50: number | null;
+}
+
+export interface SwingScreensResponse {
+  screens: SwingScreen[];
+  config: SwingConfig;
+  note: string | null;
+}
+
+export interface SwingRowsResponse {
+  screen_id: string;
+  rows: SwingRow[];
+  config: SwingConfig;
+  note: string | null;
+}
+
 export interface ScannerTiersResponse {
   scan_codes: Array<{ code: string; label: string }>;
   tiers: Array<{ id: ScannerTierId; label: string }>;

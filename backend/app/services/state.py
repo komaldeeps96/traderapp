@@ -51,6 +51,12 @@ class StateStore:
                     if isinstance(timeframe, str) and isinstance(overrides, dict)
                 }
 
+            swing = data.get("swing")
+            if isinstance(swing, dict):
+                # Shape only; SwingService.adopt_config validates each value,
+                # so a hand-edited file cannot make a screen unrunnable.
+                self._cache["swing"] = dict(swing)
+
             scanners = data.get("scanners")
             if isinstance(scanners, dict):
                 # Stored as-is, per tier id; ScannerService.adopt_config
@@ -89,6 +95,11 @@ class StateStore:
             return {}
         return {timeframe: dict(values) for timeframe, values in overrides.items()}
 
+    def swing_config(self) -> dict | None:
+        """The swing screens' shared filters, or None if never saved."""
+        config = self._cache.get("swing")
+        return dict(config) if isinstance(config, dict) else None
+
     def as_dict(self) -> dict[str, object]:
         return dict(self._cache)
 
@@ -119,6 +130,10 @@ class StateStore:
             indicators[timeframe] = dict(overrides)
         else:
             indicators.pop(timeframe, None)
+        await asyncio.to_thread(self._write)
+
+    async def save_swing(self, config: dict) -> None:
+        self._cache["swing"] = dict(config)
         await asyncio.to_thread(self._write)
 
     def _write(self) -> None:

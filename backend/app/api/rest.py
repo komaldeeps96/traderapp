@@ -25,6 +25,7 @@ from ..services.container import AppContainer, get_container
 from ..services.financials import build_statements
 from ..services.metrics import build_metrics
 from ..services.scanner import UNAVAILABLE_NOTE
+from ..services.swing import SCREENS, SCREENS_BY_ID
 
 # Twelve years of annual statements, or three of quarterly. Past that the
 # request is a scrape rather than a screen.
@@ -279,6 +280,59 @@ async def news_article(symbol: str, provider: str, article_id: str) -> dict:
         raise HTTPException(status_code=422, detail="provider and article_id are required")
     body = await container.news.article(provider, article_id)
     return {"provider": provider, "article_id": article_id, "paragraphs": to_paragraphs(body)}
+
+
+@router.get("/swing/screens")
+async def swing_screens() -> dict:
+    """The swing setups on offer, and the filters they share.
+
+    These answer from TradingView alone, so unlike the market-cap scanners
+    they still work with no TWS running — which is most of the time outside a
+    session.
+    """
+    container = _container()
+    return {
+        "screens": [
+            {"id": screen.id, "label": screen.label, "note": screen.note}
+            for screen in SCREENS
+        ],
+        "config": container.swing.config.to_dict(),
+        "note": container.swing.note,
+    }
+
+
+@router.get("/swing/{screen_id}")
+async def swing_rows(screen_id: str) -> dict:
+    container = _container()
+    if screen_id not in SCREENS_BY_ID:
+        raise HTTPException(status_code=404, detail=f"Unknown screen {screen_id!r}")
+    return {
+        "screen_id": screen_id,
+        "rows": await container.swing.rows(screen_id),
+        "config": container.swing.config.to_dict(),
+        "note": container.swing.note,
+    }
+
+
+@router.post("/swing/config")
+async def configure_swing(
+    min_market_cap: float | None = None,
+    min_avg_volume: float | None = None,
+    rows: int | None = None,
+) -> dict:
+    """Retune the screens, and remember it.
+
+    One config shared by all four: they are the same universe seen four ways,
+    and a per-screen minimum would mean setting the same number four times.
+    """
+    container = _container()
+    config = container.swing.configure(
+        min_market_cap=min_market_cap,
+        min_avg_volume=min_avg_volume,
+        rows=rows,
+    )
+    await container.state.save_swing(config.to_dict())
+    return {"config": config.to_dict()}
 
 
 @router.get("/scanner/tiers")

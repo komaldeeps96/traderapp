@@ -11,6 +11,8 @@ import type {
   IndicatorSpec,
   ScannerTiersResponse,
   SessionInfo,
+  SwingRowsResponse,
+  SwingScreensResponse,
   TimeframeInfo,
 } from '@/types/protocol';
 
@@ -68,6 +70,10 @@ export const api = {
       `/api/metrics/${encodeURIComponent(symbol)}?period=${period}`,
       signal,
     ),
+  swingScreens: (signal?: AbortSignal) =>
+    getJson<SwingScreensResponse>('/api/swing/screens', signal),
+  swingRows: (screenId: string, signal?: AbortSignal) =>
+    getJson<SwingRowsResponse>(`/api/swing/${encodeURIComponent(screenId)}`, signal),
   filings: (symbol: string, signal?: AbortSignal) =>
     getJson<FilingsResponse>(`/api/filings/${encodeURIComponent(symbol)}`, signal),
   news: (symbol: string, signal?: AbortSignal) =>
