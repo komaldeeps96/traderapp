@@ -111,7 +111,9 @@ export function MetricsTab() {
                 {valuation.note}
               </span>
             ) : (
-              `multiples on ${valuation.basis}`
+              `multiples on ${valuation.basis}${
+                valuation.source === 'filings' ? '' : ` · via ${valuation.source}`
+              }`
             )}
           </span>
         </section>

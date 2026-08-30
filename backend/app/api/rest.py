@@ -259,6 +259,9 @@ async def metrics(symbol: str, period: str = "annual", limit: int = 8) -> dict:
         market_cap=market_cap,
         statements=statements,
         trailing=trailing,
+        # The same reference row the market cap came from. A filer with no
+        # 10-Q leaves nothing to trail, and this carries a trailing year.
+        stats=stats.to_dict() if stats is not None else None,
     )
     return {
         "symbol": resolved,

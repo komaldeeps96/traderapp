@@ -140,6 +140,48 @@ def our_statements(edgar_facts):
 
 
 @pytest.fixture(scope="session")
+def reference_stats():
+    """The reference row the terminal fetches for every symbol.
+
+    Supplied to the metrics builder exactly as the endpoint supplies it, so
+    a filer with no quarters of its own reaches the same borrowed trailing
+    year here as it would on screen.
+    """
+    from tradingview_screener import Query, col
+
+    from tests.audit.universe import UNIVERSE
+
+    columns = [
+        "name",
+        "total_revenue",
+        "enterprise_value_current",
+        "free_cash_flow_ttm",
+        "price_earnings_ttm",
+        "price_sales_current",
+        "price_book_fq",
+    ]
+    symbols = [subject.symbol for subject in UNIVERSE]
+    _, frame = (
+        Query().select(*columns).where(col("name").isin(symbols)).limit(100).get_scanner_data()
+    )
+
+    def number(value):
+        return float(value) if isinstance(value, (int, float)) and math.isfinite(value) else None
+
+    out: dict[str, dict] = {}
+    for _, row in frame.iterrows():
+        out[row["name"]] = {
+            "revenue_ttm": number(row["total_revenue"]),
+            "enterprise_value": number(row["enterprise_value_current"]),
+            "free_cash_flow": number(row["free_cash_flow_ttm"]),
+            "price_earnings": number(row["price_earnings_ttm"]),
+            "price_to_sales": number(row["price_sales_current"]),
+            "price_to_book": number(row["price_book_fq"]),
+        }
+    return out
+
+
+@pytest.fixture(scope="session")
 def market_caps():
     """One market cap per subject, from the same source the terminal uses.
 

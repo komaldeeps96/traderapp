@@ -113,7 +113,7 @@ def tradingview():
 
 
 @pytest.fixture(scope="session")
-def our_metrics(our_statements, market_caps):
+def our_metrics(our_statements, market_caps, reference_stats):
     """Exactly what the metrics endpoint would serve, without a server."""
     from app.services.metrics import build_metrics
 
@@ -128,6 +128,7 @@ def our_metrics(our_statements, market_caps):
                 market_cap=market_caps.get(symbol),
                 statements=our_statements(symbol, converted=True),
                 trailing=our_statements(symbol, converted=True, quarterly=True),
+                stats=reference_stats.get(symbol),
             )
         return cache[symbol]
 
@@ -155,9 +156,13 @@ class TestTheBasis:
                 "back to a fiscal year"
             )
         else:
-            # A foreign private issuer files no 10-Q, so there is nothing to
-            # trail and the year is the only basis there is.
-            assert valuation["basis"] == "annual"
+            # A foreign private issuer files no 10-Q, so there is nothing of
+            # ours to trail. The reference row carries a trailing year, and
+            # borrowing it openly beats quoting a fiscal year nobody else
+            # uses: Alibaba's own filings give a P/E of 19.79 where the
+            # market is quoting 28.01.
+            assert valuation["basis"] == "trailing twelve months"
+            assert valuation["source"] == "TradingView"
 
 
 class TestAgainstTheMarket:
@@ -168,6 +173,11 @@ class TestAgainstTheMarket:
             pytest.skip(f"TradingView has no row for {subject.symbol}")
 
         built = our_metrics(subject.symbol)
+        if built["valuation"].get("source") != "filings":
+            # The multiples were borrowed from this very source, so checking
+            # them against it proves nothing but that a number survived being
+            # copied. That the borrowing happened at all is asserted below.
+            pytest.skip(f"{subject.symbol}'s multiples come from TradingView")
         if built["valuation"]["basis"] != "trailing twelve months":
             # TradingView quotes a trailing twelve months. Holding an annual
             # figure against it measures the difference between two bases,

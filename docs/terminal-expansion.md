@@ -614,3 +614,50 @@ so it must not share a table with the SEC annuals.
 - In the browser: SNDL showing eight fiscal years captioned "in CAD" with EPS
   at −0.06, and its metrics tab dashing every multiple with the reason
   printed beside them.
+
+## After the audit — the valuation basis
+
+The statement audit proved the numbers were read correctly and stopped
+there. Everything built *on* them was unchecked, and that is where a mistake
+reaches a decision: nobody acts on a revenue line, they act on a margin or a
+multiple.
+
+**Every multiple was quoted on the latest fiscal year.** The rest of the
+world quotes a trailing twelve months. Nothing was miscalculated — the basis
+was simply not the one anyone else uses, so the numbers disagreed with every
+screen the user had open:
+
+| | fiscal year | trailing twelve months | market |
+|---|---|---|---|
+| AAPL P/E | 41.65 | **36.19** | 36.65 |
+| CROX operating margin | 3.70% | **24.22%** | 20.81% |
+| JPM P/E | 16.68 | **14.62** | 15.32 |
+
+Crocs is the clearest case: 3.70% is a fiscal year carrying a goodwill
+impairment, against 24.22% for the twelve months actually elapsed.
+
+The strip now builds from the quarters wherever they exist, independently of
+what the table below is showing, and **says which basis it used**.
+
+### Three things that fell out of it
+
+**Banks had no trailing year at all.** JP Morgan stopped tagging quarterly
+`Revenues` in 2014 and files `RevenuesNetOfInterestExpense` instead, so the
+whole sector fell back to annual. With that concept in the chain JPM sits
+4.6% from the quoted multiple, down from 8.9%.
+
+**Foreign filers borrow theirs.** A 20-F filer files no 10-Q, so there is
+nothing of ours to trail. The reference row the terminal already fetches
+carries a trailing year in dollars, and borrowing it openly beats quoting a
+fiscal year nobody else uses — Alibaba's own filings give a P/E of 19.79
+where the market is quoting 28.01. The strip says "via TradingView", and the
+audit skips comparing those against TradingView, because checking a borrowed
+number against the source it was borrowed from proves only that copying
+works.
+
+**Debt / equity was relabelled, not fixed.** It is long-term debt only.
+Summing the short-term line to reach a total was tried and measured *worse* —
+`LongTermDebt` already includes the current portion for some filers and
+`LongTermDebtNoncurrent` does not, so it double-counted Apple to 1.23 against
+a quoted 0.78 while still understating Microsoft. Reverted, and the label now
+says "Long-term debt / equity", which is what it is.

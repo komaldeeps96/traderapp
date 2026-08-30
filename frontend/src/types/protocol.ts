@@ -597,6 +597,8 @@ export interface Valuation {
   market_cap: number | null;
   enterprise_value: number | null;
   basis: string;
+  /** "filings" when we computed it, else who we borrowed it from. */
+  source: string;
   /** Why there are no multiples, when there are none. */
   note: string | null;
   multiples: ValuationMultiple[];

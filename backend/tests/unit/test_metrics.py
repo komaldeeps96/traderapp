@@ -302,3 +302,116 @@ class TestValuationBasis:
             ),
         )
         assert built["valuation"]["basis"] == "trailing twelve months"
+
+
+# Alibaba's own reference row, as the terminal already fetches it.
+BORROWED_STATS = {
+    "revenue_ttm": 144.12e9,
+    "enterprise_value": 274.56e9,
+    "free_cash_flow": None,
+    "price_earnings": 28.005,
+    "price_to_sales": 1.88,
+    "price_to_book": 1.846,
+}
+
+
+class TestBorrowedValuation:
+    """Where the filings give no trailing year, somebody else's will do.
+
+    A foreign private issuer files no 10-Q, so there are no quarters to
+    trail. Alibaba's fiscal-year P/E of 19.79 is not the 28.01 the market is
+    quoting, and the market's is the one worth showing — borrowed openly
+    rather than derived, with the strip saying whose it is.
+    """
+
+    def _annual_only(self) -> dict:
+        return facts(
+            annual(REVENUE, [(2025, 400.0)]),
+            annual("NetIncomeLoss", [(2025, 100.0)]),
+        )
+
+    def test_our_own_quarters_win(self):
+        """Borrowing is the fallback, never the preference."""
+        quarters = facts(
+            usd(
+                REVENUE,
+                [
+                    fact("2025-01-01", "2025-03-31", 30.0, filed="2025-05-01", form="10-Q"),
+                    fact("2025-04-01", "2025-06-30", 30.0, filed="2025-08-01", form="10-Q"),
+                    fact("2025-07-01", "2025-09-30", 30.0, filed="2025-11-01", form="10-Q"),
+                    fact("2025-10-01", "2025-12-31", 30.0, filed="2026-02-01", form="10-Q"),
+                ],
+            ),
+            usd(
+                "NetIncomeLoss",
+                [
+                    fact("2025-01-01", "2025-03-31", 10.0, filed="2025-05-01", form="10-Q"),
+                    fact("2025-04-01", "2025-06-30", 10.0, filed="2025-08-01", form="10-Q"),
+                    fact("2025-07-01", "2025-09-30", 10.0, filed="2025-11-01", form="10-Q"),
+                    fact("2025-10-01", "2025-12-31", 10.0, filed="2026-02-01", form="10-Q"),
+                ],
+            ),
+        )
+        built = build_metrics(
+            None,
+            annual=True,
+            market_cap=1000.0,
+            statements=build_statements(self._annual_only(), annual=True),
+            trailing=build_statements(quarters, annual=False),
+            stats=BORROWED_STATS,
+        )
+        assert built["valuation"]["source"] == "filings"
+        by_key = {m["key"]: m["value"] for m in built["valuation"]["multiples"]}
+        assert by_key["pe"] == pytest.approx(25.0)
+
+    def test_the_reference_row_fills_in_when_there_are_no_quarters(self):
+        built = build_metrics(
+            None,
+            annual=True,
+            market_cap=1000.0,
+            statements=build_statements(self._annual_only(), annual=True),
+            trailing=build_statements(facts(), annual=False),
+            stats=BORROWED_STATS,
+        )
+        assert built["valuation"]["source"] == "TradingView"
+        assert built["valuation"]["basis"] == "trailing twelve months"
+        by_key = {m["key"]: m["value"] for m in built["valuation"]["multiples"]}
+        assert by_key["pe"] == pytest.approx(28.005)
+
+    def test_a_missing_figure_is_still_refused(self):
+        """Borrowing does not mean accepting whatever arrives."""
+        built = build_metrics(
+            None,
+            annual=True,
+            market_cap=1000.0,
+            statements=build_statements(self._annual_only(), annual=True),
+            trailing=build_statements(facts(), annual=False),
+            stats=BORROWED_STATS,
+        )
+        by_key = {m["key"]: m["value"] for m in built["valuation"]["multiples"]}
+        # Alibaba reports no free cash flow on that row.
+        assert by_key["p_fcf"] is None
+
+    def test_a_negative_multiple_is_refused_however_it_arrived(self):
+        built = build_metrics(
+            None,
+            annual=True,
+            market_cap=1000.0,
+            statements=build_statements(self._annual_only(), annual=True),
+            trailing=build_statements(facts(), annual=False),
+            stats={**BORROWED_STATS, "price_earnings": -12.0},
+        )
+        by_key = {m["key"]: m["value"] for m in built["valuation"]["multiples"]}
+        assert by_key["pe"] is None
+
+    def test_the_fiscal_year_stands_when_there_is_nothing_to_borrow(self):
+        built = build_metrics(
+            None,
+            annual=True,
+            market_cap=1000.0,
+            statements=build_statements(self._annual_only(), annual=True),
+            trailing=build_statements(facts(), annual=False),
+            stats={},
+        )
+        assert built["valuation"]["source"] == "filings"
+        assert built["valuation"]["basis"] == "annual"

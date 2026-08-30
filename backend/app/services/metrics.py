@@ -184,6 +184,7 @@ def build_metrics(
     market_cap: float | None = None,
     statements: dict | None = None,
     trailing: dict | None = None,
+    stats: dict | None = None,
 ) -> dict:
     """Ratios per period, plus valuation against the current market cap.
 
@@ -230,14 +231,69 @@ def build_metrics(
         "currency": currency,
         "symbol_prefix": statements.get("symbol_prefix", "$"),
         "valuation": _valuation_on_best_basis(
-            values, trailing, annual=annual, market_cap=market_cap, currency=currency
+            values,
+            trailing,
+            stats,
+            annual=annual,
+            market_cap=market_cap,
+            currency=currency,
         ),
     }
+
+
+def _valuation_from_stats(stats: dict, market_cap: float | None) -> dict | None:
+    """The trailing multiples a filer never gave us the quarters to compute.
+
+    A foreign private issuer files no 10-Q, so there is nothing to trail —
+    but the reference row this terminal already fetches for every symbol
+    carries a trailing twelve months, normalised to dollars. Alibaba's
+    fiscal-year P/E of 19.79 is not the 28.01 the market is quoting, and the
+    market's is the one worth showing.
+
+    Borrowed rather than derived, and labelled as such: this is somebody
+    else's arithmetic and the strip says so.
+    """
+    revenue = stats.get("revenue_ttm")
+    enterprise = stats.get("enterprise_value")
+    free_cash = stats.get("free_cash_flow")
+    multiples = [
+        {"key": "pe", "label": "P/E", "value": _positive(stats.get("price_earnings"))},
+        {"key": "ps", "label": "P/S", "value": _positive(stats.get("price_to_sales"))},
+        {"key": "pb", "label": "P/B", "value": _positive(stats.get("price_to_book"))},
+        {
+            "key": "p_fcf",
+            "label": "P/FCF",
+            "value": _safe_divide(market_cap, free_cash, positive_only=True),
+        },
+        {
+            "key": "ev_sales",
+            "label": "EV/Sales",
+            "value": _safe_divide(enterprise, revenue, positive_only=True),
+        },
+    ]
+    if all(entry["value"] is None for entry in multiples):
+        return None
+    return {
+        "market_cap": market_cap,
+        "enterprise_value": enterprise,
+        "basis": "trailing twelve months",
+        "source": "TradingView",
+        "note": None,
+        "multiples": multiples,
+    }
+
+
+def _positive(value: object) -> float | None:
+    """A multiple only means something over a positive denominator."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    return float(value) if value > 0 else None
 
 
 def _valuation_on_best_basis(
     own_values: dict[str, list[float | None]],
     trailing: dict | None,
+    stats: dict | None,
     *,
     annual: bool,
     market_cap: float | None,
@@ -256,6 +312,12 @@ def _valuation_on_best_basis(
     trailing_values = _line_values(trailing)
     if trailing_values and _trailing(trailing_values, "revenue", annual=False) is not None:
         return _valuation(trailing_values, annual=False, market_cap=market_cap, currency=currency)
+    # Our own filings first, somebody else's trailing year second, and the
+    # fiscal year only when neither is available.
+    if stats:
+        borrowed = _valuation_from_stats(stats, market_cap)
+        if borrowed is not None:
+            return borrowed
     return _valuation(own_values, annual=annual, market_cap=market_cap, currency=currency)
 
 
@@ -296,6 +358,7 @@ def _valuation(
             "market_cap": market_cap,
             "enterprise_value": None,
             "basis": "annual" if annual else "trailing twelve months",
+            "source": "filings",
             "note": (
                 f"Statements are in {currency} and the market cap is in USD; "
                 "multiples would be wrong by the exchange rate."
@@ -316,6 +379,7 @@ def _valuation(
         "market_cap": market_cap,
         "enterprise_value": enterprise,
         "basis": "annual" if annual else "trailing twelve months",
+        "source": "filings",
         "note": None,
         "multiples": [
             {
