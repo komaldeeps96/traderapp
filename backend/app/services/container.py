@@ -119,7 +119,7 @@ class AppContainer:
         self.ownership = OwnershipService(self.edgar)
         self.peers = PeerService(self.tv)
         # Shared so a rate is fetched once per period, not once per tab.
-        self.fx = FxService()
+        self.fx = FxService(cache_path=self.settings.fx_cache_file)
         self.state = StateStore(
             self.settings.state_file,
             self.settings.default_symbol,

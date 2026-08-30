@@ -199,9 +199,7 @@ class ScannerSettings(BaseModel):
         """
         unknown = [code for code in value if code.upper() not in STOCK_TYPES]
         if unknown:
-            raise ValueError(
-                f"unknown stock type(s) {unknown}; valid: {sorted(STOCK_TYPES)}"
-            )
+            raise ValueError(f"unknown stock type(s) {unknown}; valid: {sorted(STOCK_TYPES)}")
         return [code.upper() for code in value]
 
 
@@ -239,6 +237,10 @@ class Settings(BaseSettings):
 
     indicators_file: Path = CONFIG_DIR / "indicators.yaml"
     state_file: Path = CONFIG_DIR / "state.yaml"
+    # Exchange rates for periods that have already closed, which never
+    # change. Kept out of state.yaml because it is a cache, not a setting:
+    # deleting it costs one refetch and nothing else.
+    fx_cache_file: Path = CONFIG_DIR / "fx-rates.json"
 
     @classmethod
     def settings_customise_sources(

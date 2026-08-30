@@ -23,9 +23,11 @@ and the caller reports the statements in their own currency instead.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import statistics
 from datetime import date
+from pathlib import Path
 
 import httpx
 
@@ -44,14 +46,71 @@ TIMEOUT_SECONDS = 20.0
 class FxService:
     """Rates into USD, cached forever because history does not move."""
 
-    def __init__(self, client: httpx.AsyncClient | None = None):
+    def __init__(
+        self, client: httpx.AsyncClient | None = None, cache_path: str | Path | None = None
+    ):
         self._client = client
         self._owned: httpx.AsyncClient | None = None
         self._closing: dict[tuple[str, date], float | None] = {}
         self._average: dict[tuple[str, date, date], float | None] = {}
         self._lock = asyncio.Lock()
+        # Kept across restarts because a rate for a period that has already
+        # closed cannot change. The endpoint rate-limits under a burst, and
+        # opening the terminal should not spend that allowance re-learning
+        # what last week's exchange rate was.
+        self._cache_path = Path(cache_path) if cache_path else None
+        self._dirty = False
+        self._load()
+
+    def _load(self) -> None:
+        if self._cache_path is None or not self._cache_path.exists():
+            return
+        try:
+            stored = json.loads(self._cache_path.read_text())
+        except Exception as exc:
+            logger.warning("Could not read %s: %s", self._cache_path, exc)
+            return
+        if not isinstance(stored, dict):
+            return
+        for key, value in (stored.get("closing") or {}).items():
+            parsed = _split_closing(key)
+            # A cached *miss* is not persisted: a rate the endpoint refused
+            # once is worth asking for again tomorrow.
+            if parsed and isinstance(value, (int, float)) and value > 0:
+                self._closing[parsed] = float(value)
+        for key, value in (stored.get("average") or {}).items():
+            parsed = _split_average(key)
+            if parsed and isinstance(value, (int, float)) and value > 0:
+                self._average[parsed] = float(value)
+
+    def _save(self) -> None:
+        if self._cache_path is None or not self._dirty:
+            return
+        payload = {
+            "closing": {
+                f"{currency}|{on.isoformat()}": rate
+                for (currency, on), rate in self._closing.items()
+                if rate is not None
+            },
+            "average": {
+                f"{currency}|{start.isoformat()}|{end.isoformat()}": rate
+                for (currency, start, end), rate in self._average.items()
+                if rate is not None
+            },
+        }
+        try:
+            self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+            # Written whole and moved into place, so a crash mid-write leaves
+            # the previous cache rather than half a file.
+            temporary = self._cache_path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(payload, sort_keys=True))
+            temporary.replace(self._cache_path)
+            self._dirty = False
+        except Exception as exc:
+            logger.warning("Could not persist rates to %s: %s", self._cache_path, exc)
 
     async def close(self) -> None:
+        self._save()
         if self._owned is not None:
             await self._owned.aclose()
             self._owned = None
@@ -78,6 +137,9 @@ class FxService:
         payload = await self._get(f"/{on.isoformat()}", currency)
         rate = _extract(payload)
         self._closing[key] = rate
+        if rate is not None:
+            self._dirty = True
+            self._save()
         return rate
 
     async def average_rate(self, currency: str, start: date, end: date) -> float | None:
@@ -103,6 +165,9 @@ class FxService:
                     rates.append(float(value))
         rate = statistics.fmean(rates) if rates else None
         self._average[key] = rate
+        if rate is not None:
+            self._dirty = True
+            self._save()
         return rate
 
     async def _get(self, path: str, base: str) -> dict | None:
@@ -127,3 +192,25 @@ def _extract(payload: dict | None) -> float | None:
         return None
     value = (payload.get("rates") or {}).get(USD)
     return float(value) if isinstance(value, (int, float)) and value > 0 else None
+
+
+def _split_closing(key: str) -> tuple[str, date] | None:
+    currency, _, when = key.partition("|")
+    parsed = _parse_date(when)
+    return (currency, parsed) if currency and parsed else None
+
+
+def _split_average(key: str) -> tuple[str, date, date] | None:
+    parts = key.split("|")
+    if len(parts) != 3:
+        return None
+    currency, start, end = parts
+    first, last = _parse_date(start), _parse_date(end)
+    return (currency, first, last) if currency and first and last else None
+
+
+def _parse_date(value: str) -> date | None:
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None

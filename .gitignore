@@ -26,6 +26,12 @@ blob-report/
 .env.local
 backend/config/settings.yaml
 backend/config/state.yaml
+# Exchange rates for periods that have already closed. A cache, not a
+# setting: deleting it costs one refetch.
+backend/config/fx-rates.json
+# companyfacts kept by `pytest -m audit` so a second run costs the SEC
+# nothing. Megabytes of XBRL, regenerated on demand.
+backend/tests/audit/.cache/
 backend/.logs/
 .logs/
 
