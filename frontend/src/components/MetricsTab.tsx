@@ -111,7 +111,7 @@ export function MetricsTab() {
                 {valuation.note}
               </span>
             ) : (
-              `on ${valuation.basis}`
+              `multiples on ${valuation.basis}`
             )}
           </span>
         </section>

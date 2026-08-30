@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.services.financials import build_statements
 from app.services.metrics import build_metrics
 from tests.unit.test_financials import REVENUE, fact, facts, usd
 
@@ -215,3 +216,89 @@ class TestCrossCurrency:
         by_key = {entry["key"]: entry["value"] for entry in built["valuation"]["multiples"]}
         assert by_key["pe"] == 20.0
         assert built["valuation"]["note"] is None
+
+
+class TestValuationBasis:
+    """Which twelve months the multiples are quoted on.
+
+    Every other screen uses a trailing twelve months. Quoting the latest
+    fiscal year instead is not a miscalculation — it answers a question
+    nobody asked, and disagrees with every other source. Apple's P/E read
+    41.65 against a market quoting 36.65, and Crocs' operating margin 3.70%
+    on a year carrying a goodwill impairment against 24.22% on the twelve
+    months actually elapsed.
+    """
+
+    def _quarters(self, revenue: list[float], profit: list[float]) -> dict:
+        rows, income = [], []
+        starts = ["2025-10-01", "2025-07-01", "2025-04-01", "2025-01-01"]
+        ends = ["2025-12-31", "2025-09-30", "2025-06-30", "2025-03-31"]
+        for start, end, r, p in zip(starts, ends, revenue, profit, strict=True):
+            rows.append(fact(start, end, r, filed="2026-02-01", form="10-Q"))
+            income.append(fact(start, end, p, filed="2026-02-01", form="10-Q"))
+        return facts(usd(REVENUE, rows), usd("NetIncomeLoss", income))
+
+    def _year(self, revenue: float, profit: float) -> dict:
+        return facts(
+            annual(REVENUE, [(2025, revenue)]),
+            annual("NetIncomeLoss", [(2025, profit)]),
+        )
+
+    def test_the_trailing_year_is_used_when_the_quarters_are_there(self):
+        built = build_metrics(
+            None,
+            annual=True,
+            market_cap=1000.0,
+            statements=build_statements(self._year(400.0, 100.0), annual=True),
+            trailing=build_statements(
+                self._quarters([30, 30, 30, 30], [10, 10, 10, 10]), annual=False
+            ),
+        )
+        assert built["valuation"]["basis"] == "trailing twelve months"
+        by_key = {m["key"]: m["value"] for m in built["valuation"]["multiples"]}
+        # 1000 / (10+10+10+10), not 1000 / 100.
+        assert by_key["pe"] == pytest.approx(25.0)
+
+    def test_the_fiscal_year_stands_when_there_are_no_quarters(self):
+        """A foreign private issuer files no 10-Q; the year is all there is."""
+        built = build_metrics(
+            None,
+            annual=True,
+            market_cap=1000.0,
+            statements=build_statements(self._year(400.0, 100.0), annual=True),
+            trailing=build_statements(facts(), annual=False),
+        )
+        assert built["valuation"]["basis"] == "annual"
+        by_key = {m["key"]: m["value"] for m in built["valuation"]["multiples"]}
+        assert by_key["pe"] == pytest.approx(10.0)
+
+    def test_three_quarters_is_not_a_trailing_year(self):
+        """Summing what is there would understate the denominator, which on
+        a multiple reads as cheaper than the company is."""
+        partial = self._quarters([30, 30, 30, 30], [10, 10, 10, 10])
+        rows = partial["facts"]["us-gaap"][REVENUE]["units"]["USD"][:3]
+        partial["facts"]["us-gaap"][REVENUE]["units"]["USD"] = rows
+        built = build_metrics(
+            None,
+            annual=True,
+            market_cap=1000.0,
+            statements=build_statements(self._year(400.0, 100.0), annual=True),
+            trailing=build_statements(partial, annual=False),
+        )
+        assert built["valuation"]["basis"] == "annual"
+
+    def test_a_caller_asking_for_quarters_still_gets_quarters(self):
+        """With no trailing set supplied the caller's own basis stands.
+
+        Asking for a quarterly view and being handed an annual valuation
+        would be a surprise, not a default.
+        """
+        built = build_metrics(
+            None,
+            annual=False,
+            market_cap=1000.0,
+            statements=build_statements(
+                self._quarters([30, 30, 30, 30], [10, 10, 10, 10]), annual=False
+            ),
+        )
+        assert built["valuation"]["basis"] == "trailing twelve months"

@@ -152,6 +152,10 @@ INCOME_STATEMENT: tuple[LineSpec, ...] = (
             "Revenues",
             "SalesRevenueNet",
             "SalesRevenueGoodsNet",
+            # A bank's total revenue. JP Morgan stopped tagging quarterly
+            # `Revenues` in 2014 and files this instead, so without it the
+            # whole sector has annual figures and no trailing twelve months.
+            "RevenuesNetOfInterestExpense",
         )
         + _ifrs("Revenue", "RevenueFromContractsWithCustomers"),
     ),

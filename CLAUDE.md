@@ -200,6 +200,11 @@ period, before anything is restated. **TradingView** publishes in USD, so it
 checks the *conversion*. Failing one and passing the other localises a fault
 immediately, which is the reason for using two.
 
+The ratio audit (`test_ratios.py`) covers what is built *on* the statements,
+which is where a mistake reaches a decision. It exists because that layer
+drifted unnoticed: every multiple was quoted on the latest fiscal year while
+the rest of the world quotes a trailing twelve months.
+
 ### Reading a disagreement
 
 **A disagreement is not automatically our bug.** The first run produced 49,

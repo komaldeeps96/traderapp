@@ -77,7 +77,7 @@ GROWTH: tuple[MetricSpec, ...] = (
 
 BALANCE: tuple[MetricSpec, ...] = (
     MetricSpec("current_ratio", "Current ratio", "ratio", "Balance sheet"),
-    MetricSpec("debt_to_equity", "Debt / equity", "ratio", "Balance sheet"),
+    MetricSpec("debt_to_equity", "Long-term debt / equity", "ratio", "Balance sheet"),
     MetricSpec("interest_coverage", "Interest coverage", "multiple", "Balance sheet"),
     MetricSpec("net_cash", "Net cash", "money", "Balance sheet"),
 )
@@ -110,6 +110,12 @@ def _per_period(values: dict[str, list[float | None]], count: int) -> dict[str, 
         capex = col("capex", index)
         cash_flow = col("operating_cash_flow", index)
         cash = col("cash", index)
+        # Long-term debt only, and the label says so. Summing this with the
+        # short-term line to reach "total debt" was tried and measured worse:
+        # `LongTermDebt` already includes the current portion for some filers
+        # and `LongTermDebtNoncurrent` does not, so adding double-counts
+        # Apple (1.23 against a quoted 0.78) while still understating
+        # Microsoft. Reconciling the two needs work this has not had.
         debt = col("long_term_debt", index)
         free_cash = None if cash_flow is None or capex is None else cash_flow - capex
 
@@ -161,27 +167,41 @@ def _trailing(values: dict[str, list[float | None]], key: str, annual: bool) -> 
     return None if any(value is None for value in window) else sum(window)  # type: ignore[arg-type]
 
 
+def _line_values(statements: dict | None) -> dict[str, list[float | None]]:
+    if not statements:
+        return {}
+    return {
+        line["key"]: line["values"]
+        for statement in statements["statements"]
+        for line in statement["lines"]
+    }
+
+
 def build_metrics(
     facts: dict | None,
     annual: bool,
     limit: int = 8,
     market_cap: float | None = None,
     statements: dict | None = None,
+    trailing: dict | None = None,
 ) -> dict:
     """Ratios per period, plus valuation against the current market cap.
 
     A caller that has already built and converted the statements passes them
     in, so a foreign filer is not parsed twice and — more to the point — is
     not converted twice.
+
+    `trailing` is the *quarterly* set, and it is what the multiples are built
+    from whenever it is complete enough. Every other screen quotes a trailing
+    twelve months, and a fiscal-year P/E disagrees with all of them: Apple's
+    was 41.65 against the 36.65 the market was quoting, and Crocs' operating
+    margin read 3.70% on a fiscal year carrying a goodwill impairment against
+    24.22% on the twelve months actually behind it.
     """
     if statements is None:
         statements = build_statements(facts, annual=annual, limit=limit)
     currency = statements.get("currency", "USD")
-    values: dict[str, list[float | None]] = {
-        line["key"]: line["values"]
-        for statement in statements["statements"]
-        for line in statement["lines"]
-    }
+    values = _line_values(statements)
     periods = statements["periods"]
     rows = _per_period(values, len(periods))
 
@@ -209,8 +229,34 @@ def build_metrics(
         ],
         "currency": currency,
         "symbol_prefix": statements.get("symbol_prefix", "$"),
-        "valuation": _valuation(values, annual=annual, market_cap=market_cap, currency=currency),
+        "valuation": _valuation_on_best_basis(
+            values, trailing, annual=annual, market_cap=market_cap, currency=currency
+        ),
     }
+
+
+def _valuation_on_best_basis(
+    own_values: dict[str, list[float | None]],
+    trailing: dict | None,
+    *,
+    annual: bool,
+    market_cap: float | None,
+    currency: str,
+) -> dict:
+    """Multiples on a trailing twelve months where the quarters allow it.
+
+    They do not always: a foreign private issuer files no 10-Q, so there are
+    no quarters to trail and the fiscal year is the only basis there is. The
+    strip says which was used rather than leaving it to be inferred.
+
+    With no quarterly set supplied at all, the caller's own basis stands — a
+    caller asking for quarterly figures and getting an annual valuation would
+    be a surprise, not a default.
+    """
+    trailing_values = _line_values(trailing)
+    if trailing_values and _trailing(trailing_values, "revenue", annual=False) is not None:
+        return _valuation(trailing_values, annual=False, market_cap=market_cap, currency=currency)
+    return _valuation(own_values, annual=annual, market_cap=market_cap, currency=currency)
 
 
 def _valuation(

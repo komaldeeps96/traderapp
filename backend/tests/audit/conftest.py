@@ -114,27 +114,57 @@ def our_statements(edgar_facts):
     """What the terminal itself would show, native and converted."""
     built: dict[tuple[str, bool], dict] = {}
 
-    def load(symbol: str, converted: bool = False) -> dict:
-        key = (symbol, converted)
+    def load(symbol: str, converted: bool = False, quarterly: bool = False) -> dict:
+        key = (symbol, converted, quarterly)
         if key not in built:
-            native = build_statements(edgar_facts(symbol), annual=True, limit=6)
-            if converted:
+            annual = not quarterly
+            limit = 6 if annual else 4
+            native = build_statements(edgar_facts(symbol), annual=annual, limit=limit)
+            if not converted:
+                built[key] = native
+            else:
 
-                async def run():
+                async def run(annual=annual, limit=limit):
                     fx = FxService()
                     try:
                         return await convert_to_usd(
-                            build_statements(edgar_facts(symbol), annual=True, limit=6), fx
+                            build_statements(edgar_facts(symbol), annual=annual, limit=limit), fx
                         )
                     finally:
                         await fx.close()
 
                 built[key] = asyncio.run(run())
-            else:
-                built[key] = native
         return built[key]
 
     return load
+
+
+@pytest.fixture(scope="session")
+def market_caps():
+    """One market cap per subject, from the same source the terminal uses.
+
+    Passed into the metrics builder rather than fetched by it, so a multiple
+    is compared against TradingView using TradingView's own denominator —
+    otherwise a stale cap would be blamed on the arithmetic.
+    """
+    from tradingview_screener import Query, col
+
+    from tests.audit.universe import UNIVERSE
+
+    symbols = [subject.symbol for subject in UNIVERSE]
+    _, frame = (
+        Query()
+        .select("name", "market_cap_basic")
+        .where(col("name").isin(symbols))
+        .limit(100)
+        .get_scanner_data()
+    )
+    caps: dict[str, float] = {}
+    for _, row in frame.iterrows():
+        value = row["market_cap_basic"]
+        if isinstance(value, (int, float)) and math.isfinite(value):
+            caps[row["name"]] = float(value)
+    return caps
 
 
 @pytest.fixture(scope="session")

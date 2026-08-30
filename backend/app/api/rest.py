@@ -25,7 +25,7 @@ from ..domain.sessions import ny_date
 from ..domain.timeframes import Timeframe
 from ..services.container import AppContainer, get_container
 from ..services.financials import build_statements, convert_to_usd, search_concepts
-from ..services.metrics import build_metrics
+from ..services.metrics import TTM_QUARTERS, build_metrics
 from ..services.ownership import summarise
 from ..services.scanner import UNAVAILABLE_NOTE
 from ..services.swing import SCREENS, SCREENS_BY_ID
@@ -246,12 +246,19 @@ async def metrics(symbol: str, period: str = "annual", limit: int = 8) -> dict:
     statements = await convert_to_usd(
         build_statements(facts, annual=annual, limit=limit), container.fx
     )
+    # The quarters, whatever the table is showing, because the multiples are
+    # quoted on a trailing twelve months everywhere else and a fiscal-year
+    # P/E disagrees with every other screen the user has open.
+    trailing = await convert_to_usd(
+        build_statements(facts, annual=False, limit=TTM_QUARTERS), container.fx
+    )
     built = build_metrics(
         facts,
         annual=annual,
         limit=limit,
         market_cap=market_cap,
         statements=statements,
+        trailing=trailing,
     )
     return {
         "symbol": resolved,
