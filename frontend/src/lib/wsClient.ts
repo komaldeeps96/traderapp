@@ -50,6 +50,8 @@ export class WsClient {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private pongTimer: ReturnType<typeof setTimeout> | null = null;
 
+  private visibility = new Map<Timeframe, Record<string, boolean>>();
+
   private desired: {
     symbol: string;
     timeframe: Timeframe;
@@ -88,6 +90,9 @@ export class WsClient {
       this.startHeartbeat();
       // Restore whatever the user was looking at before the drop.
       if (this.desired) this.send({ action: 'subscribe', ...this.desired });
+      for (const [timeframe, visible] of this.visibility) {
+        this.send({ action: 'indicators.visibility', timeframe, visible });
+      }
     };
 
     socket.onmessage = (event: MessageEvent) => {
@@ -116,6 +121,7 @@ export class WsClient {
   close(): void {
     this.closedByUs = true;
     this.desired = null;
+    this.visibility.clear();
     this.clearReconnect();
     this.stopHeartbeat();
     this.socket?.close();
@@ -153,6 +159,18 @@ export class WsClient {
     params: Omit<Extract<ClientCommand, { action: 'scanner.configure' }>, 'action' | 'scanner_id'>,
   ): void {
     this.send({ action: 'scanner.configure', scanner_id: scannerId, ...params });
+  }
+
+  /**
+   * Which indicators are on for one timeframe.
+   *
+   * Remembered and replayed on reconnect for the same reason the
+   * subscription is — and because it is sent during startup, where it may
+   * well be called before the socket has finished opening.
+   */
+  setIndicatorVisibility(timeframe: Timeframe, visible: Record<string, boolean>): void {
+    this.visibility.set(timeframe, visible);
+    this.send({ action: 'indicators.visibility', timeframe, visible });
   }
 
   stopScanner(scannerId: ScannerTierId): void {

@@ -1,5 +1,5 @@
-"""Remembers the last chart the user was looking at, and each scanner
-tier's filters.
+"""Remembers the last chart the user was looking at, each scanner tier's
+filters, and which indicators are switched on per timeframe.
 
 Kept in its own file so a write can never clobber credentials, which is what
 made this worth separating in the first place.
@@ -39,6 +39,18 @@ class StateStore:
                 value = data.get(key)
                 if isinstance(value, str) and value:
                     self._cache[key] = value
+            indicators = data.get("indicators")
+            if isinstance(indicators, dict):
+                self._cache["indicators"] = {
+                    timeframe: {
+                        name: value
+                        for name, value in overrides.items()
+                        if isinstance(name, str) and isinstance(value, bool)
+                    }
+                    for timeframe, overrides in indicators.items()
+                    if isinstance(timeframe, str) and isinstance(overrides, dict)
+                }
+
             scanners = data.get("scanners")
             if isinstance(scanners, dict):
                 # Stored as-is, per tier id; ScannerService.adopt_config
@@ -64,6 +76,19 @@ class StateStore:
         config = scanners.get(scanner_id)
         return dict(config) if isinstance(config, dict) else None
 
+    def indicator_overrides(self) -> dict[str, dict[str, bool]]:
+        """Which indicators the user has switched away from their default.
+
+        Only the differences are stored, so an indicator the user never
+        touched keeps following `indicators.yaml` — changing a default there
+        reaches every chart that has not explicitly overridden it, instead of
+        being masked forever by a saved copy of the old value.
+        """
+        overrides = self._cache.get("indicators")
+        if not isinstance(overrides, dict):
+            return {}
+        return {timeframe: dict(values) for timeframe, values in overrides.items()}
+
     def as_dict(self) -> dict[str, object]:
         return dict(self._cache)
 
@@ -78,6 +103,22 @@ class StateStore:
             scanners = {}
             self._cache["scanners"] = scanners
         scanners[scanner_id] = dict(config)
+        await asyncio.to_thread(self._write)
+
+    async def save_indicators(self, timeframe: str, overrides: dict[str, bool]) -> None:
+        """Record one timeframe's deviations from the configured defaults.
+
+        An empty map means "back to the defaults", and drops the timeframe
+        rather than persisting an empty section.
+        """
+        indicators = self._cache.setdefault("indicators", {})
+        if not isinstance(indicators, dict):
+            indicators = {}
+            self._cache["indicators"] = indicators
+        if overrides:
+            indicators[timeframe] = dict(overrides)
+        else:
+            indicators.pop(timeframe, None)
         await asyncio.to_thread(self._write)
 
     def _write(self) -> None:

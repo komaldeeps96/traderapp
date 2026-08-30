@@ -12,7 +12,8 @@ import {
   saveDockTab,
   saveDockWidth,
   saveTheme,
-  saveVisibility,
+  takeLegacyVisibility,
+  visibilityOverrides,
   saveZoom,
 } from './storage';
 import { DOCK_DEFAULT_WIDTH, DOCK_MAX_WIDTH, DOCK_MIN_WIDTH } from './dock';
@@ -92,46 +93,96 @@ describe('defaultVisibility', () => {
   });
 });
 
-describe('visibility persistence', () => {
+describe('visibility', () => {
   beforeEach(() => localStorage.clear());
 
   it('starts from the defaults', () => {
     expect(loadVisibility(SPECS, '1m')).toEqual(defaultVisibility(SPECS, '1m'));
   });
 
-  it('remembers a change', () => {
-    saveVisibility('1m', { ema9: false, pm_high: true, high_52w: false });
-    expect(loadVisibility(SPECS, '1m').ema9).toBe(false);
+  it('applies a server override', () => {
+    expect(loadVisibility(SPECS, '1m', { ema9: false }).ema9).toBe(false);
   });
 
-  it('keeps timeframes separate', () => {
-    // The levels wanted on a 1-minute chart are rarely the ones wanted daily.
-    saveVisibility('1m', { ema9: false });
-    expect(loadVisibility(SPECS, '1d').ema9).toBe(true);
+  it('leaves untouched indicators following the config', () => {
+    // The point of storing deltas: changing a default in indicators.yaml has
+    // to reach a chart the user never touched.
+    expect(loadVisibility(SPECS, '1m', { ema9: false }).pm_high).toBe(
+      defaultVisibility(SPECS, '1m').pm_high,
+    );
   });
 
-  it('ignores saved entries for indicators that no longer exist', () => {
-    saveVisibility('1m', { removed_indicator: true, ema9: true });
-    expect(loadVisibility(SPECS, '1m')).not.toHaveProperty('removed_indicator');
+  it('ignores overrides for indicators that no longer exist', () => {
+    expect(loadVisibility(SPECS, '1m', { removed_indicator: true })).not.toHaveProperty(
+      'removed_indicator',
+    );
   });
 
-  it('ignores an indicator saved under the wrong timeframe', () => {
-    saveVisibility('1d', { pm_high: true });
-    expect(loadVisibility(SPECS, '1d')).not.toHaveProperty('pm_high');
+  it('ignores an indicator overridden on the wrong timeframe', () => {
+    expect(loadVisibility(SPECS, '1d', { pm_high: true })).not.toHaveProperty('pm_high');
+  });
+});
+
+describe('visibilityOverrides', () => {
+  it('keeps only what differs from the defaults', () => {
+    const visibility = { ...defaultVisibility(SPECS, '1m'), ema9: false };
+    expect(visibilityOverrides(SPECS, '1m', visibility)).toEqual({ ema9: false });
   });
 
-  it('falls back to defaults when storage holds junk', () => {
+  it('is empty when nothing was changed', () => {
+    expect(visibilityOverrides(SPECS, '1m', defaultVisibility(SPECS, '1m'))).toEqual({});
+  });
+
+  it('drops ids the timeframe does not have', () => {
+    expect(visibilityOverrides(SPECS, '1d', { pm_high: false, ema9: false })).toEqual({
+      ema9: false,
+    });
+  });
+
+  it('round-trips through loadVisibility', () => {
+    const wanted = { ...defaultVisibility(SPECS, '1m'), ema9: false, pm_high: false };
+    expect(loadVisibility(SPECS, '1m', visibilityOverrides(SPECS, '1m', wanted))).toEqual(wanted);
+  });
+});
+
+describe('takeLegacyVisibility', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('reads what the browser used to hold', () => {
+    localStorage.setItem('traderapp.indicators', JSON.stringify({ '1m': { ema9: false } }));
+    expect(takeLegacyVisibility()).toEqual({ '1m': { ema9: false } });
+  });
+
+  it('consumes it, so the migration happens once', () => {
+    localStorage.setItem('traderapp.indicators', JSON.stringify({ '1m': { ema9: false } }));
+    takeLegacyVisibility();
+    expect(takeLegacyVisibility()).toEqual({});
+  });
+
+  it('is empty when there was nothing saved', () => {
+    expect(takeLegacyVisibility()).toEqual({});
+  });
+
+  it('survives junk in storage', () => {
     localStorage.setItem('traderapp.indicators', 'not json');
-    expect(loadVisibility(SPECS, '1m')).toEqual(defaultVisibility(SPECS, '1m'));
+    expect(takeLegacyVisibility()).toEqual({});
+  });
+
+  it('drops non-boolean entries rather than migrating them', () => {
+    localStorage.setItem(
+      'traderapp.indicators',
+      JSON.stringify({ '1m': { ema9: 'yes' }, '1d': { ema9: false } }),
+    );
+    expect(takeLegacyVisibility()).toEqual({ '1d': { ema9: false } });
   });
 
   it('survives storage being unavailable', () => {
-    // Private browsing and a full quota both surface as a throwing setItem;
+    // Private browsing and a full quota both surface as a throwing call;
     // losing a preference must never take the terminal down with it.
-    const spy = vi.spyOn(globalThis.localStorage, 'setItem').mockImplementation(() => {
+    const spy = vi.spyOn(globalThis.localStorage, 'removeItem').mockImplementation(() => {
       throw new Error('quota exceeded');
     });
-    expect(() => saveVisibility('1m', { ema9: false })).not.toThrow();
+    expect(() => takeLegacyVisibility()).not.toThrow();
     spy.mockRestore();
   });
 });

@@ -471,6 +471,12 @@ export type ClientCommand =
       change_perc_above?: Clearable;
     }
   | { action: 'scanner.stop'; scanner_id: ScannerTierId }
+  | {
+      /** Which indicators are on, for one timeframe. The server keeps the deltas. */
+      action: 'indicators.visibility';
+      timeframe: Timeframe;
+      visible: Record<string, boolean>;
+    }
   | { action: 'ping' };
 
 // ── REST payloads ──────────────────────────────────────────────────────
@@ -519,6 +525,8 @@ export interface SessionInfo {
   timeframe: Timeframe;
   default_symbol: string;
   default_timeframe: Timeframe;
+  /** Indicator toggles that differ from the config, keyed by timeframe. */
+  indicators: Record<string, Record<string, boolean>>;
 }
 
 export interface ScannerTiersResponse {

@@ -351,3 +351,92 @@ class TestScannerCommands:
         ws.send_json({"action": "scanner.configure", "scanner_id": "small_cap"})
         small = receive_until(ws, "scanner", scanner_id="small_cap")
         assert small["config"]["scan_code"] == "MOST_ACTIVE"
+
+
+class TestIndicatorVisibility:
+    """Toggling an indicator, stored on the server rather than the browser.
+
+    The client sends the whole picture for a timeframe; the server keeps only
+    what differs from `indicators.yaml`. That is what lets a changed default
+    reach a chart the user never touched, and it keeps the state file to the
+    lines a person actually changed.
+    """
+
+    @staticmethod
+    def _saved(client):
+        return client.get("/api/session").json()["indicators"]
+
+    def test_stores_only_what_differs_from_the_defaults(self, client, ws):
+        # ema9 ships on for 1m; volume ships on too. Only the change is kept.
+        ws.send_json(
+            {
+                "action": "indicators.visibility",
+                "timeframe": "1m",
+                "visible": {"ema9": False, "volume": True},
+            }
+        )
+        ws.send_json({"action": "ping"})
+        receive_until(ws, "pong")
+        assert self._saved(client) == {"1m": {"ema9": False}}
+
+    def test_each_timeframe_is_remembered_separately(self, client, ws):
+        for timeframe in ("1m", "1d"):
+            ws.send_json(
+                {
+                    "action": "indicators.visibility",
+                    "timeframe": timeframe,
+                    "visible": {"ema9": False},
+                }
+            )
+        ws.send_json({"action": "ping"})
+        receive_until(ws, "pong")
+        assert self._saved(client) == {"1m": {"ema9": False}, "1d": {"ema9": False}}
+
+    def test_returning_to_the_defaults_clears_the_timeframe(self, client, ws):
+        ws.send_json(
+            {"action": "indicators.visibility", "timeframe": "1m", "visible": {"ema9": False}}
+        )
+        ws.send_json(
+            {"action": "indicators.visibility", "timeframe": "1m", "visible": {"ema9": True}}
+        )
+        ws.send_json({"action": "ping"})
+        receive_until(ws, "pong")
+        assert self._saved(client) == {}
+
+    def test_an_unknown_indicator_is_dropped(self, client, ws):
+        """A stale client must not grow the state file with dead ids."""
+        ws.send_json(
+            {
+                "action": "indicators.visibility",
+                "timeframe": "1m",
+                "visible": {"no_such_indicator": False, "ema9": False},
+            }
+        )
+        ws.send_json({"action": "ping"})
+        receive_until(ws, "pong")
+        assert self._saved(client) == {"1m": {"ema9": False}}
+
+    def test_an_indicator_absent_from_this_timeframe_is_dropped(self, client, ws):
+        """`pm_high` is intraday only; asking for it on 1d means nothing."""
+        ws.send_json(
+            {
+                "action": "indicators.visibility",
+                "timeframe": "1d",
+                "visible": {"pm_high": True},
+            }
+        )
+        ws.send_json({"action": "ping"})
+        receive_until(ws, "pong")
+        assert self._saved(client) == {}
+
+    def test_an_unknown_timeframe_is_refused(self, ws):
+        ws.send_json(
+            {"action": "indicators.visibility", "timeframe": "3y", "visible": {"ema9": False}}
+        )
+        assert receive_until(ws, "error")["code"] == "bad_command"
+
+    def test_the_connection_survives_a_refused_command(self, ws):
+        ws.send_json({"action": "indicators.visibility", "timeframe": "3y", "visible": {}})
+        receive_until(ws, "error")
+        ws.send_json({"action": "ping"})
+        assert receive_until(ws, "pong")["type"] == "pong"

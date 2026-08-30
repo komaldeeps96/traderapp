@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from ..domain.protocol import (
     ConfigureScannerCommand,
+    SetIndicatorVisibilityCommand,
     StopScannerCommand,
     SubscribeCommand,
     error_message,
@@ -88,6 +89,9 @@ async def _dispatch(container: AppContainer, connection: ClientConnection, raw: 
     elif action == "scanner.stop":
         await _stop_scanner(container, connection, command)
 
+    elif action == "indicators.visibility":
+        await _save_indicator_visibility(container, command)
+
 
 _pending_prefetches: set[asyncio.Task] = set()
 
@@ -151,6 +155,34 @@ async def _subscribe(
     if quote is not None:
         connection.send(quote_message(symbol, quote))
     await container.state.save(symbol, timeframe.value)
+
+
+async def _save_indicator_visibility(
+    container: AppContainer, command: SetIndicatorVisibilityCommand
+) -> None:
+    """Persist one timeframe's indicator toggles, as deltas.
+
+    The client sends the whole picture; only what differs from the config is
+    written. That is what lets a changed default in `indicators.yaml` reach
+    charts the user never touched, and it keeps the state file to the handful
+    of lines a person actually changed rather than a copy of every default.
+
+    Ids the config no longer defines are dropped here, where the specs are —
+    the same reason a removed indicator cannot be resurrected by a stale
+    saved value.
+    """
+    timeframe = command.parsed_timeframe
+    defaults = {
+        spec.id: option.enabled
+        for spec in container.specs
+        if (option := spec.option_for(timeframe)) is not None
+    }
+    overrides = {
+        name: visible
+        for name, visible in command.visible.items()
+        if name in defaults and defaults[name] != visible
+    }
+    await container.state.save_indicators(timeframe.value, overrides)
 
 
 async def _configure_scanner(

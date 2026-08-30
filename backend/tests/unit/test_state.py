@@ -72,3 +72,59 @@ class TestScannerState:
         loaded = store(tmp_path)
         assert loaded.scanner_config("small_cap") is None
         assert loaded.scanner_config("mid_cap") == {"scan_code": "TOP_TRADE_RATE"}
+
+
+class TestIndicatorState:
+    """Which indicators are on, per timeframe.
+
+    The levels wanted on a 1-minute chart are rarely the ones wanted on a
+    daily, so this is stored per timeframe rather than once.
+    """
+
+    async def test_round_trips_per_timeframe(self, tmp_path):
+        first = store(tmp_path)
+        await first.save_indicators("1m", {"ema9": False})
+        await first.save_indicators("1d", {"prev_day_high": True})
+        assert store(tmp_path).indicator_overrides() == {
+            "1m": {"ema9": False},
+            "1d": {"prev_day_high": True},
+        }
+
+    def test_empty_before_any_save(self, tmp_path):
+        assert store(tmp_path).indicator_overrides() == {}
+
+    async def test_an_empty_map_clears_the_timeframe(self, tmp_path):
+        """Back to the defaults means no section, not an empty one."""
+        first = store(tmp_path)
+        await first.save_indicators("1m", {"ema9": False})
+        await first.save_indicators("1m", {})
+        assert store(tmp_path).indicator_overrides() == {}
+
+    async def test_survives_a_chart_save(self, tmp_path):
+        """One file, several sections; a chart save must not drop the rest."""
+        first = store(tmp_path)
+        await first.save_indicators("1d", {"ema9": False})
+        await first.save("TSLA", "1d")
+        await first.save_scanner("small_cap", {"scan_code": "TOP_PERC_GAIN"})
+        reopened = store(tmp_path)
+        assert reopened.indicator_overrides() == {"1d": {"ema9": False}}
+        assert reopened.symbol == "TSLA"
+        assert reopened.scanner_config("small_cap") == {"scan_code": "TOP_PERC_GAIN"}
+
+    def test_a_hand_edited_file_cannot_poison_it(self, tmp_path):
+        """Anything that is not timeframe -> {id: bool} is dropped."""
+        (tmp_path / "state.yaml").write_text(
+            "indicators:\n"
+            "  1m:\n"
+            "    ema9: false\n"
+            "    ema20: 'yes'\n"      # not a bool
+            "  1d: not-a-mapping\n"
+            "  7: {}\n"               # not a timeframe string
+        )
+        assert store(tmp_path).indicator_overrides() == {"1m": {"ema9": False}}
+
+    async def test_callers_cannot_mutate_the_cache(self, tmp_path):
+        first = store(tmp_path)
+        await first.save_indicators("1m", {"ema9": False})
+        first.indicator_overrides()["1m"]["ema9"] = True
+        assert first.indicator_overrides() == {"1m": {"ema9": False}}

@@ -36,6 +36,8 @@ import {
 export interface MockBackendOptions {
   /** Symbol the session restores on load. */
   sessionSymbol?: string;
+  /** Indicator toggles the server has stored, keyed by timeframe. */
+  sessionIndicators?: Record<string, Record<string, boolean>>;
   sessionTimeframe?: string;
   /** Scanner needs IBKR; off by default, matching an Alpaca-only setup. */
   scannerAvailable?: boolean;
@@ -80,6 +82,7 @@ export async function installMockBackend(
   const {
     sessionSymbol = 'AAPL',
     sessionTimeframe = '10s',
+    sessionIndicators = {},
     scannerAvailable = false,
     source = 'alpaca',
     delayed = false,
@@ -102,6 +105,7 @@ export async function installMockBackend(
     timeframe: sessionTimeframe,
     default_symbol: 'AAPL',
     default_timeframe: '10s',
+    indicators: sessionIndicators,
   });
   // The dock's fundamentals panel. Served for any symbol; specs that need a
   // different read override it with `page.route` after installing.

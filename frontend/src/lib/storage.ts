@@ -79,27 +79,67 @@ type VisibilityStore = Record<string, Record<string, boolean>>;
 /**
  * Indicator visibility is remembered per timeframe: the levels you want on a
  * 1-minute chart are rarely the ones you want on a daily.
+ *
+ * The saved half now lives on the server, in `state.yaml`, and arrives as
+ * *overrides* — only what the user changed. Applying them over the config's
+ * own defaults is what lets a changed default in `indicators.yaml` reach a
+ * chart the user never touched, instead of being masked forever by a saved
+ * copy of the old value.
  */
 export function loadVisibility(
   specs: IndicatorSpec[],
   timeframe: Timeframe,
+  overrides: Record<string, boolean> = {},
 ): Record<string, boolean> {
   const defaults = defaultVisibility(specs, timeframe);
-  const saved = readJson<VisibilityStore>(VISIBILITY_KEY, {})[timeframe] ?? {};
 
   const result: Record<string, boolean> = { ...defaults };
-  for (const [id, visible] of Object.entries(saved)) {
-    // Only honour saved entries for indicators that still exist on this
-    // timeframe, so removing one from the YAML cannot resurrect it.
+  for (const [id, visible] of Object.entries(overrides)) {
+    // Only honour entries for indicators that still exist on this timeframe,
+    // so removing one from the YAML cannot resurrect it.
     if (id in defaults && typeof visible === 'boolean') result[id] = visible;
   }
   return result;
 }
 
-export function saveVisibility(timeframe: Timeframe, visibility: Record<string, boolean>): void {
-  const store = readJson<VisibilityStore>(VISIBILITY_KEY, {});
-  store[timeframe] = visibility;
-  writeJson(VISIBILITY_KEY, store);
+/**
+ * What the user had toggled back when this was a browser preference.
+ *
+ * Read once and deleted, so the upgrade keeps the toggles someone had built
+ * up rather than silently resetting their charts to the defaults. Anything
+ * the server already knows about wins — it is the newer of the two.
+ */
+export function takeLegacyVisibility(): VisibilityStore {
+  const saved = readJson<VisibilityStore>(VISIBILITY_KEY, {});
+  try {
+    localStorage.removeItem(VISIBILITY_KEY);
+  } catch {
+    // Storage disabled: there was nothing to migrate anyway.
+  }
+  const result: VisibilityStore = {};
+  for (const [timeframe, entries] of Object.entries(saved)) {
+    if (!entries || typeof entries !== 'object') continue;
+    const clean: Record<string, boolean> = {};
+    for (const [id, visible] of Object.entries(entries)) {
+      if (typeof visible === 'boolean') clean[id] = visible;
+    }
+    if (Object.keys(clean).length) result[timeframe] = clean;
+  }
+  return result;
+}
+
+/** What differs from the configured defaults — the only part worth storing. */
+export function visibilityOverrides(
+  specs: IndicatorSpec[],
+  timeframe: Timeframe,
+  visibility: Record<string, boolean>,
+): Record<string, boolean> {
+  const defaults = defaultVisibility(specs, timeframe);
+  const overrides: Record<string, boolean> = {};
+  for (const [id, visible] of Object.entries(visibility)) {
+    if (id in defaults && defaults[id] !== visible) overrides[id] = visible;
+  }
+  return overrides;
 }
 
 /**

@@ -21,8 +21,8 @@ Standing decisions from the brief:
 | # | Phase | State |
 |---|-------|-------|
 | 1 | Compute every indicator on every timeframe | **done** |
-| 2 | Toggle state per timeframe, served from `state.yaml` | next |
-| 3 | Main tab shell, Chart as tab one | |
+| 2 | Toggle state per timeframe, served from `state.yaml` | **done** |
+| 3 | Main tab shell, Chart as tab one | next |
 | 4 | Financials tab (EDGAR `companyfacts`) | |
 | 5 | Metrics and valuation, with `frames` percentiles | |
 | 6 | Swing scanner tab | |
@@ -119,3 +119,67 @@ not to change what the overlay draws.)
   AAPL / MSFT / NVDA, UBER / PANW, CROX / ELF, CELU / SNDL.
 - Screenshots taken of CELU (small, $45.7M), AAPL (mega, $4.67T) and CROX
   (mid, $5.86B) on 1D, and CROX on 1W.
+
+## Phase 2 — toggles the server remembers
+
+Indicator visibility was a browser preference in `localStorage`. It is now
+in `state.yaml`, keyed by timeframe, and arrives with `/api/session`.
+
+**Only the deltas are stored.** The client sends the whole picture for a
+timeframe; the server keeps what differs from `indicators.yaml`:
+
+```yaml
+indicators:
+  1m:
+    ema9: false
+    ema20: false
+```
+
+That is the load-bearing decision. A saved *copy* of every default would mask
+the config forever — change a default and no existing chart would ever see
+it. Storing differences means an untouched indicator keeps following the
+config, and the file stays the handful of lines a person actually changed.
+
+The server drops ids it no longer defines and ids that do not belong to the
+timeframe (`pm_high` on `1d`), so a stale client cannot grow the file or
+resurrect a removed indicator. An empty map deletes the timeframe's section
+rather than persisting an empty one.
+
+### The seams
+
+- `indicators.visibility` — a new WS command, alongside `scanner.configure`.
+- `WsClient` remembers the last map per timeframe and **replays it on
+  reconnect**, the same way it replays the subscription. That also covers
+  startup, where the migration fires before the socket has finished opening.
+- `src/lib/commands.ts` — a one-function sink. The store is plain state and
+  knows nothing about sockets; the socket lives in `useTerminal`. A live
+  socket handle is not something a component should re-render on, so it is a
+  module-level sink rather than a field in the store.
+- `/api/session` is now fetched *alongside* the specs rather than after
+  them: its overrides have to be in the store before `setSpecs` computes
+  what the chart opens with.
+
+### Migration
+
+`takeLegacyVisibility()` reads the old `traderapp.indicators` key once,
+deletes it, and pushes each timeframe up. Anything the server already knows
+wins, being the newer of the two.
+
+### Verified
+
+- 1030 backend tests, ruff clean; 325 frontend tests, tsc and eslint clean.
+- Browser: chromium 256, fullstack 19, visual 5.
+- The fullstack tests toggle against the **real** backend and read the value
+  back through a reload — the only honest check, since the chart applies a
+  toggle optimistically and asserting on the chart alone would pass even if
+  the command never left the page. Each restores what it changed and reloads
+  again to prove the restore landed, because they share one backend.
+- By hand in the browser: toggled EMA 9 and EMA 20 off on 1m, confirmed
+  `state.yaml` held exactly those two, **cleared `localStorage`**, reloaded,
+  and they came back off. 1D still showed both — the timeframes do not leak.
+  Toggling back emptied the section and left the rest of the file untouched.
+
+One thing the mocked suite can no longer prove: it used to verify the toggle
+survived a reload, which worked when the browser was the store. Its session
+is a fixed fixture, so that test now asserts the *command* goes out, and the
+round trip is proved in the fullstack suite instead.

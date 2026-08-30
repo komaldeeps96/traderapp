@@ -1,5 +1,5 @@
-import type { TerminalPage } from '../../pages/TerminalPage';
 import { expect, liveTest as test } from '../../fixtures/test';
+import type { TerminalPage } from '../../pages/TerminalPage';
 
 /**
  * The real stack.
@@ -234,5 +234,65 @@ test.describe('two windows', () => {
     } finally {
       await Promise.all([first.close(), second.close()]);
     }
+  });
+});
+
+test.describe('indicator toggles, against the real server', () => {
+  /**
+   * Toggle, and prove it reached state.yaml rather than the browser.
+   *
+   * Reading back through a reload is the only honest check: the chart applies
+   * a toggle optimistically, so asserting on the chart alone would pass even
+   * if the command never left the page. Each test restores what it changed
+   * and reloads once more to prove the restore landed too — otherwise the
+   * next test inherits it, these all share one backend.
+   */
+  async function toggleEma9(terminal: TerminalPage): Promise<boolean> {
+    const before = (await terminal.chartState()).visible.ema9;
+    await terminal.indicatorChip('ema9').getByRole('button').click();
+    await expect.poll(async () => (await terminal.chartState()).visible.ema9).toBe(!before);
+    return before;
+  }
+
+  async function reopen(terminal: TerminalPage): Promise<boolean> {
+    await terminal.goto();
+    await terminal.waitForChart();
+    return (await terminal.chartState()).visible.ema9;
+  }
+
+  test('survive a reload, with nothing left in the browser', async ({ terminal, page }) => {
+    await terminal.waitForChart();
+    const before = await toggleEma9(terminal);
+
+    // Clear the browser's own storage, so nothing here can carry the answer.
+    await page.evaluate(() => localStorage.clear());
+    expect(await reopen(terminal)).toBe(!before);
+
+    await toggleEma9(terminal);
+    expect(await reopen(terminal)).toBe(before);
+  });
+
+  test('are remembered per timeframe', async ({ terminal }) => {
+    await terminal.waitForChart();
+
+    await terminal.timeframeTab('1m').click();
+    await terminal.waitForChart();
+    const onMinute = (await terminal.chartState()).visible.ema9;
+
+    await terminal.timeframeTab('10s').click();
+    await terminal.waitForChart();
+    const before = await toggleEma9(terminal);
+
+    // The minute chart was never touched and must not have moved.
+    await terminal.timeframeTab('1m').click();
+    await terminal.waitForChart();
+    expect((await terminal.chartState()).visible.ema9).toBe(onMinute);
+
+    await terminal.timeframeTab('10s').click();
+    await terminal.waitForChart();
+    expect((await terminal.chartState()).visible.ema9).toBe(!before);
+
+    await toggleEma9(terminal);
+    expect(await reopen(terminal)).toBe(before);
   });
 });

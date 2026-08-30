@@ -8,6 +8,7 @@
 
 import { create } from 'zustand';
 
+import { sendCommand } from '@/lib/commands';
 import { clampDockWidth, type DockTabId } from '@/lib/dock';
 import {
   loadDockTab,
@@ -17,7 +18,7 @@ import {
   saveDockTab,
   saveDockWidth,
   saveMiniTimeframes,
-  saveVisibility,
+  visibilityOverrides,
   type Theme,
 } from '@/lib/storage';
 import type {
@@ -94,6 +95,8 @@ interface TerminalState {
   // indicators
   specs: IndicatorSpec[];
   visibility: Record<string, boolean>;
+  /** Per-timeframe deltas from the config defaults, as the server has them. */
+  indicatorOverrides: Record<string, Record<string, boolean>>;
 
   // scanner — one entry per market-cap tier, each independently filtered
   // and persisted (see ScannerPanel/backend ScannerService).
@@ -146,6 +149,8 @@ interface TerminalState {
   setError: (message: string) => void;
   toggleIndicator: (id: string) => void;
   setAllIndicators: (ids: string[], visible: boolean) => void;
+  applyVisibility: (visibility: Record<string, boolean>) => void;
+  setIndicatorOverrides: (overrides: Record<string, Record<string, boolean>>) => void;
   setMiniTimeframe: (slot: number, timeframe: Timeframe) => void;
   setDockTab: (tab: DockTabId) => void;
   setDockWidth: (width: number) => void;
@@ -199,6 +204,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
   specs: [],
   visibility: {},
+  indicatorOverrides: {},
 
   scanners: emptyScanners(),
   miniTimeframes: loadMiniTimeframes(),
@@ -225,9 +231,17 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   setSourceStatus: ({ source, delayed, ibkrConnected, alpacaAvailable, note }) =>
     set({ source, delayed, ibkrConnected, alpacaAvailable, sourceNote: note }),
 
+  setIndicatorOverrides: (indicatorOverrides) => {
+    const { specs, timeframe } = get();
+    set({
+      indicatorOverrides,
+      visibility: loadVisibility(specs, timeframe, indicatorOverrides[timeframe]),
+    });
+  },
+
   setSpecs: (specs) => {
-    const { timeframe } = get();
-    set({ specs, visibility: loadVisibility(specs, timeframe) });
+    const { timeframe, indicatorOverrides } = get();
+    set({ specs, visibility: loadVisibility(specs, timeframe, indicatorOverrides[timeframe]) });
   },
 
   requestChart: (symbol, timeframe) => {
@@ -251,7 +265,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       news: changedSymbol ? [] : state.news,
       liveFilings: changedSymbol ? [] : state.liveFilings,
       dockAlerts: changedSymbol ? {} : state.dockAlerts,
-      visibility: changedTimeframe ? loadVisibility(state.specs, timeframe) : state.visibility,
+      visibility: changedTimeframe
+        ? loadVisibility(state.specs, timeframe, state.indicatorOverrides[timeframe])
+        : state.visibility,
     });
   },
 
@@ -273,18 +289,31 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   setError: (message) => set({ status: 'error', error: message }),
 
   toggleIndicator: (id) => {
-    const { visibility, timeframe } = get();
-    const next = { ...visibility, [id]: !visibility[id] };
-    saveVisibility(timeframe, next);
-    set({ visibility: next });
+    const { visibility } = get();
+    get().applyVisibility({ ...visibility, [id]: !visibility[id] });
   },
 
   setAllIndicators: (ids, visible) => {
-    const { visibility, timeframe } = get();
-    const next = { ...visibility };
+    const next = { ...get().visibility };
     for (const id of ids) next[id] = visible;
-    saveVisibility(timeframe, next);
-    set({ visibility: next });
+    get().applyVisibility(next);
+  },
+
+  /**
+   * Show this, and remember it on the server.
+   *
+   * The whole picture goes out; the server stores what differs from the
+   * config. Keeping the same deltas here means a timeframe switch and back
+   * reads the toggles from memory rather than waiting on a round trip.
+   */
+  applyVisibility: (next) => {
+    const { specs, timeframe, indicatorOverrides } = get();
+    const overrides = visibilityOverrides(specs, timeframe, next);
+    sendCommand({ action: 'indicators.visibility', timeframe, visible: next });
+    set({
+      visibility: next,
+      indicatorOverrides: { ...indicatorOverrides, [timeframe]: overrides },
+    });
   },
 
   setMiniTimeframe: (slot, timeframe) => {

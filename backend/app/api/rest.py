@@ -77,6 +77,10 @@ async def session() -> dict:
         "timeframe": container.state.timeframe,
         "default_symbol": container.settings.default_symbol,
         "default_timeframe": container.settings.default_timeframe,
+        # Only the toggles that differ from `indicators.yaml`, keyed by
+        # timeframe. The client applies them over the defaults it already has
+        # from /api/indicators, so the two cannot drift apart.
+        "indicators": container.state.indicator_overrides(),
     }
 
 

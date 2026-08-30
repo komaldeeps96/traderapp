@@ -245,6 +245,59 @@ describe('WsClient', () => {
       });
     });
 
+    it('restores the indicator toggles after a reconnect', () => {
+      // The server holds the toggles, so a drop between a click and the
+      // socket recovering would otherwise lose the change silently.
+      const client = makeClient({ initialBackoffMs: 100 });
+      client.connect();
+      FakeSocket.latest().open();
+      client.setIndicatorVisibility('1d', { ema9: false });
+
+      FakeSocket.latest().close();
+      vi.advanceTimersByTime(100);
+      FakeSocket.latest().open();
+
+      expect(FakeSocket.latest().commands).toContainEqual({
+        action: 'indicators.visibility',
+        timeframe: '1d',
+        visible: { ema9: false },
+      });
+    });
+
+    it('sends toggles made before the socket opened', () => {
+      // Startup migrates browser-held toggles the moment the session lands,
+      // which can be before the socket has finished connecting.
+      const client = makeClient({ initialBackoffMs: 100 });
+      client.connect();
+      client.setIndicatorVisibility('1m', { ema9: false });
+      FakeSocket.latest().open();
+
+      expect(FakeSocket.latest().commands).toContainEqual({
+        action: 'indicators.visibility',
+        timeframe: '1m',
+        visible: { ema9: false },
+      });
+    });
+
+    it('keeps only the newest state for a timeframe', () => {
+      const client = makeClient({ initialBackoffMs: 100 });
+      client.connect();
+      FakeSocket.latest().open();
+      client.setIndicatorVisibility('1d', { ema9: false });
+      client.setIndicatorVisibility('1d', { ema9: true });
+
+      FakeSocket.latest().close();
+      vi.advanceTimersByTime(100);
+      FakeSocket.latest().open();
+
+      const replayed = FakeSocket.latest().commands.filter(
+        (command) => command.action === 'indicators.visibility',
+      );
+      expect(replayed).toEqual([
+        { action: 'indicators.visibility', timeframe: '1d', visible: { ema9: true } },
+      ]);
+    });
+
     it('restores the mini charts too', () => {
       // Replaying only the primary would leave the 1m and 5m charts frozen on
       // whatever they held before the drop, with no sign anything was wrong.

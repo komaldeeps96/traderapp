@@ -11,14 +11,24 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import type { ChartEngine } from '@/chart/ChartEngine';
 import { getEngine, getMiniEngine, miniEngineEntries } from '@/chart/engineRef';
+import { sendCommand, setCommandSink } from '@/lib/commands';
 import { api } from '@/lib/http';
-import { applyTheme, loadTheme, saveTheme, type Theme } from '@/lib/storage';
+import {
+  applyTheme,
+  loadTheme,
+  loadVisibility,
+  saveTheme,
+  takeLegacyVisibility,
+  visibilityOverrides,
+  type Theme,
+} from '@/lib/storage';
 import { createWsClient, type WsClient } from '@/lib/wsClient';
 import { ATH_LEVEL_ID, plottableAth } from '@/store/selectors';
 import { useTerminalStore } from '@/store/useTerminalStore';
 import type {
   BarMessage,
   ClientCommand,
+  IndicatorSpec,
   ScannerTierId,
   ServerMessage,
   SnapshotMessage,
@@ -29,6 +39,33 @@ type ScannerOverrides = Omit<
   Extract<ClientCommand, { action: 'scanner.configure' }>,
   'action' | 'scanner_id'
 >;
+
+/**
+ * Fold any toggles left in browser storage into the server's overrides.
+ *
+ * Visibility used to be a browser preference. Whatever the server already
+ * knows wins — it is the newer of the two — and each migrated timeframe is
+ * pushed up so the next machine to open the terminal sees it too. The local
+ * copy is consumed in the process, so this happens exactly once.
+ */
+function migrateLegacyVisibility(
+  specs: IndicatorSpec[],
+  fromServer: Record<string, Record<string, boolean>>,
+): Record<string, Record<string, boolean>> {
+  const merged = { ...fromServer };
+  for (const [timeframe, visibility] of Object.entries(takeLegacyVisibility())) {
+    if (timeframe in merged) continue;
+    const overrides = visibilityOverrides(specs, timeframe as Timeframe, visibility);
+    if (!Object.keys(overrides).length) continue;
+    merged[timeframe] = overrides;
+    sendCommand({
+      action: 'indicators.visibility',
+      timeframe: timeframe as Timeframe,
+      visible: loadVisibility(specs, timeframe as Timeframe, overrides),
+    });
+  }
+  return merged;
+}
 
 export function useTerminal() {
   const clientRef = useRef<WsClient | null>(null);
@@ -106,17 +143,23 @@ export function useTerminal() {
     // its series, so the opening subscribe waits for them.
     void (async () => {
       try {
-        const [specs, scanner] = await Promise.all([
+        // The session is fetched alongside the rest rather than after it:
+        // its indicator overrides have to be in the store before `setSpecs`
+        // computes what the chart opens with.
+        const [specs, scanner, session] = await Promise.all([
           api.indicators(controller.signal),
           api.scannerTiers(controller.signal),
+          api.session(controller.signal),
         ]);
+        useTerminalStore
+          .getState()
+          .setIndicatorOverrides(migrateLegacyVisibility(specs, session.indicators ?? {}));
         useTerminalStore.getState().setSpecs(specs);
         useTerminalStore.getState().setScannerTiers({
           note: scanner.note,
           scanCodes: scanner.scan_codes,
         });
 
-        const session = await api.session(controller.signal);
         subscribe(session.symbol, session.timeframe);
       } catch {
         if (!controller.signal.aborted) {
@@ -129,6 +172,9 @@ export function useTerminal() {
 
     const client = createWsClient();
     clientRef.current = client;
+    // The store toggles indicators; the socket carries them. Commands sent
+    // before the socket opens are replayed by the client on connect.
+    setCommandSink((command) => client.send(command));
 
     const offMessage = client.onMessage(handleMessage);
     const offStatus = client.onStatusChange((connected) => {
@@ -142,6 +188,7 @@ export function useTerminal() {
       offStatus();
       client.close();
       clientRef.current = null;
+      setCommandSink(null);
     };
   }, [subscribe]);
 

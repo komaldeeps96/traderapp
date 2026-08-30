@@ -127,6 +127,36 @@ class StopScannerCommand(_Command):
     scanner_id: ScannerId
 
 
+# A chart cannot show more indicators than the config defines, and the
+# config defines ~40. The cap keeps a malformed client from growing the state
+# file without bound; unknown ids are dropped at dispatch, where the specs are.
+MAX_INDICATOR_OVERRIDES = 200
+
+
+class SetIndicatorVisibilityCommand(_Command):
+    """Which indicators are switched on, for one timeframe.
+
+    The client sends the whole picture for that timeframe and the server
+    stores only what differs from the configured defaults, so the two never
+    disagree about what "default" currently means.
+    """
+
+    action: Literal["indicators.visibility"]
+    timeframe: str
+    visible: Annotated[dict[str, bool], Field(max_length=MAX_INDICATOR_OVERRIDES)] = Field(
+        default_factory=dict
+    )
+
+    @field_validator("timeframe")
+    @classmethod
+    def _known_timeframe(cls, value: str) -> str:
+        return Timeframe.parse(value).value
+
+    @property
+    def parsed_timeframe(self) -> Timeframe:
+        return Timeframe.parse(self.timeframe)
+
+
 class PingCommand(_Command):
     action: Literal["ping"]
 
@@ -136,6 +166,7 @@ ClientCommand = Annotated[
     | UnsubscribeCommand
     | ConfigureScannerCommand
     | StopScannerCommand
+    | SetIndicatorVisibilityCommand
     | PingCommand,
     Field(discriminator="action"),
 ]
