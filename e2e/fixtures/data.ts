@@ -851,3 +851,69 @@ export function makeApiUsage(overrides: { alpaca?: number; ibkr?: number } = {})
     ibkr: { used: overrides.ibkr ?? 4, limit: 60, window_s: 600 },
   };
 }
+
+/**
+ * A statement set shaped like the real endpoint's.
+ *
+ * Two years, a subtotal, a per-share line and a hole — the hole matters:
+ * a quarter a company never filed is a blank cell, not a zero, and the table
+ * has to say so.
+ */
+export function makeFinancials(
+  symbol = 'AAPL',
+  overrides: Partial<Record<string, unknown>> = {},
+) {
+  return {
+    symbol,
+    available: true,
+    note: null,
+    period: 'annual',
+    periods: [
+      { key: 'FY2025', end: '2025-09-27', fiscal_year: 2025 },
+      { key: 'FY2024', end: '2024-09-28', fiscal_year: 2024 },
+    ],
+    statements: [
+      {
+        key: 'income',
+        label: 'Income statement',
+        lines: [
+          {
+            key: 'revenue',
+            label: 'Revenue',
+            unit: 'USD',
+            concepts: ['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues'],
+            values: [416_161_000_000, 391_035_000_000],
+          },
+          {
+            key: 'net_income',
+            label: 'Net income',
+            unit: 'USD',
+            concepts: ['NetIncomeLoss'],
+            values: [112_010_000_000, -93_736_000_000],
+          },
+          {
+            key: 'eps_diluted',
+            label: 'EPS, diluted',
+            unit: 'USD/shares',
+            concepts: ['EarningsPerShareDiluted'],
+            values: [7.46, null],
+          },
+        ],
+      },
+      {
+        key: 'balance',
+        label: 'Balance sheet',
+        lines: [
+          {
+            key: 'total_assets',
+            label: 'Total assets',
+            unit: 'USD',
+            concepts: ['Assets'],
+            values: [359_242_000_000, 364_980_000_000],
+          },
+        ],
+      },
+    ],
+    ...overrides,
+  };
+}

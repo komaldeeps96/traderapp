@@ -305,3 +305,27 @@ export function formatChange(change: Change | null, referencePrice?: number | nu
   const digits = referencePrice != null ? priceDecimals(referencePrice) : 2;
   return `${sign}${change.absolute.toFixed(digits)} (${sign}${change.percent.toFixed(2)}%)`;
 }
+
+/**
+ * One cell of a financial statement.
+ *
+ * The unit decides everything. Dollars are compacted, because a column of
+ * 416,161,000,000 is unreadable and the scale is what carries meaning. Per-
+ * share figures are not: EPS of 2.02 compacted to "2" loses the number, and
+ * `formatCompact` rounds anything under a thousand to an integer. Share
+ * counts are compacted but never given cents.
+ *
+ * Negatives keep their sign rather than taking parentheses. This sits beside
+ * a chart where red and a minus already mean down, and a lone "(" in a dense
+ * grid reads as a stray character.
+ */
+export function formatStatementValue(
+  value: number | null | undefined,
+  unit: string,
+): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  if (unit === 'USD/shares') return value.toFixed(2);
+  if (unit === 'shares') return formatCompact(value, 1);
+  const sign = value < 0 ? '-' : '';
+  return `${sign}$${formatCompact(Math.abs(value), 2)}`;
+}

@@ -5,6 +5,7 @@ import {
   formatBarTime,
   formatChange,
   formatCompact,
+  formatStatementValue,
   formatElapsed,
   formatLevel,
   formatMoney,
@@ -306,5 +307,39 @@ describe('formatNewsTime', () => {
     // 03:30 UTC on the 29th is still the evening of the 28th in New York.
     const when = Date.UTC(2026, 7, 29, 3, 30, 0) / 1000;
     expect(formatNewsTime(when, today)).toBe('23:30');
+  });
+});
+
+describe('formatStatementValue', () => {
+  it('compacts dollars, where the scale is the meaning', () => {
+    expect(formatStatementValue(416_161_000_000, 'USD')).toBe('$416.16B');
+    expect(formatStatementValue(26_400_000, 'USD')).toBe('$26.40M');
+  });
+
+  it('keeps the minus sign on a loss', () => {
+    expect(formatStatementValue(-13_254_000, 'USD')).toBe('-$13.25M');
+  });
+
+  it('does not compact earnings per share', () => {
+    // formatCompact rounds anything under a thousand to an integer, which
+    // turns an EPS of 2.02 into "2".
+    expect(formatStatementValue(2.02, 'USD/shares')).toBe('2.02');
+    expect(formatStatementValue(-0.35, 'USD/shares')).toBe('-0.35');
+  });
+
+  it('compacts share counts without cents', () => {
+    expect(formatStatementValue(15_408_095_000, 'shares')).toBe('15.4B');
+  });
+
+  it('shows a dash where nothing was filed', () => {
+    expect(formatStatementValue(null, 'USD')).toBe('—');
+    expect(formatStatementValue(undefined, 'USD')).toBe('—');
+    expect(formatStatementValue(Number.NaN, 'USD')).toBe('—');
+  });
+
+  it('shows a real zero rather than a dash', () => {
+    // A company that reported nothing and a company that reported zero are
+    // different facts.
+    expect(formatStatementValue(0, 'USD')).toBe('$0');
   });
 });

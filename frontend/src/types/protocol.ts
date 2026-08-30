@@ -529,6 +529,41 @@ export interface SessionInfo {
   indicators: Record<string, Record<string, boolean>>;
 }
 
+export type FinancialPeriodKind = 'annual' | 'quarterly';
+
+export interface FinancialPeriod {
+  /** "FY2025" or "FY2026 Q1" — a convention. */
+  key: string;
+  /** The exact close. This is the fact; the label is the convention. */
+  end: string;
+  fiscal_year: number;
+}
+
+export interface FinancialLine {
+  key: string;
+  label: string;
+  unit: string;
+  /** Which XBRL tags answered, in the order they were consulted. */
+  concepts: string[];
+  /** One entry per period, aligned with `periods`; null where nothing was filed. */
+  values: Array<number | null>;
+}
+
+export interface FinancialStatement {
+  key: string;
+  label: string;
+  lines: FinancialLine[];
+}
+
+export interface FinancialsResponse {
+  symbol: string;
+  available: boolean;
+  note: string | null;
+  period: FinancialPeriodKind;
+  periods: FinancialPeriod[];
+  statements: FinancialStatement[];
+}
+
 export interface ScannerTiersResponse {
   scan_codes: Array<{ code: string; label: string }>;
   tiers: Array<{ id: ScannerTierId; label: string }>;

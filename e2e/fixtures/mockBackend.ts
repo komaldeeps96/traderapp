@@ -20,6 +20,7 @@ import {
   makeApiUsage,
   makeArticle,
   makeFilings,
+  makeFinancials,
   makeFundamentals,
   makeInfo,
   makeNews,
@@ -110,6 +111,29 @@ export async function installMockBackend(
   // The dock's fundamentals panel. Served for any symbol; specs that need a
   // different read override it with `page.route` after installing.
   await json(page, '**/api/fundamentals/**', makeFundamentals());
+  // One handler reading the query rather than two competing globs: `**`
+  // crosses a '/' and would match the quarterly URL too, leaving which
+  // fixture answers a question about route precedence.
+  await page.route('**/api/financials/**', (route) => {
+    const quarterly = new URL(route.request().url()).searchParams.get('period') === 'quarterly';
+    void route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify(
+        quarterly
+          ? {
+              ...makeFinancials(),
+              period: 'quarterly',
+              periods: [
+                { key: 'FY2026 Q3', end: '2026-06-27', fiscal_year: 2026 },
+                { key: 'FY2026 Q2', end: '2026-03-28', fiscal_year: 2026 },
+              ],
+            }
+          : makeFinancials(),
+      ),
+    });
+  });
   await json(page, '**/api/filings/**', makeFilings());
   // Order matters: the article route is registered first so the broader news
   // pattern does not swallow it.

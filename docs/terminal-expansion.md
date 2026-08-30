@@ -23,8 +23,8 @@ Standing decisions from the brief:
 | 1 | Compute every indicator on every timeframe | **done** |
 | 2 | Toggle state per timeframe, served from `state.yaml` | **done** |
 | 3 | Financials API — EDGAR `companyfacts` → statements | **done** |
-| 4 | Main tab shell, Chart as tab one, Financials tab | next |
-| 5 | Metrics and valuation, with `frames` percentiles | |
+| 4 | Main tab shell, Chart as tab one, Financials tab | **done** |
+| 5 | Metrics and valuation, with `frames` percentiles | next |
 | 6 | Swing scanner tab | |
 | 7 | Ownership — Form 4, 13D/G, 13F | |
 | 8 | Events and peers | |
@@ -244,3 +244,53 @@ revenue and 112.0B of net income, which are exactly the annual figures.
   and CELU (small cap), annual and quarterly. Apple's figures match its
   reported statements; the Jan-year-end pair label their years and quarters
   the way the companies themselves do.
+
+## Phase 4 — the main area becomes tabbed
+
+A **Chart / Financials** strip under the symbol strip, and the statements from
+Phase 3 rendered as a proper table: newest period on the left, subtotals in
+bold, negatives in red, the period end printed under every column heading and
+the XBRL tags behind a hover on each row.
+
+### The chart is hidden, never unmounted
+
+`visibility: hidden`, holding its layout box. Two constraints meet here and
+only one arrangement satisfies both:
+
+- `display: none` collapses the container to zero height, and
+  lightweight-charts cannot size a pane inside one. The dock hit exactly this
+  and unmounts its charts instead — its own docstring records it.
+- Unmounting is not available here, because returning to the chart must
+  return it to the same bars at the same zoom, not snap it to the right edge.
+
+Measured rather than assumed: across a tab round-trip the visible logical
+range is `{from: 43.02, to: 195.98}` before and `{from: 43.02, to: 195.98}`
+after — identical, so the e2e asserts equality rather than closeness.
+
+That test failed first, and the failure was the test's. A range sampled
+straight after a zoom is still animating: it drifts from 23.9 to 43.0 over
+about a second **whether or not the tabs are touched**. The check now waits
+for the range to stop moving before it starts. Attributing the drift before
+fixing anything is the whole lesson of the webkit chase in CLAUDE.md.
+
+### A bug only the screen could show
+
+Quarterly **Diluted shares** read **−47.0M**. Differencing year-to-date
+figures is right for a flow and meaningless for a *weighted average*: a
+nine-month average share count subtracted from a twelve-month one is a
+negative number of shares. `LineSpec` gained `additive`, and EPS and share
+counts are now left blank in a derived quarter rather than filled with a
+number that is wrong. EPS very nearly survived the arithmetic — Apple's
+derived 1.84 against a reported 1.85 — which is exactly why it needed
+catching by rule rather than by eye.
+
+### Verified
+
+- 1064 backend, 331 frontend, 270 chromium, 19 fullstack, 5 visual.
+- Visual baselines regenerated: the tab strip shifts the layout, so three
+  snapshots legitimately failed. Asserted the new element renders *first*,
+  per the standing hazard in CLAUDE.md, then regenerated.
+- In the browser against live SEC data: AAPL annual (eight years) and
+  quarterly (with derived Q4 and quarterly cash flow), and SNDL — a Canadian
+  issuer filing 40-F, which correctly shows "No XBRL statements on file"
+  rather than an empty grid.

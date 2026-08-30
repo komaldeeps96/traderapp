@@ -3,6 +3,8 @@
 import type {
   ArticleResponse,
   FilingsResponse,
+  FinancialPeriodKind,
+  FinancialsResponse,
   FundamentalsResponse,
   NewsResponse,
   IndicatorSpec,
@@ -55,6 +57,11 @@ export const api = {
   // Warmed server-side at subscribe time, so this is normally a cache read.
   fundamentals: (symbol: string, signal?: AbortSignal) =>
     getJson<FundamentalsResponse>(`/api/fundamentals/${encodeURIComponent(symbol)}`, signal),
+  financials: (symbol: string, period: FinancialPeriodKind, signal?: AbortSignal) =>
+    getJson<FinancialsResponse>(
+      `/api/financials/${encodeURIComponent(symbol)}?period=${period}`,
+      signal,
+    ),
   filings: (symbol: string, signal?: AbortSignal) =>
     getJson<FilingsResponse>(`/api/filings/${encodeURIComponent(symbol)}`, signal),
   news: (symbol: string, signal?: AbortSignal) =>

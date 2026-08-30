@@ -2,7 +2,9 @@ import { Chart } from '@/components/Chart';
 import { ChartControls } from '@/components/ChartControls';
 import { ChartLegend } from '@/components/ChartLegend';
 import { Dock } from '@/components/Dock';
+import { FinancialsTab } from '@/components/FinancialsTab';
 import { KeyLevelsPanel } from '@/components/KeyLevelsPanel';
+import { MainTabs } from '@/components/MainTabs';
 import { ScannerPanel } from '@/components/ScannerPanel';
 import { Toolbar } from '@/components/Toolbar';
 import { TopPanel } from '@/components/TopPanel';
@@ -40,6 +42,7 @@ export default function App() {
   const timeframe = useTerminalStore((state) => state.timeframe);
   const error = useTerminalStore((state) => state.error);
   const status = useTerminalStore((state) => state.status);
+  const mainTab = useTerminalStore((state) => state.mainTab);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-surface">
@@ -69,6 +72,7 @@ export default function App() {
       <main className="flex h-full min-w-0 flex-1 flex-col">
         <Toolbar onSubscribe={subscribe} onTimeframe={setTimeframe} onToggleTheme={toggleTheme} />
         <TopPanel />
+        <MainTabs />
 
         {error && status === 'error' && (
           <div
@@ -86,10 +90,38 @@ export default function App() {
               wrapper — spread across the mini column too, the controls would
               centre themselves on the seam between the two. */}
           <div className="relative min-h-0 min-w-0 flex-1">
-            <Chart />
-            <ChartLegend onToggle={toggleIndicator} />
-            <ChartControls />
-            {status === 'loading' && (
+            {/* Hidden with `visibility`, never unmounted or `display:none`.
+                A collapsed container is zero-height and lightweight-charts
+                cannot size a pane inside one — the dock hit exactly that and
+                unmounts its charts instead. That is not an option here:
+                coming back to the chart has to return it to the same bars at
+                the same zoom, not reset it to the right edge. */}
+            <div
+              id="main-panel-chart"
+              role="tabpanel"
+              aria-label="Price chart"
+              data-testid="main-panel-chart"
+              data-active={mainTab === 'chart'}
+              aria-hidden={mainTab !== 'chart'}
+              className={`absolute inset-0 ${
+                mainTab === 'chart' ? '' : 'invisible pointer-events-none'
+              }`}
+            >
+              <Chart />
+              <ChartLegend onToggle={toggleIndicator} />
+              <ChartControls />
+            </div>
+            {mainTab === 'financials' && (
+              <div
+                id="main-panel-financials"
+                role="tabpanel"
+                data-testid="main-panel-financials"
+                className="absolute inset-0"
+              >
+                <FinancialsTab />
+              </div>
+            )}
+            {mainTab === 'chart' && status === 'loading' && (
               <div
                 className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
                 data-testid="chart-loading"

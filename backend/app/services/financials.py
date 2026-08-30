@@ -52,6 +52,12 @@ class LineSpec:
     unit: str = "USD"
     # A balance is reported at an instant; everything else spans a period.
     instant: bool = False
+    # Whether the quarters of a year sum to the year. True of every flow —
+    # revenue, expenses, cash moved. False of a weighted average or a ratio,
+    # which is why share counts and EPS are never derived by subtraction:
+    # a nine-month average share count taken from a twelve-month one is a
+    # negative number of shares, which is what this flag exists to prevent.
+    additive: bool = True
 
 
 INCOME_STATEMENT: tuple[LineSpec, ...] = (
@@ -100,13 +106,26 @@ INCOME_STATEMENT: tuple[LineSpec, ...] = (
     ),
     LineSpec("income_tax", "Income tax", _us("IncomeTaxExpenseBenefit")),
     LineSpec("net_income", "Net income", _us("NetIncomeLoss", "ProfitLoss")),
-    LineSpec("eps_basic", "EPS, basic", _us("EarningsPerShareBasic"), unit="USD/shares"),
-    LineSpec("eps_diluted", "EPS, diluted", _us("EarningsPerShareDiluted"), unit="USD/shares"),
+    LineSpec(
+        "eps_basic",
+        "EPS, basic",
+        _us("EarningsPerShareBasic"),
+        unit="USD/shares",
+        additive=False,
+    ),
+    LineSpec(
+        "eps_diluted",
+        "EPS, diluted",
+        _us("EarningsPerShareDiluted"),
+        unit="USD/shares",
+        additive=False,
+    ),
     LineSpec(
         "shares_diluted",
         "Diluted shares",
         _us("WeightedAverageNumberOfDilutedSharesOutstanding"),
         unit="shares",
+        additive=False,
     ),
 )
 
@@ -366,7 +385,7 @@ def build_statements(facts: dict | None, annual: bool, limit: int = 8) -> dict:
             for taxonomy, concept in spec.concepts:
                 reported = _facts_for(facts, taxonomy, concept, spec.unit)
                 found = _pick(reported, instant=spec.instant, annual=annual)
-                if not annual and not spec.instant:
+                if not annual and not spec.instant and spec.additive:
                     # What the company stated wins; the arithmetic only fills
                     # the quarters no form ever carried.
                     found = {**_derive_quarters(reported), **found}

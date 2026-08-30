@@ -33,6 +33,19 @@ def facts(*concept_maps: dict) -> dict:
 
 REVENUE = "RevenueFromContractWithCustomerExcludingAssessedTax"
 
+# Revenue as a filer actually reports it: three quarters stated, the
+# year-to-date figures beside them, and the year itself in the 10-K. That
+# is what lets the fourth quarter be derived, and so what gives the table
+# a fourth column for a non-additive line to be missing from.
+REVENUE_ROWS = [
+    fact("2025-01-01", "2025-03-31", 10.0, filed="2025-05-01", form="10-Q"),
+    fact("2025-04-01", "2025-06-30", 12.0, filed="2025-08-01", form="10-Q"),
+    fact("2025-07-01", "2025-09-30", 13.0, filed="2025-11-01", form="10-Q"),
+    fact("2025-01-01", "2025-06-30", 22.0, filed="2025-08-01", form="10-Q"),
+    fact("2025-01-01", "2025-09-30", 35.0, filed="2025-11-01", form="10-Q"),
+    fact("2025-01-01", "2025-12-31", 50.0, filed="2026-02-01"),
+]
+
 
 def line(built: dict, key: str) -> dict | None:
     for statement in built["statements"]:
@@ -151,6 +164,50 @@ class TestDerivedQuarters:
         ]
         built = build_statements(facts(usd(REVENUE, rows)), annual=False)
         assert line(built, "revenue")["values"][0] == 99.0
+
+    def test_an_average_is_never_derived(self):
+        """A weighted average is not a flow and does not difference.
+
+        Taking a nine-month average share count from a twelve-month one gives
+        a negative number of shares, which is what the terminal drew before
+        this: "-47.0M diluted shares" in Apple's fourth quarter. A blank is
+        the honest answer — that quarter's average is in no filing.
+        """
+        data = facts(
+            usd(REVENUE, REVENUE_ROWS),
+            usd(
+                "WeightedAverageNumberOfDilutedSharesOutstanding",
+                [
+                    fact("2025-01-01", "2025-03-31", 1000.0, filed="2025-05-01", form="10-Q"),
+                    fact("2025-04-01", "2025-06-30", 990.0, filed="2025-08-01", form="10-Q"),
+                    fact("2025-07-01", "2025-09-30", 980.0, filed="2025-11-01", form="10-Q"),
+                    fact("2025-01-01", "2025-12-31", 985.0, filed="2026-02-01"),
+                ],
+                unit="shares",
+            ),
+        )
+        built = build_statements(data, annual=False)
+        # The fourth quarter is derived for revenue and blank for the average.
+        assert line(built, "revenue")["values"] == [15.0, 13.0, 12.0, 10.0]
+        assert line(built, "shares_diluted")["values"] == [None, 980.0, 990.0, 1000.0]
+
+    def test_earnings_per_share_is_never_derived(self):
+        """A ratio is not a flow either, however nearly the quarters sum."""
+        data = facts(
+            usd(REVENUE, REVENUE_ROWS),
+            usd(
+                "EarningsPerShareDiluted",
+                [
+                    fact("2025-01-01", "2025-03-31", 2.40, filed="2025-05-01", form="10-Q"),
+                    fact("2025-04-01", "2025-06-30", 1.65, filed="2025-08-01", form="10-Q"),
+                    fact("2025-07-01", "2025-09-30", 1.57, filed="2025-11-01", form="10-Q"),
+                    fact("2025-01-01", "2025-12-31", 7.46, filed="2026-02-01"),
+                ],
+                unit="USD/shares",
+            ),
+        )
+        built = build_statements(data, annual=False)
+        assert line(built, "eps_diluted")["values"] == [None, 1.57, 1.65, 2.40]
 
     def test_the_annual_view_is_never_derived(self):
         """Differencing is a quarterly device; a year is filed as a year."""
