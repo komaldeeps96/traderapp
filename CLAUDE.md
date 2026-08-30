@@ -11,6 +11,36 @@ watchdog timeout: no successful checkins from configd in 182 seconds`, with
 `Compressor Info: 100% of compressed pages limit (BAD)`. Load average reached
 262 on 8 cores. Nothing was lost, but the box went down hard.
 
+## Check before you claim
+
+On 2026-08-30 the SEC tabs were empty for SNDL, and this went into a summary
+as a limitation: closing that gap "needs a different data source". It did
+not. One request to the endpoint the terminal already calls for every symbol
+returned 240 `ifrs-full` concepts. The fix was a taxonomy name — and the
+wrong claim had already been written down as a thing that could not be done.
+
+**A claim about what is *not* possible needs the check that would settle
+it.** Positive claims get tested by whoever uses them next. Negative ones —
+"the data isn't there", "that API can't do it", "this would need another
+source" — close the question, and nobody re-opens it.
+
+The check is nearly always one call:
+
+    curl -s -H 'User-Agent: traderapp/1.0 (you@example.com)' \
+      "https://data.sec.gov/api/xbrl/companyfacts/CIK0001766600.json" \
+      | python3 -c 'import json,sys; print(list(json.load(sys.stdin)["facts"]))'
+
+This is also how the rest of this file was written. `fy`/`fp` describing the
+filing rather than the fact, NaN passing an `isinstance` check, the EDT
+day-join being off by one, which TradingView columns resolve, whether a
+column can be compared against another column — every one was found by asking
+the source instead of reasoning about it, and every one would have been
+stated wrongly otherwise.
+
+Before writing "X is not available" or "this would need Y", run the smallest
+thing that proves it. If that is not worth two minutes, the claim is not
+worth making: say what was **not** checked instead.
+
 ## Running tests
 
 Run suites **one at a time**. Wait for each to finish before starting the
