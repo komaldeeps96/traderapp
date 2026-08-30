@@ -23,6 +23,7 @@ from ..domain.scanner import SCAN_CODES, SCANNER_TIERS
 from ..domain.timeframes import Timeframe
 from ..services.container import AppContainer, get_container
 from ..services.financials import build_statements
+from ..services.metrics import build_metrics
 from ..services.scanner import UNAVAILABLE_NOTE
 
 # Twelve years of annual statements, or three of quarterly. Past that the
@@ -171,6 +172,51 @@ async def financials(symbol: str, period: str = "annual", limit: int = 8) -> dic
         "symbol": resolved,
         "available": True,
         "note": container.edgar.note(),
+        "period": "annual" if annual else "quarterly",
+        **built,
+    }
+
+
+@router.get("/metrics/{symbol}")
+async def metrics(symbol: str, period: str = "annual", limit: int = 8) -> dict:
+    """Ratios per period, and valuation against today's market cap.
+
+    The multiples deliberately mix two sources: the filings for the trailing
+    figures and the quote side for market cap. A book value is as of a
+    quarter end, and comparing today's price against it is the whole point.
+    """
+    container = _container()
+    resolved = _symbol(symbol)
+    annual = period != "quarterly"
+    limit = max(1, min(limit, MAX_FINANCIAL_PERIODS))
+
+    stats = (
+        await container.tv.get_stats(resolved)
+        if container.settings.regime.enabled
+        else container.tv.peek_stats(resolved)
+    )
+    market_cap = stats.market_cap if stats is not None else None
+
+    if container.edgar is None:
+        return {
+            "symbol": resolved,
+            "available": False,
+            "period": "annual" if annual else "quarterly",
+            "periods": [],
+            "groups": [],
+            "valuation": None,
+        }
+
+    await container.edgar.prefetch(resolved)
+    built = build_metrics(
+        container.edgar.peek_facts(resolved),
+        annual=annual,
+        limit=limit,
+        market_cap=market_cap,
+    )
+    return {
+        "symbol": resolved,
+        "available": True,
         "period": "annual" if annual else "quarterly",
         **built,
     }

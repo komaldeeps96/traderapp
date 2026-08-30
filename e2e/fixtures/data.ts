@@ -917,3 +917,56 @@ export function makeFinancials(
     ...overrides,
   };
 }
+
+/**
+ * Ratios and valuation, shaped like the endpoint's.
+ *
+ * Carries a refused ratio and a loss, because those are the two cells the
+ * table has to render as something other than a number.
+ */
+export function makeMetrics(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    symbol,
+    available: true,
+    period: 'annual',
+    periods: [
+      { key: 'FY2025', end: '2025-09-27', fiscal_year: 2025 },
+      { key: 'FY2024', end: '2024-09-28', fiscal_year: 2024 },
+    ],
+    groups: [
+      {
+        label: 'Profitability',
+        metrics: [
+          { key: 'gross_margin', label: 'Gross margin', unit: 'percent', values: [0.4692, 0.4621] },
+          { key: 'net_margin', label: 'Net margin', unit: 'percent', values: [0.2692, -0.24] },
+        ],
+      },
+      {
+        label: 'Balance sheet',
+        metrics: [
+          { key: 'current_ratio', label: 'Current ratio', unit: 'ratio', values: [0.89, 0.87] },
+          {
+            key: 'interest_coverage',
+            label: 'Interest coverage',
+            unit: 'multiple',
+            // Refused, not zero: nothing was reported to divide by.
+            values: [null, 29.06],
+          },
+        ],
+      },
+    ],
+    valuation: {
+      market_cap: 4_665_759_424_245,
+      enterprise_value: 4_708_149_424_245,
+      basis: 'annual',
+      multiples: [
+        { key: 'pe', label: 'P/E', value: 41.65 },
+        { key: 'ps', label: 'P/S', value: 11.21 },
+        { key: 'pb', label: 'P/B', value: 63.28 },
+        { key: 'p_fcf', label: 'P/FCF', value: 47.24 },
+        { key: 'ev_sales', label: 'EV/Sales', value: 11.31 },
+      ],
+    },
+    ...overrides,
+  };
+}

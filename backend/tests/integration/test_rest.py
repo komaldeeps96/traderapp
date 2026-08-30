@@ -314,3 +314,41 @@ class TestFinancials:
         payload = client.get("/api/financials/CELU").json()
         assert payload["available"] is False
         assert payload["statements"] == []
+
+
+class TestMetrics:
+    """`/api/metrics` — ratios, and multiples against the live market cap."""
+
+    def test_derives_ratios_from_the_statements(self, edgar_client):
+        payload = edgar_client.get("/api/metrics/CELU").json()
+        assert payload["available"] is True
+        keys = {metric["key"] for group in payload["groups"] for metric in group["metrics"]}
+        assert "net_margin" in keys
+
+    def test_shares_the_period_axis_with_the_statements(self, edgar_client):
+        """The two tabs must not disagree about which years are on screen."""
+        metrics = edgar_client.get("/api/metrics/CELU").json()
+        financials = edgar_client.get("/api/financials/CELU").json()
+        assert [p["key"] for p in metrics["periods"]] == [p["key"] for p in financials["periods"]]
+
+    def test_reports_a_loss_as_a_negative_margin(self, edgar_client):
+        """The stub's company loses money; that has to survive to the tab."""
+        payload = edgar_client.get("/api/metrics/CELU").json()
+        margin = next(
+            metric
+            for group in payload["groups"]
+            for metric in group["metrics"]
+            if metric["key"] == "net_margin"
+        )
+        assert margin["values"][0] is not None
+        assert margin["values"][0] < 0
+
+    def test_carries_a_valuation_block(self, edgar_client):
+        payload = edgar_client.get("/api/metrics/CELU").json()
+        assert payload["valuation"]["basis"] == "annual"
+        assert {m["key"] for m in payload["valuation"]["multiples"]} >= {"pe", "ps"}
+
+    def test_says_so_when_edgar_is_switched_off(self, client):
+        payload = client.get("/api/metrics/CELU").json()
+        assert payload["available"] is False
+        assert payload["groups"] == []

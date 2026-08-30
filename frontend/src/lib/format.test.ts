@@ -5,6 +5,7 @@ import {
   formatBarTime,
   formatChange,
   formatCompact,
+  formatMetricValue,
   formatStatementValue,
   formatElapsed,
   formatLevel,
@@ -310,6 +311,17 @@ describe('formatNewsTime', () => {
   });
 });
 
+describe('formatCompact at mega-cap scale', () => {
+  it('reaches trillions', () => {
+    // "$4665.76B" has to be counted rather than read.
+    expect(formatCompact(4_665_759_424_245)).toBe('4.67T');
+  });
+
+  it('still uses billions below a trillion', () => {
+    expect(formatCompact(999_000_000_000)).toBe('999.00B');
+  });
+});
+
 describe('formatStatementValue', () => {
   it('compacts dollars, where the scale is the meaning', () => {
     expect(formatStatementValue(416_161_000_000, 'USD')).toBe('$416.16B');
@@ -341,5 +353,32 @@ describe('formatStatementValue', () => {
     // A company that reported nothing and a company that reported zero are
     // different facts.
     expect(formatStatementValue(0, 'USD')).toBe('$0');
+  });
+});
+
+describe('formatMetricValue', () => {
+  it('gives a percentage one decimal', () => {
+    // Two would read as more precise than the filings behind it.
+    expect(formatMetricValue(0.4692, 'percent')).toBe('46.9%');
+    expect(formatMetricValue(-0.25, 'percent')).toBe('-25.0%');
+  });
+
+  it('marks a multiple so it is not read as a ratio', () => {
+    expect(formatMetricValue(29.06, 'multiple')).toBe('29.06×');
+  });
+
+  it('leaves a ratio bare', () => {
+    expect(formatMetricValue(0.89, 'ratio')).toBe('0.89');
+  });
+
+  it('compacts money', () => {
+    expect(formatMetricValue(98_800_000_000, 'money')).toBe('$98.80B');
+    expect(formatMetricValue(-42_400_000_000, 'money')).toBe('-$42.40B');
+  });
+
+  it('shows a dash for a refused ratio', () => {
+    // The service returns null rather than a meaningless number; the table
+    // must not turn that back into a zero.
+    expect(formatMetricValue(null, 'percent')).toBe('—');
   });
 });

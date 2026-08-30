@@ -22,6 +22,7 @@ import {
   makeFilings,
   makeFinancials,
   makeFundamentals,
+  makeMetrics,
   makeInfo,
   makeNews,
   makeQuote,
@@ -134,6 +135,7 @@ export async function installMockBackend(
       ),
     });
   });
+  await json(page, '**/api/metrics/**', makeMetrics());
   await json(page, '**/api/filings/**', makeFilings());
   // Order matters: the article route is registered first so the broader news
   // pattern does not swallow it.

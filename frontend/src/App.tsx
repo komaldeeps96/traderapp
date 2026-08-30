@@ -5,6 +5,7 @@ import { Dock } from '@/components/Dock';
 import { FinancialsTab } from '@/components/FinancialsTab';
 import { KeyLevelsPanel } from '@/components/KeyLevelsPanel';
 import { MainTabs } from '@/components/MainTabs';
+import { MetricsTab } from '@/components/MetricsTab';
 import { ScannerPanel } from '@/components/ScannerPanel';
 import { Toolbar } from '@/components/Toolbar';
 import { TopPanel } from '@/components/TopPanel';
@@ -111,6 +112,16 @@ export default function App() {
               <ChartLegend onToggle={toggleIndicator} />
               <ChartControls />
             </div>
+            {mainTab === 'metrics' && (
+              <div
+                id="main-panel-metrics"
+                role="tabpanel"
+                data-testid="main-panel-metrics"
+                className="absolute inset-0"
+              >
+                <MetricsTab />
+              </div>
+            )}
             {mainTab === 'financials' && (
               <div
                 id="main-panel-financials"

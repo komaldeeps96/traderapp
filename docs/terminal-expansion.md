@@ -24,11 +24,12 @@ Standing decisions from the brief:
 | 2 | Toggle state per timeframe, served from `state.yaml` | **done** |
 | 3 | Financials API — EDGAR `companyfacts` → statements | **done** |
 | 4 | Main tab shell, Chart as tab one, Financials tab | **done** |
-| 5 | Metrics and valuation, with `frames` percentiles | next |
-| 6 | Swing scanner tab | |
-| 7 | Ownership — Form 4, 13D/G, 13F | |
-| 8 | Events and peers | |
-| 9 | Segments (bulk data sets), FINRA short interest | |
+| 5 | Metrics and valuation tab | **done** |
+| 6 | `frames` percentiles — where a ratio sits in the market | next |
+| 7 | Swing scanner tab | |
+| 8 | Ownership — Form 4, 13D/G, 13F | |
+| 9 | Events and peers | |
+| 10 | Segments (bulk data sets), FINRA short interest | |
 
 ## Phase 1 — every indicator on every timeframe
 
@@ -294,3 +295,49 @@ catching by rule rather than by eye.
   quarterly (with derived Q4 and quarterly cash flow), and SNDL — a Canadian
   issuer filing 40-F, which correctly shows "No XBRL statements on file"
   rather than an empty grid.
+
+## Phase 5 — metrics and valuation
+
+`/api/metrics/{symbol}` and a third main tab. Nothing in `metrics.py` reads
+XBRL: it consumes what `build_statements` already resolved, so a concept
+chain or a derived quarter is fixed once and every ratio built on it follows.
+
+Two rules run through it, and both are about what it declines to compute.
+
+**A ratio needs both its sides from the same period.** A margin against a
+blank revenue is not a small number, it is not a number.
+
+**A negative denominator is refused, not reported.** P/E on a loss,
+debt/equity on negative book value, coverage on negative operating income —
+each is arithmetically fine and financially meaningless, and "−14.2×" invites
+being read as cheap. Growth from a negative base goes the same way: revenue
+rising from −2 to 1 is a sign change, not 150% growth.
+
+A refusal reaches the screen as a dash. The frontend never turns it back into
+a zero.
+
+**A trailing year needs four quarters.** Three and a gap is not a year, and
+summing what is there would understate the denominator — which on a multiple
+reads as *cheaper* than the company is.
+
+The valuation strip deliberately mixes two sources: the filings for trailing
+figures, the quote side for market cap. A book value is as of a quarter end,
+and comparing today's price against it is the entire exercise. Which basis is
+on screen is printed rather than assumed.
+
+Checked against Apple: gross margin 46.9%, operating margin 32.0%, ROE 151.9%,
+current ratio 0.89, FCF $98.8B, P/E 41.65×, EV $4.71T — all matching the
+filings and the tape.
+
+`formatCompact` gained a trillion branch on the way. Apple's market cap
+rendered as "$4665.76B", which has to be counted rather than read, and mega
+caps are exactly what this expansion added. The visual baselines did *not*
+need regenerating for it, and that was checked rather than assumed: the
+info-strip fixture's market cap is $62M, nowhere near the boundary.
+
+### Verified
+
+- 1086 backend, 338 frontend, 279 chromium, 19 fullstack, 5 visual.
+- In the browser against live data: AAPL, eight fiscal years, with the
+  valuation strip priced off the live market cap and interest coverage
+  correctly blank in the two years Apple reported no interest expense.

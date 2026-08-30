@@ -6,6 +6,7 @@ import type {
   FinancialPeriodKind,
   FinancialsResponse,
   FundamentalsResponse,
+  MetricsResponse,
   NewsResponse,
   IndicatorSpec,
   ScannerTiersResponse,
@@ -60,6 +61,11 @@ export const api = {
   financials: (symbol: string, period: FinancialPeriodKind, signal?: AbortSignal) =>
     getJson<FinancialsResponse>(
       `/api/financials/${encodeURIComponent(symbol)}?period=${period}`,
+      signal,
+    ),
+  metrics: (symbol: string, period: FinancialPeriodKind, signal?: AbortSignal) =>
+    getJson<MetricsResponse>(
+      `/api/metrics/${encodeURIComponent(symbol)}?period=${period}`,
       signal,
     ),
   filings: (symbol: string, signal?: AbortSignal) =>

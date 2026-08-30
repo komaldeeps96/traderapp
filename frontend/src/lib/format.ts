@@ -101,6 +101,10 @@ export function formatPercent(value: number | null | undefined, digits = 2): str
 export function formatCompact(value: number | null | undefined, digits = 2): string {
   if (value == null || !Number.isFinite(value)) return '—';
   const abs = Math.abs(value);
+  // Trillions matter now that the terminal covers mega caps: Apple's market
+  // cap renders as "$4665.76B" without this, which has to be counted rather
+  // than read.
+  if (abs >= 1e12) return `${(value / 1e12).toFixed(digits)}T`;
   if (abs >= 1e9) return `${(value / 1e9).toFixed(digits)}B`;
   if (abs >= 1e6) return `${(value / 1e6).toFixed(digits)}M`;
   if (abs >= 1e3) return `${(value / 1e3).toFixed(1)}K`;
@@ -328,4 +332,23 @@ export function formatStatementValue(
   if (unit === 'shares') return formatCompact(value, 1);
   const sign = value < 0 ? '-' : '';
   return `${sign}$${formatCompact(Math.abs(value), 2)}`;
+}
+
+/**
+ * One cell of the metrics table.
+ *
+ * A ratio and a multiple are both bare numbers and would be indistinguishable
+ * in a column, so a multiple carries its ×. Percentages are given one decimal
+ * — a margin quoted to two reads as more precise than the filings that made
+ * it.
+ */
+export function formatMetricValue(
+  value: number | null | undefined,
+  unit: string,
+): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  if (unit === 'percent') return `${(value * 100).toFixed(1)}%`;
+  if (unit === 'multiple') return `${value.toFixed(2)}×`;
+  if (unit === 'money') return formatStatementValue(value, 'USD');
+  return value.toFixed(2);
 }

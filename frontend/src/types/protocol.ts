@@ -564,6 +564,42 @@ export interface FinancialsResponse {
   statements: FinancialStatement[];
 }
 
+export interface MetricRow {
+  key: string;
+  label: string;
+  /** "percent" | "ratio" | "multiple" | "money" — how the cell is read. */
+  unit: string;
+  values: Array<number | null>;
+}
+
+export interface MetricGroup {
+  label: string;
+  metrics: MetricRow[];
+}
+
+export interface ValuationMultiple {
+  key: string;
+  label: string;
+  /** Null where the ratio was refused, not zero. */
+  value: number | null;
+}
+
+export interface Valuation {
+  market_cap: number | null;
+  enterprise_value: number | null;
+  basis: string;
+  multiples: ValuationMultiple[];
+}
+
+export interface MetricsResponse {
+  symbol: string;
+  available: boolean;
+  period: FinancialPeriodKind;
+  periods: FinancialPeriod[];
+  groups: MetricGroup[];
+  valuation: Valuation | null;
+}
+
 export interface ScannerTiersResponse {
   scan_codes: Array<{ code: string; label: string }>;
   tiers: Array<{ id: ScannerTierId; label: string }>;
