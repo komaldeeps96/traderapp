@@ -62,16 +62,27 @@ test.describe('the chart behind another tab', () => {
     // Let the zoom finish animating first. Comparing a range sampled
     // mid-animation against one sampled after would fail on the easing, not
     // on anything the tabs did.
-    const settled = async () => JSON.stringify((await terminal.chartState()).visibleRange);
-    let last = await settled();
-    await expect
-      .poll(async () => {
-        const now = await settled();
-        const stable = now === last;
-        last = now;
-        return stable;
-      })
-      .toBe(true);
+    //
+    // "Stable" means unchanged for half a second, not two equal samples in a
+    // row: on WebKit the animation starts late enough that the first two
+    // readings match while it has not begun, and the range then moves during
+    // the tab switch.
+    await terminal.page.waitForFunction(
+      () => {
+        const scope = window as unknown as Record<string, unknown>;
+        const chart = window.__traderapp!.chart() as { visibleRange: unknown };
+        const now = JSON.stringify(chart.visibleRange);
+        if (scope.__rangeSample === now) {
+          scope.__rangeStable = ((scope.__rangeStable as number) ?? 0) + 1;
+        } else {
+          scope.__rangeSample = now;
+          scope.__rangeStable = 0;
+        }
+        return ((scope.__rangeStable as number) ?? 0) >= 5;
+      },
+      null,
+      { polling: 100 },
+    );
 
     const before = (await terminal.chartState()).visibleRange;
     expect(before).not.toBeNull();

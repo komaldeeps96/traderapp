@@ -26,15 +26,16 @@ next, and never have two `playwright test` invocations alive at once.
     cd e2e     && npx tsc --noEmit -p . && npx eslint .
 
     # Browser tests — one project per invocation
-    cd e2e && npx playwright test --project=chromium    # ~1 min, 251 tests
-    cd e2e && npx playwright test --project=visual      # ~6 s,    5 tests
-    cd e2e && npx playwright test --project=fullstack   # ~15 s,  17 tests
-    cd e2e && npx playwright test --project=firefox     # ~1.6 min
-    cd e2e && npx playwright test --project=webkit      # ~2 min
-    cd e2e && npx playwright test --project=mobile      # ~7 s,    8 tests
+    cd e2e && npx playwright test --project=chromium    # ~1.3 min, 311 tests
+    cd e2e && npx playwright test --project=visual      # ~7 s,      5 tests
+    cd e2e && npx playwright test --project=fullstack   # ~16 s,    19 tests
+    cd e2e && npx playwright test --project=firefox     # ~1.9 min, 311 tests
+    cd e2e && npx playwright test --project=webkit      # ~2.5 min, 311 tests
+    cd e2e && npx playwright test --project=mobile      # ~8 s,      8 tests
 
-A full sequential pass is about six minutes and holds memory above 85%.
-All six browser projects pass clean this way: 251 / 5 / 17 / 251 / 251 / 8.
+A full sequential pass is about seven minutes and holds memory above 80%.
+All six browser projects pass clean this way: 311 / 5 / 19 / 311 / 311 / 8,
+alongside 1148 backend and 344 frontend unit tests.
 
 ### Rules that keep it upright
 
@@ -86,6 +87,32 @@ pass 251/251 when run sequentially.
 - `e2e/` — Playwright, npm workspace. `tests/mocked` intercepts the backend;
   `tests/fullstack` drives the real one with only Alpaca faked;
   `tests/visual` holds pixel baselines (chromium only).
+
+## The screen, as of the terminal expansion
+
+Three columns. The **left** column has its own tab strip: *Day* holds the
+four IBKR market-cap scanners, *Swing* holds four TradingView setups that
+work with no TWS running. Key levels sit beneath both.
+
+The **middle** is tabbed too — Chart, Financials, Metrics, Insiders, Peers —
+and the chart is **hidden with `visibility`, never unmounted**. A
+`display:none` container is zero-height and lightweight-charts cannot size a
+pane inside one; unmounting would lose the viewport. See
+`docs/terminal-expansion.md`.
+
+The **right** dock is unchanged: context charts, fundamentals, news, filings.
+
+### Two traps this codebase has already paid for
+
+**NaN passes `isinstance(x, float)`.** Every screener row comes through
+pandas, which fills a missing cell with NaN, and every comparison against NaN
+is False — so a row carrying one passes a filter *by failing its test*, and
+sorting a list with a few in it scrambles the order. Anything numeric coming
+from TradingView goes through `app/domain/screener.finite()`.
+
+**A filing's `fy`/`fp` describe the filing, not the fact.** A 10-K restates
+prior years as comparatives, so Apple's FY2016 revenue is tagged `fy: 2018`.
+A fact's period is `start`–`end` and nothing else.
 
 ## Visual baselines
 
