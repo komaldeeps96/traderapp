@@ -6,7 +6,7 @@
  */
 
 import type { PriceBand } from '@/chart/bands';
-import { computeChange, percentDistance, type Change } from '@/lib/format';
+import { computeChange, daysUntil, percentDistance, type Change } from '@/lib/format';
 import { sessionView } from '@/lib/session';
 import type {
   DilutionSummary,
@@ -586,6 +586,8 @@ export interface InfoView {
   haltDownPercent: number | null;
   /** Days since listing, when young enough to matter. */
   listedDays: number | null;
+  /** Days until the next scheduled report; negative once it has passed. */
+  earningsInDays: number | null;
   borrow: BorrowStatus | null;
   shortableShares: number | null;
   /** Halted right now. */
@@ -786,6 +788,7 @@ export function buildInfoView(info: InfoMessage | null, lastPrice: number | null
         ? ((lastPrice - info.halt_down) / lastPrice) * 100
         : null,
     listedDays: info.listed_days,
+    earningsInDays: daysUntil(info.earnings_next, info.generated_at),
     borrow: borrowStatus(info.shortable),
     shortableShares: info.shortable_shares,
     halted: info.halted,

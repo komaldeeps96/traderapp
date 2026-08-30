@@ -100,6 +100,32 @@ function bandTierTitle(info: InfoView): string {
  * the crowd has pre-committed to stop at. `capped` is red: a target closer
  * than its own execution cost is not a trade, however good the setup looks.
  */
+/**
+ * How close a scheduled report is, and how loudly to say so.
+ *
+ * A swing position held through earnings is a different trade from the one
+ * that was opened, and the usual way that happens is not knowing. Inside a
+ * week it is red, inside a fortnight amber, and beyond that quiet — visible
+ * for planning, not shouting.
+ *
+ * Past dates are dropped: TradingView keeps serving the last scheduled date
+ * for a while after the event, and "ERN -3d" reads as a date to avoid.
+ */
+const EARNINGS_URGENT_DAYS = 7;
+const EARNINGS_NEAR_DAYS = 14;
+const EARNINGS_HORIZON_DAYS = 60;
+
+function earningsClass(days: number): string {
+  if (days <= EARNINGS_URGENT_DAYS) return 'bg-down/20 text-down';
+  if (days <= EARNINGS_NEAR_DAYS) return 'bg-elevated text-accent-text';
+  return 'bg-elevated text-ink-3';
+}
+
+function earningsLabel(days: number): string {
+  if (days === 0) return 'ERN TODAY';
+  return `ERN ${days}d`;
+}
+
 const HEADROOM_CLASS: Record<HeadroomTone, string> = {
   'blue-sky': 'bg-up/15 text-up',
   clear: 'text-ink-2',
@@ -314,6 +340,21 @@ export function TopPanel() {
             </span>
           </span>
         )}
+
+        {info?.earningsInDays != null &&
+          info.earningsInDays >= 0 &&
+          info.earningsInDays <= EARNINGS_HORIZON_DAYS && (
+            <span
+              className={`rounded-sm px-1 text-[10px] font-semibold ${earningsClass(
+                info.earningsInDays,
+              )}`}
+              data-testid="tp-earnings"
+              data-days={info.earningsInDays}
+              title="Next scheduled earnings report. A position held through one is a different trade from the one that was opened."
+            >
+              {earningsLabel(info.earningsInDays)}
+            </span>
+          )}
 
         {info?.borrow && (
           <span

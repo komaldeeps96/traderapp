@@ -582,6 +582,8 @@ export function makeInfo(symbol = 'AAPL', overrides: Partial<Record<string, unkn
     halt_band_pct: 10,
     halt_band_cents: null,
     listed_days: null,
+    // No report scheduled by default; specs that need one override it.
+    earnings_next: null,
     shortable: 2.9,
     shortable_shares: 1_500_000,
     halted: false,
@@ -1007,6 +1009,7 @@ export function makeSwingRows(screenId = 'trend', overrides: Partial<Record<stri
         adr: 3.2,
         off_high: -2.33,
         distance_to_sma50: 1.4,
+        next_earnings: null,
       },
       {
         symbol: 'ANF',
@@ -1023,6 +1026,7 @@ export function makeSwingRows(screenId = 'trend', overrides: Partial<Record<stri
         adr: 4.1,
         off_high: -3.98,
         distance_to_sma50: 2.2,
+        next_earnings: null,
       },
     ],
     config: { min_market_cap: 2_000_000_000, min_avg_volume: 1_000_000, rows: 15 },

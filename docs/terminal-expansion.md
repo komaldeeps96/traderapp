@@ -28,7 +28,7 @@ Standing decisions from the brief:
 | 6 | Swing scanner tab | **done** |
 | 7 | Ownership — insider Form 4 trail | **done** |
 | 8 | Peers — ranked against its own industry | **done** |
-| 9 | Events — earnings dates and 8-K items | next |
+| 9 | Earnings proximity, where it is always visible | **done** |
 | 10 | Segments (bulk data sets), FINRA short interest | |
 
 ## Phase 1 — every indicator on every timeframe
@@ -505,3 +505,39 @@ happens once, at the boundary.
   rejects a NaN rather than passing it.
 - In the browser against live TradingView: 31 industry peers, Apple's own row
   highlighted, ranks and medians agreeing.
+
+## Phase 9 — how many days until it reports
+
+The next earnings date was already in the terminal: buried in the dock's
+fundamentals list, as an ISO string, with no sense of how soon. Its own
+docstring called it "a date to plan around rather than be surprised by",
+which is precisely what a bare `2026-10-29` in a list of twenty rows is not.
+
+It now rides the `info` stream — the same TradingView row that already
+carries float and market cap, so it costs nothing — and shows in the price
+strip as **days**, toned by proximity: red inside a week, amber inside a
+fortnight, quiet beyond, and nothing at all past sixty days. The same column
+was added to the swing rows, where a breakout three days before a report is a
+different trade from the one it looks like.
+
+Two things it refuses to draw:
+
+- **A date already past.** The source keeps serving the last scheduled date
+  for a while after the event, and "ERN -3d" reads as a date still to come.
+- **A date beyond the horizon.** Four months out is not a fact about today's
+  position.
+
+`daysUntil` counts **calendar** days through the New York calendar, not
+24-hour blocks and not an offset in seconds. A report at six tomorrow morning
+is "1d" whether it is eighteen hours away or thirty, because what is being
+decided is how many sessions the position has to survive — and an offset in
+seconds is only correct inside a session, while a release is stamped at any
+hour. There is a test for the spring-forward day, where a 23-hour day breaks
+the arithmetic version.
+
+### Verified
+
+- 1148 backend, 344 frontend, 311 chromium, 19 fullstack, 5 visual.
+- The e2e counts from the fixture's own frozen clock rather than wall time —
+  the fixtures sit in March 2024 so runs stay byte-identical, and the first
+  version of the test measured a gap of two and a half years.

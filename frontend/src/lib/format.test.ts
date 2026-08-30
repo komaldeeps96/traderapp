@@ -5,6 +5,7 @@ import {
   formatBarTime,
   formatChange,
   formatCompact,
+  daysUntil,
   formatMetricValue,
   formatStatementValue,
   formatElapsed,
@@ -380,5 +381,45 @@ describe('formatMetricValue', () => {
     // The service returns null rather than a meaningless number; the table
     // must not turn that back into a zero.
     expect(formatMetricValue(null, 'percent')).toBe('—');
+  });
+});
+
+describe('daysUntil', () => {
+  // 2026-08-30 14:00 UTC is 10:00 in New York.
+  const now = Date.UTC(2026, 7, 30, 14, 0) / 1000;
+
+  it('counts calendar days, not 24-hour blocks', () => {
+    // A report at 06:00 tomorrow is one day away, not zero.
+    const tomorrowEarly = Date.UTC(2026, 7, 31, 10, 0) / 1000;
+    expect(daysUntil(tomorrowEarly, now)).toBe(1);
+  });
+
+  it('calls the same New York day zero', () => {
+    const laterToday = Date.UTC(2026, 7, 30, 23, 0) / 1000;
+    expect(daysUntil(laterToday, now)).toBe(0);
+  });
+
+  it('goes negative once the date has passed', () => {
+    const yesterday = Date.UTC(2026, 7, 29, 14, 0) / 1000;
+    expect(daysUntil(yesterday, now)).toBe(-1);
+  });
+
+  it('counts across a month boundary', () => {
+    const nextMonth = Date.UTC(2026, 8, 6, 14, 0) / 1000;
+    expect(daysUntil(nextMonth, now)).toBe(7);
+  });
+
+  it('survives the spring-forward day', () => {
+    // 2026-03-08 is 23 hours long in New York; an offset in seconds gets
+    // this wrong, which is why both ends go through the NY calendar.
+    const before = Date.UTC(2026, 2, 7, 17, 0) / 1000;
+    const after = Date.UTC(2026, 2, 9, 17, 0) / 1000;
+    expect(daysUntil(after, before)).toBe(2);
+  });
+
+  it('has nothing to say about a missing date', () => {
+    expect(daysUntil(null, now)).toBeNull();
+    expect(daysUntil(undefined, now)).toBeNull();
+    expect(daysUntil(Number.NaN, now)).toBeNull();
   });
 });

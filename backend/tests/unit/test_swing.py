@@ -38,6 +38,7 @@ def row(**overrides) -> list:
         "price_52_week_high": 105.0,
         "ADR": 3.0,
         "sector": "Technology",
+        "earnings_release_next_date": None,
     }
     values.update(overrides)
     return [values[name] for name in COLUMNS]

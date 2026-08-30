@@ -115,6 +115,8 @@ export interface InfoMessage {
   halt_band_cents: number | null;
   /** Days since the first daily bar; null once old enough not to matter. */
   listed_days: number | null;
+  /** Epoch seconds of the next scheduled earnings report. */
+  earnings_next: number | null;
   /** IBKR shortable magnitude: >2.5 easy, 1.5–2.5 locate, <1.5 none. */
   shortable: number | null;
   shortable_shares: number | null;
@@ -628,6 +630,8 @@ export interface SwingRow {
   /** Negative below the 52-week high; zero at it. */
   off_high: number | null;
   distance_to_sma50: number | null;
+  /** Epoch seconds of the next scheduled report. */
+  next_earnings: number | null;
 }
 
 export interface SwingScreensResponse {

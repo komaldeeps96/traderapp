@@ -234,6 +234,11 @@ class SymbolInfoService:
             "float_rotation": (day_volume / float_shares) if day_volume and float_shares else None,
             "pm_float_rotation": (pm_volume / float_shares) if pm_volume and float_shares else None,
             "listed_days": self._listed_days(daily_bars),
+            # Rides the same TradingView row as the float and market cap
+            # above, so it costs nothing here — and a scheduled report is
+            # the one calendar entry that changes what a position is worth
+            # holding overnight.
+            "earnings_next": stats.earnings_next if stats else None,
             "generated_at": int(now_epoch()),
         }
         borrow = self._borrow(symbol) if self._borrow is not None else None

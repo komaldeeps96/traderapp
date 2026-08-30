@@ -58,6 +58,9 @@ COLUMNS = [
     "price_52_week_high",
     "ADR",
     "sector",
+    # A setup that reports in three days is a different proposition; the
+    # column rides the same request, so carrying it is free.
+    "earnings_release_next_date",
 ]
 
 
@@ -295,6 +298,7 @@ def _shape(payload) -> list[dict]:
             "adr": number(row, "ADR"),
             "off_high": _percent_off_high(close, number(row, "price_52_week_high")),
             "distance_to_sma50": _distance_to_sma(close, number(row, "SMA50")),
+            "next_earnings": number(row, "earnings_release_next_date"),
         }
         if row_out["symbol"]:
             out.append(row_out)

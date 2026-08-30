@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { formatCompact, formatMoney, formatPrice } from '@/lib/format';
+import { daysUntil, formatCompact, formatMoney, formatPrice } from '@/lib/format';
 import { api } from '@/lib/http';
 import type { SwingRow, SwingScreen } from '@/types/protocol';
 
@@ -130,6 +130,13 @@ export function SwingPanel({ onSelect }: { onSelect: (symbol: string) => void })
               <th scope="col" className="px-2 py-1 text-right font-normal">
                 MCAP
               </th>
+              <th
+                scope="col"
+                className="px-2 py-1 text-right font-normal"
+                title="Days until the next scheduled report"
+              >
+                ERN
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -164,6 +171,7 @@ export function SwingPanel({ onSelect }: { onSelect: (symbol: string) => void })
                 <td className="px-2 py-1 text-right text-ink-3">
                   {row.market_cap == null ? '—' : formatMoney(row.market_cap)}
                 </td>
+                <Earnings epoch={row.next_earnings} />
               </tr>
             ))}
           </tbody>
@@ -176,6 +184,28 @@ export function SwingPanel({ onSelect }: { onSelect: (symbol: string) => void })
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * How near the next report is.
+ *
+ * A breakout entered three days before earnings is a different trade, so the
+ * cell shouts inside a week and stays quiet beyond it. A date already past —
+ * the source keeps serving one for a while — is nothing at all.
+ */
+function Earnings({ epoch }: { epoch: number | null }) {
+  const days = daysUntil(epoch, Date.now() / 1000);
+  if (days == null || days < 0 || days > 60) {
+    return <td className="px-2 py-1 text-right text-ink-3">—</td>;
+  }
+  return (
+    <td
+      className={`px-2 py-1 text-right ${days <= 7 ? 'font-semibold text-down' : 'text-ink-3'}`}
+      data-testid="swing-earnings"
+    >
+      {days}d
+    </td>
   );
 }
 

@@ -352,3 +352,31 @@ export function formatMetricValue(
   if (unit === 'money') return formatStatementValue(value, 'USD');
   return value.toFixed(2);
 }
+
+const NY_DAY = new Intl.DateTimeFormat('en-CA', {
+  timeZone: NY_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/**
+ * Whole days from now until an epoch second, counted in New York.
+ *
+ * *Calendar* days, not 24-hour blocks: a report tomorrow morning is "1d"
+ * whether it is eighteen hours away or thirty, because what is being decided
+ * is how many sessions a position has to survive. Both ends go through the
+ * New York calendar rather than an offset in seconds — an offset is only
+ * correct inside a session, and an earnings release is stamped at any hour.
+ */
+export function daysUntil(
+  epochSeconds: number | null | undefined,
+  nowEpochSeconds: number,
+): number | null {
+  if (epochSeconds == null || !Number.isFinite(epochSeconds)) return null;
+  const midnightUtc = (seconds: number) =>
+    Date.parse(`${NY_DAY.format(new Date(seconds * 1000))}T00:00:00Z`);
+  return Math.round(
+    (midnightUtc(epochSeconds) - midnightUtc(nowEpochSeconds)) / 86_400_000,
+  );
+}

@@ -42,6 +42,8 @@ import {
 export interface MockBackendOptions {
   /** Symbol the session restores on load. */
   sessionSymbol?: string;
+  /** Fields to override on every streamed `info` frame. */
+  infoOverrides?: Record<string, unknown>;
   /** Indicator toggles the server has stored, keyed by timeframe. */
   sessionIndicators?: Record<string, Record<string, boolean>>;
   sessionTimeframe?: string;
@@ -89,6 +91,7 @@ export async function installMockBackend(
     sessionSymbol = 'AAPL',
     sessionTimeframe = '10s',
     sessionIndicators = {},
+    infoOverrides = {},
     scannerAvailable = false,
     source = 'alpaca',
     delayed = false,
@@ -239,7 +242,7 @@ export async function installMockBackend(
                 makeQuote(symbol, { bid: close - 0.02, ask: close + 0.02, t: payload.generated_at }),
               ),
             );
-            ws.send(JSON.stringify(makeInfo(symbol)));
+            ws.send(JSON.stringify(makeInfo(symbol, infoOverrides)));
           };
 
           if (snapshotDelayMs > 0) {
