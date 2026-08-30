@@ -26,8 +26,8 @@ Standing decisions from the brief:
 | 4 | Main tab shell, Chart as tab one, Financials tab | **done** |
 | 5 | Metrics and valuation tab | **done** |
 | 6 | Swing scanner tab | **done** |
-| 7 | `frames` percentiles — where a ratio sits in the market | next |
-| 8 | Ownership — Form 4, 13D/G, 13F | |
+| 7 | Ownership — insider Form 4 trail | **done** |
+| 8 | `frames` percentiles — where a ratio sits in the market | next |
 | 9 | Events and peers | |
 | 10 | Segments (bulk data sets), FINRA short interest | |
 
@@ -404,3 +404,52 @@ rather than two globs racing.)
   within 2% of the high at 1.73× and 1.69× volume — a strict screen on a
   quiet day, which is the honest answer rather than a padded list.
 - Sidebar visual baselines regenerated; the new strip was asserted first.
+
+## Phase 7 — insiders
+
+`/api/ownership/{symbol}` and a fourth main tab. Taken ahead of the
+percentile work because insider buying is directly tradeable and a
+market-wide ratio ranking is not.
+
+### Most of a Form 4 trail is payroll
+
+Grants, option exercises and shares withheld to cover the tax on a vest move
+the share count and say nothing about what anyone thinks. Counting them is
+how "insiders dumped stock" gets written about a vesting date, and it is the
+single most common way this data is misread.
+
+Two things carry information, and the module exists to separate them:
+
+- **An open-market purchase** — an insider paying their own cash at the
+  market price.
+- **A *discretionary* sale** — one not made under a 10b5-1 plan. Plan sales
+  are scheduled months ahead and are as automatic as a payroll deduction. The
+  form says which is which (`aff10b5One`), so there is no reason to guess.
+
+A plan excuses a sale; it does not excuse cash out of pocket, so a purchase
+under a plan is still counted as a purchase.
+
+Only Table 1 is read. A derivative grant and its later exercise would
+otherwise land as two rows for one piece of compensation.
+
+**Apple, live:** 38 transactions parsed, of which zero were open-market
+purchases or discretionary sales. The panel says "No open-market insider
+activity in the window" while showing $1.37M of scheduled plan sales and
+$4.85M of compensation beside it. A naive tracker headlines that as
+$1.4M of insider selling.
+
+### Cost
+
+This is the only read in the terminal priced per *filing* rather than per
+company — the numbers live inside each Form 4 — so it is capped at 24 forms,
+cached for fifteen minutes, routed through the same SEC budget as everything
+else, and never warmed at subscribe time. It runs when the tab is opened and
+not before.
+
+### Verified
+
+- 1133 backend, 338 frontend, 297 chromium, 19 fullstack, 5 visual.
+- 28 unit tests build Form 4 XML by hand, so nothing leaves the machine.
+- One visual test failed during the full sequential pass and passed alone on
+  a quiet machine — contention, per the rule in CLAUDE.md, and re-checked
+  rather than assumed either way.

@@ -6,6 +6,7 @@ import { FinancialsTab } from '@/components/FinancialsTab';
 import { KeyLevelsPanel } from '@/components/KeyLevelsPanel';
 import { MainTabs } from '@/components/MainTabs';
 import { MetricsTab } from '@/components/MetricsTab';
+import { OwnershipTab } from '@/components/OwnershipTab';
 import { ScannerPanel } from '@/components/ScannerPanel';
 import { ScannerTabs } from '@/components/ScannerTabs';
 import { SwingPanel } from '@/components/SwingPanel';
@@ -120,6 +121,16 @@ export default function App() {
               <ChartLegend onToggle={toggleIndicator} />
               <ChartControls />
             </div>
+            {mainTab === 'ownership' && (
+              <div
+                id="main-panel-ownership"
+                role="tabpanel"
+                data-testid="main-panel-ownership"
+                className="absolute inset-0"
+              >
+                <OwnershipTab />
+              </div>
+            )}
             {mainTab === 'metrics' && (
               <div
                 id="main-panel-metrics"

@@ -221,6 +221,26 @@ class EdgarProvider:
         # brand-new listing — and is cached as a miss rather than retried.
         self._facts[symbol] = (now_epoch(), payload)
 
+    async def fetch_document(self, url: str) -> str | None:
+        """One filing document, as text.
+
+        Separate from `_get_json` because the ownership forms are XML, and
+        because this is the one read that is *per filing* rather than per
+        company — it goes through the same budget so a company with a long
+        Form 4 trail cannot spend the whole allowance at once.
+        """
+        try:
+            if self._budget is not None:
+                await self._budget.acquire()
+            response = await self._ensure_client().get(url)
+            if response.status_code != 200:
+                logger.debug("EDGAR %s for %s", response.status_code, url)
+                return None
+            return response.text
+        except Exception:
+            logger.debug("EDGAR document request failed: %s", url, exc_info=True)
+            return None
+
     async def _get_json(self, url: str) -> dict | None:
         try:
             if self._budget is not None:

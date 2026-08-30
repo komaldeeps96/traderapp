@@ -643,6 +643,52 @@ export interface SwingRowsResponse {
   note: string | null;
 }
 
+export type InsiderIntent = 'buy' | 'sell' | 'compensation' | 'other';
+
+export interface InsiderTrade {
+  filed: string;
+  traded: string;
+  owner: string;
+  role: string;
+  /** The Form 4 Table 1 code: P, S, A, M, F… */
+  code: string;
+  intent: InsiderIntent;
+  note: string;
+  shares: number | null;
+  price: number | null;
+  shares_after: number | null;
+  acquired: boolean;
+  /** Sold under a 10b5-1 plan adopted months earlier. */
+  planned: boolean;
+  value: number | null;
+  url: string;
+}
+
+export interface InsiderTotal {
+  count: number;
+  shares: number;
+  value: number;
+  people: number;
+}
+
+export interface OwnershipSummary {
+  window_days: number;
+  buys: InsiderTotal;
+  discretionary_sells: InsiderTotal;
+  planned_sells: InsiderTotal;
+  compensation: InsiderTotal;
+  net_value: number;
+  verdict: string;
+}
+
+export interface OwnershipResponse {
+  symbol: string;
+  available: boolean;
+  note: string | null;
+  summary: OwnershipSummary | null;
+  trades: InsiderTrade[];
+}
+
 export interface ScannerTiersResponse {
   scan_codes: Array<{ code: string; label: string }>;
   tiers: Array<{ id: ScannerTierId; label: string }>;

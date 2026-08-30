@@ -17,13 +17,16 @@ import re
 
 from fastapi import APIRouter, HTTPException
 
+from ..core.clock import now_epoch
 from ..domain.news import to_paragraphs
 from ..domain.protocol import SYMBOL_PATTERN
 from ..domain.scanner import SCAN_CODES, SCANNER_TIERS
+from ..domain.sessions import ny_date
 from ..domain.timeframes import Timeframe
 from ..services.container import AppContainer, get_container
 from ..services.financials import build_statements
 from ..services.metrics import build_metrics
+from ..services.ownership import summarise
 from ..services.scanner import UNAVAILABLE_NOTE
 from ..services.swing import SCREENS, SCREENS_BY_ID
 
@@ -241,6 +244,38 @@ async def filings(symbol: str) -> dict:
         "available": True,
         "note": container.edgar.note(),
         "filings": [row.to_dict() for row in container.edgar.peek_filings(resolved)],
+    }
+
+
+@router.get("/ownership/{symbol}")
+async def ownership(symbol: str) -> dict:
+    """What insiders have done, with the payroll set aside.
+
+    Priced per *filing* rather than per company — the numbers live inside
+    each Form 4 — so it is capped, cached, and never warmed at subscribe
+    time. It runs when the tab is opened and not before.
+    """
+    container = _container()
+    resolved = _symbol(symbol)
+
+    if container.edgar is None:
+        return {
+            "symbol": resolved,
+            "available": False,
+            "note": None,
+            "summary": None,
+            "trades": [],
+        }
+
+    await container.edgar.prefetch(resolved)
+    filings = container.edgar.peek_filings(resolved)
+    trades = await container.ownership.trades(resolved, filings)
+    return {
+        "symbol": resolved,
+        "available": True,
+        "note": container.edgar.note(),
+        "summary": summarise(trades, ny_date(now_epoch())),
+        "trades": [trade.to_dict() for trade in trades],
     }
 
 

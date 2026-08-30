@@ -1030,3 +1030,51 @@ export function makeSwingRows(screenId = 'trend', overrides: Partial<Record<stri
     ...overrides,
   };
 }
+
+/**
+ * A Form 4 trail with one of each thing that matters.
+ *
+ * A purchase, a decided sale, a planned sale and two lines of payroll — the
+ * separation between them is the whole point of the panel.
+ */
+export function makeOwnership(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
+  const trade = (extra: Record<string, unknown>) => ({
+    filed: '2026-08-27',
+    traded: '2026-08-25',
+    owner: 'Doe Jane',
+    role: 'CFO',
+    code: 'S',
+    intent: 'sell',
+    note: 'open-market sale',
+    shares: 1000,
+    price: 10,
+    shares_after: 5000,
+    acquired: false,
+    planned: false,
+    value: 10_000,
+    url: 'https://www.sec.gov/x/form4.xml',
+    ...extra,
+  });
+  return {
+    symbol,
+    available: true,
+    note: null,
+    summary: {
+      window_days: 90,
+      buys: { count: 1, shares: 500, value: 25_000, people: 1 },
+      discretionary_sells: { count: 1, shares: 1000, value: 10_000, people: 1 },
+      planned_sells: { count: 1, shares: 1439, value: 447_457, people: 1 },
+      compensation: { count: 2, shares: 46_000, value: 4_850_000, people: 1 },
+      net_value: 15_000,
+      verdict: 'Insiders on both sides of the market.',
+    },
+    trades: [
+      trade({ code: 'P', intent: 'buy', note: 'open-market purchase', shares: 500, price: 50, value: 25_000, acquired: true }),
+      trade({}),
+      trade({ code: 'S', planned: true, shares: 1439, price: 310.95, value: 447_457 }),
+      trade({ code: 'M', intent: 'compensation', note: 'option exercise', price: null, value: null }),
+      trade({ code: 'F', intent: 'compensation', note: 'shares withheld for tax' }),
+    ],
+    ...overrides,
+  };
+}

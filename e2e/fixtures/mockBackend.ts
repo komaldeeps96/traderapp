@@ -23,6 +23,7 @@ import {
   makeFinancials,
   makeFundamentals,
   makeMetrics,
+  makeOwnership,
   makeSwingRows,
   makeSwingScreens,
   makeInfo,
@@ -150,6 +151,7 @@ export async function installMockBackend(
       body: JSON.stringify(catalogue ? makeSwingScreens() : makeSwingRows()),
     });
   });
+  await json(page, '**/api/ownership/**', makeOwnership());
   await json(page, '**/api/filings/**', makeFilings());
   // Order matters: the article route is registered first so the broader news
   // pattern does not swallow it.

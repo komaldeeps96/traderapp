@@ -7,6 +7,7 @@ import type {
   FinancialsResponse,
   FundamentalsResponse,
   MetricsResponse,
+  OwnershipResponse,
   NewsResponse,
   IndicatorSpec,
   ScannerTiersResponse,
@@ -74,6 +75,9 @@ export const api = {
     getJson<SwingScreensResponse>('/api/swing/screens', signal),
   swingRows: (screenId: string, signal?: AbortSignal) =>
     getJson<SwingRowsResponse>(`/api/swing/${encodeURIComponent(screenId)}`, signal),
+  // Priced per filing, so it is fetched when the tab opens and never warmed.
+  ownership: (symbol: string, signal?: AbortSignal) =>
+    getJson<OwnershipResponse>(`/api/ownership/${encodeURIComponent(symbol)}`, signal),
   filings: (symbol: string, signal?: AbortSignal) =>
     getJson<FilingsResponse>(`/api/filings/${encodeURIComponent(symbol)}`, signal),
   news: (symbol: string, signal?: AbortSignal) =>
