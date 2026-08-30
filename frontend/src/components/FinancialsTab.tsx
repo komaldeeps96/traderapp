@@ -90,6 +90,15 @@ export function FinancialsTab() {
             </button>
           ))}
         </div>
+        {data?.currency && data.periods.length > 0 && (
+          <span
+            className="font-mono text-[10px] text-ink-3"
+            data-testid="financials-currency"
+            title="The currency this company files its statements in"
+          >
+            in {data.currency}
+          </span>
+        )}
         {data?.note && (
           <span className="truncate font-mono text-[10px] text-down" title={data.note}>
             {data.note}
@@ -165,7 +174,7 @@ export function FinancialsTab() {
                                 : 'text-ink-2'
                         }`}
                       >
-                        {formatStatementValue(value, line.unit)}
+                        {formatStatementValue(value, line.unit, data?.symbol_prefix)}
                       </td>
                     ))}
                   </tr>

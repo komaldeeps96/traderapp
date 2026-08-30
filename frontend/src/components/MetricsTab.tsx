@@ -73,6 +73,15 @@ export function MetricsTab() {
             </button>
           ))}
         </div>
+        {data?.currency && data.groups.length > 0 && (
+          <span
+            className="font-mono text-[10px] text-ink-3"
+            data-testid="metrics-currency"
+            title="The currency this company files its statements in"
+          >
+            in {data.currency}
+          </span>
+        )}
         {loading && <span className="font-mono text-[10px] text-ink-3">loading…</span>}
       </header>
 
@@ -83,7 +92,9 @@ export function MetricsTab() {
           aria-label="Valuation"
         >
           <Figure label="MCAP" value={formatMoney(valuation.market_cap)} />
-          <Figure label="EV" value={formatMoney(valuation.enterprise_value)} />
+          {valuation.note === null && (
+            <Figure label="EV" value={formatMoney(valuation.enterprise_value)} />
+          )}
           {valuation.multiples.map((multiple) => (
             <Figure
               key={multiple.key}
@@ -92,8 +103,16 @@ export function MetricsTab() {
               testId={`multiple-${multiple.key}`}
             />
           ))}
+          {/* Why the multiples are blank, when they are. A row of dashes
+              with no reason reads as missing data rather than a refusal. */}
           <span className="ml-auto font-mono text-[9px] uppercase tracking-wide text-ink-3">
-            on {valuation.basis}
+            {valuation.note ? (
+              <span className="normal-case text-down" data-testid="valuation-note">
+                {valuation.note}
+              </span>
+            ) : (
+              `on ${valuation.basis}`
+            )}
           </span>
         </section>
       )}
@@ -154,7 +173,7 @@ export function MetricsTab() {
                           value == null ? 'text-ink-3' : value < 0 ? 'text-down' : 'text-ink'
                         }`}
                       >
-                        {formatMetricValue(value, row.unit)}
+                        {formatMetricValue(value, row.unit, data?.symbol_prefix)}
                       </td>
                     ))}
                   </tr>

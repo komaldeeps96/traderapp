@@ -169,6 +169,7 @@ def build_metrics(
 ) -> dict:
     """Ratios per period, plus valuation against the current market cap."""
     statements = build_statements(facts, annual=annual, limit=limit)
+    currency = statements.get("currency", "USD")
     values: dict[str, list[float | None]] = {
         line["key"]: line["values"]
         for statement in statements["statements"]
@@ -199,19 +200,33 @@ def build_metrics(
             for label, specs in METRIC_GROUPS
             if any(any(value is not None for value in rows.get(s.key, [])) for s in specs)
         ],
-        "valuation": _valuation(values, annual=annual, market_cap=market_cap),
+        "currency": currency,
+        "symbol_prefix": statements.get("symbol_prefix", "$"),
+        "valuation": _valuation(values, annual=annual, market_cap=market_cap, currency=currency),
     }
 
 
 def _valuation(
-    values: dict[str, list[float | None]], *, annual: bool, market_cap: float | None
+    values: dict[str, list[float | None]],
+    *,
+    annual: bool,
+    market_cap: float | None,
+    currency: str = "USD",
 ) -> dict:
     """Multiples against what the market is asking today.
 
     Market cap comes from the quote side rather than the filings: a book
     value is as of a quarter end, and dividing today's price by a figure
     three months stale is the whole point of the exercise.
+
+    That is also why a foreign private issuer gets no multiples. Market cap
+    for a US listing is quoted in USD while the statements behind it are in
+    the filer's own currency, so every multiple would be wrong by the
+    exchange rate — and wrong quietly, since a P/E of 12 where the truth is
+    17 looks like nothing at all. Converting needs an FX rate the terminal
+    does not have, so it declines and says why.
     """
+    mismatched = currency != "USD" and market_cap is not None
     revenue = _trailing(values, "revenue", annual)
     earnings = _trailing(values, "net_income", annual)
     cash_flow = _trailing(values, "operating_cash_flow", annual)
@@ -223,10 +238,32 @@ def _valuation(
     debt = (values.get("long_term_debt") or [None])[0]
     enterprise = None if market_cap is None else market_cap + (debt or 0.0) - (cash or 0.0)
 
+    if mismatched:
+        return {
+            "market_cap": market_cap,
+            "enterprise_value": None,
+            "basis": "annual" if annual else "trailing twelve months",
+            "note": (
+                f"Statements are in {currency} and the market cap is in USD; "
+                "multiples would be wrong by the exchange rate."
+            ),
+            "multiples": [
+                {"key": key, "label": label, "value": None}
+                for key, label in (
+                    ("pe", "P/E"),
+                    ("ps", "P/S"),
+                    ("pb", "P/B"),
+                    ("p_fcf", "P/FCF"),
+                    ("ev_sales", "EV/Sales"),
+                )
+            ],
+        }
+
     return {
         "market_cap": market_cap,
         "enterprise_value": enterprise,
         "basis": "annual" if annual else "trailing twelve months",
+        "note": None,
         "multiples": [
             {
                 "key": "pe",

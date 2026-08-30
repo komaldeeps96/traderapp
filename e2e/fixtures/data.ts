@@ -869,6 +869,8 @@ export function makeFinancials(
     symbol,
     available: true,
     note: null,
+    currency: 'USD',
+    symbol_prefix: '$',
     period: 'annual',
     periods: [
       { key: 'FY2025', end: '2025-09-27', fiscal_year: 2025 },
@@ -930,6 +932,8 @@ export function makeMetrics(symbol = 'AAPL', overrides: Partial<Record<string, u
   return {
     symbol,
     available: true,
+    currency: 'USD',
+    symbol_prefix: '$',
     period: 'annual',
     periods: [
       { key: 'FY2025', end: '2025-09-27', fiscal_year: 2025 },
@@ -961,6 +965,7 @@ export function makeMetrics(symbol = 'AAPL', overrides: Partial<Record<string, u
       market_cap: 4_665_759_424_245,
       enterprise_value: 4_708_149_424_245,
       basis: 'annual',
+      note: null,
       multiples: [
         { key: 'pe', label: 'P/E', value: 41.65 },
         { key: 'ps', label: 'P/S', value: 11.21 },

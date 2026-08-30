@@ -561,6 +561,9 @@ export interface FinancialsResponse {
   symbol: string;
   available: boolean;
   note: string | null;
+  /** The currency the filer states its statements in — not always USD. */
+  currency: string;
+  symbol_prefix: string;
   period: FinancialPeriodKind;
   periods: FinancialPeriod[];
   statements: FinancialStatement[];
@@ -590,12 +593,16 @@ export interface Valuation {
   market_cap: number | null;
   enterprise_value: number | null;
   basis: string;
+  /** Why there are no multiples, when there are none. */
+  note: string | null;
   multiples: ValuationMultiple[];
 }
 
 export interface MetricsResponse {
   symbol: string;
   available: boolean;
+  currency: string;
+  symbol_prefix: string;
   period: FinancialPeriodKind;
   periods: FinancialPeriod[];
   groups: MetricGroup[];

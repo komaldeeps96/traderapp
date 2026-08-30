@@ -164,3 +164,54 @@ class TestEmptiness:
         built = build_metrics(payload, annual=True, market_cap=100.0)
         assert built["groups"] == []
         assert built["periods"] == []
+
+
+class TestCrossCurrency:
+    """A foreign private issuer reports in its own currency.
+
+    Market cap for a US listing is quoted in USD, so every multiple built
+    from both would be wrong by the exchange rate — and wrong *quietly*: a
+    P/E of 12 where the truth is 17 looks like nothing at all.
+    """
+
+    def _canadian(self) -> dict:
+        rows = [fact("2025-01-01", "2025-12-31", 946.0, filed="2026-03-12", form="40-F")]
+        profit = [fact("2025-01-01", "2025-12-31", 100.0, filed="2026-03-12", form="40-F")]
+        gross = [fact("2025-01-01", "2025-12-31", 258.0, filed="2026-03-12", form="40-F")]
+        return {
+            "facts": {
+                "ifrs-full": {
+                    "Revenue": {"units": {"CAD": rows}},
+                    "ProfitLoss": {"units": {"CAD": profit}},
+                    "GrossProfit": {"units": {"CAD": gross}},
+                }
+            }
+        }
+
+    def test_multiples_are_refused_rather_than_computed_wrong(self):
+        built = build_metrics(self._canadian(), annual=True, market_cap=1000.0)
+        assert all(entry["value"] is None for entry in built["valuation"]["multiples"])
+
+    def test_the_refusal_says_why(self):
+        built = build_metrics(self._canadian(), annual=True, market_cap=1000.0)
+        note = built["valuation"]["note"]
+        assert "CAD" in note and "exchange rate" in note
+
+    def test_currency_neutral_ratios_survive(self):
+        """A margin is one currency over itself, so it is still a fact."""
+        built = build_metrics(self._canadian(), annual=True, market_cap=1000.0)
+        margin = metric(built, "gross_margin")
+        assert margin["values"][0] == pytest.approx(258.0 / 946.0)
+
+    def test_the_currency_travels_with_the_read(self):
+        assert build_metrics(self._canadian(), annual=True, market_cap=1.0)["currency"] == "CAD"
+
+    def test_a_dollar_filer_still_gets_multiples(self):
+        data = facts(
+            annual(REVENUE, [(2025, 400.0)]),
+            annual("NetIncomeLoss", [(2025, 100.0)]),
+        )
+        built = build_metrics(data, annual=True, market_cap=2000.0)
+        by_key = {entry["key"]: entry["value"] for entry in built["valuation"]["multiples"]}
+        assert by_key["pe"] == 20.0
+        assert built["valuation"]["note"] is None

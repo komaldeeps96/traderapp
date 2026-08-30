@@ -39,9 +39,81 @@ _MONTH_ANCHOR = timedelta(days=15)
 
 Chain = tuple[tuple[str, str], ...]
 
+# What a line is measured in. The literal unit key depends on the company:
+# a Canadian issuer reports money in CAD and earnings per share in
+# "CAD/shares", so the kind is declared here and resolved per filer.
+MONEY = "money"
+PER_SHARE = "per_share"
+SHARES = "shares"
+
+# Currencies whose symbol is a dollar sign. The statement header states the
+# ISO code, so this only decides what the cells are prefixed with.
+_DOLLARS = frozenset({"USD", "CAD", "AUD", "NZD", "HKD", "SGD"})
+
+# Concepts probed to find out what a company reports in. Cheap and reliable:
+# every filer states its total assets.
+_CURRENCY_PROBES: Chain = (
+    ("us-gaap", "Assets"),
+    ("ifrs-full", "Assets"),
+    ("us-gaap", "Revenues"),
+    ("ifrs-full", "Revenue"),
+)
+
 
 def _us(*concepts: str) -> Chain:
     return tuple(("us-gaap", concept) for concept in concepts)
+
+
+def _ifrs(*concepts: str) -> Chain:
+    """The IFRS equivalents, for foreign private issuers.
+
+    A company filing a 40-F or 20-F tags under `ifrs-full`, not `us-gaap`,
+    and its facts sit in the same free `companyfacts` payload the terminal
+    already fetches. Appending them to a chain rather than branching means a
+    filer that *switched* taxonomies — Canopy Growth carries both — gets one
+    continuous series, exactly as the ASC 606 break is handled.
+    """
+    return tuple(("ifrs-full", concept) for concept in concepts)
+
+
+def reporting_currency(facts: dict | None) -> str:
+    """The currency a company states its statements in.
+
+    US GAAP filers are USD almost without exception; a foreign private
+    issuer is whatever it reports in, commonly CAD. Read rather than assumed,
+    because dividing a USD market cap by CAD earnings produces a P/E that is
+    wrong by the exchange rate and looks entirely reasonable.
+    """
+    tally: dict[str, int] = {}
+    for taxonomy, concept in _CURRENCY_PROBES:
+        if not isinstance(facts, dict):
+            break
+        concepts = (facts.get("facts") or {}).get(taxonomy) or {}
+        units = (concepts.get(concept) or {}).get("units") or {}
+        for unit, entries in units.items():
+            if len(unit) == 3 and unit.isalpha() and unit.isupper():
+                tally[unit] = tally.get(unit, 0) + len(entries or ())
+    if not tally:
+        return "USD"
+    # USD wins a tie: a filer reporting in both is reporting to US investors.
+    return max(tally, key=lambda unit: (tally[unit], unit == "USD"))
+
+
+def currency_symbol(currency: str) -> str:
+    if currency in _DOLLARS:
+        return "$"
+    return {"EUR": "\u20ac", "GBP": "\u00a3", "JPY": "\u00a5", "CHF": "CHF ", "ILS": "\u20aa"}.get(
+        currency, f"{currency} "
+    )
+
+
+def unit_key(kind: str, currency: str) -> str:
+    """The `units` key in companyfacts for one kind of line."""
+    if kind == PER_SHARE:
+        return f"{currency}/shares"
+    if kind == SHARES:
+        return "shares"
+    return currency
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +121,9 @@ class LineSpec:
     key: str
     label: str
     concepts: Chain
-    unit: str = "USD"
+    # One of MONEY / PER_SHARE / SHARES; the literal unit key is resolved
+    # against the filer's reporting currency.
+    unit: str = MONEY
     # A balance is reported at an instant; everything else spans a period.
     instant: bool = False
     # Whether the quarters of a year sum to the year. True of every flow —
@@ -70,15 +144,21 @@ INCOME_STATEMENT: tuple[LineSpec, ...] = (
             "Revenues",
             "SalesRevenueNet",
             "SalesRevenueGoodsNet",
-        ),
+        )
+        + _ifrs("Revenue", "RevenueFromContractsWithCustomers"),
     ),
     LineSpec(
         "cost_of_revenue",
         "Cost of revenue",
-        _us("CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold"),
+        _us("CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold")
+        + _ifrs("CostOfSales"),
     ),
-    LineSpec("gross_profit", "Gross profit", _us("GrossProfit")),
-    LineSpec("research", "R&D", _us("ResearchAndDevelopmentExpense")),
+    LineSpec("gross_profit", "Gross profit", _us("GrossProfit") + _ifrs("GrossProfit")),
+    LineSpec(
+        "research",
+        "R&D",
+        _us("ResearchAndDevelopmentExpense") + _ifrs("ResearchAndDevelopmentExpense"),
+    ),
     LineSpec(
         "selling_admin",
         "SG&A",
@@ -90,11 +170,16 @@ INCOME_STATEMENT: tuple[LineSpec, ...] = (
     LineSpec(
         "operating_expenses", "Operating expenses", _us("OperatingExpenses", "CostsAndExpenses")
     ),
-    LineSpec("operating_income", "Operating income", _us("OperatingIncomeLoss")),
+    LineSpec(
+        "operating_income",
+        "Operating income",
+        _us("OperatingIncomeLoss") + _ifrs("ProfitLossFromOperatingActivities"),
+    ),
     LineSpec(
         "interest_expense",
         "Interest expense",
-        _us("InterestExpense", "InterestExpenseNonoperating"),
+        _us("InterestExpense", "InterestExpenseNonoperating")
+        + _ifrs("InterestExpense", "FinanceCosts"),
     ),
     LineSpec(
         "pretax_income",
@@ -102,36 +187,50 @@ INCOME_STATEMENT: tuple[LineSpec, ...] = (
         _us(
             "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
             "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
-        ),
+        )
+        + _ifrs("ProfitLossBeforeTax"),
     ),
-    LineSpec("income_tax", "Income tax", _us("IncomeTaxExpenseBenefit")),
-    LineSpec("net_income", "Net income", _us("NetIncomeLoss", "ProfitLoss")),
+    LineSpec(
+        "income_tax",
+        "Income tax",
+        _us("IncomeTaxExpenseBenefit") + _ifrs("IncomeTaxExpenseContinuingOperations"),
+    ),
+    LineSpec(
+        "net_income",
+        "Net income",
+        _us("NetIncomeLoss", "ProfitLoss")
+        + _ifrs("ProfitLoss", "ProfitLossAttributableToOwnersOfParent"),
+    ),
     LineSpec(
         "eps_basic",
         "EPS, basic",
-        _us("EarningsPerShareBasic"),
-        unit="USD/shares",
+        _us("EarningsPerShareBasic") + _ifrs("BasicEarningsLossPerShare"),
+        unit=PER_SHARE,
         additive=False,
     ),
     LineSpec(
         "eps_diluted",
         "EPS, diluted",
-        _us("EarningsPerShareDiluted"),
-        unit="USD/shares",
+        _us("EarningsPerShareDiluted") + _ifrs("DilutedEarningsLossPerShare"),
+        unit=PER_SHARE,
         additive=False,
     ),
     LineSpec(
         "shares_diluted",
         "Diluted shares",
-        _us("WeightedAverageNumberOfDilutedSharesOutstanding"),
-        unit="shares",
+        _us("WeightedAverageNumberOfDilutedSharesOutstanding")
+        + _ifrs("WeightedAverageNumberOfDilutedSharesOutstanding"),
+        unit=SHARES,
         additive=False,
     ),
 )
 
 BALANCE_SHEET: tuple[LineSpec, ...] = (
     LineSpec(
-        "cash", "Cash and equivalents", _us("CashAndCashEquivalentsAtCarryingValue"), instant=True
+        "cash",
+        "Cash and equivalents",
+        _us("CashAndCashEquivalentsAtCarryingValue") + _ifrs("CashAndCashEquivalents"),
+        instant=True,
     ),
     LineSpec(
         "short_term_investments",
@@ -141,28 +240,51 @@ BALANCE_SHEET: tuple[LineSpec, ...] = (
             "MarketableSecuritiesCurrent",
             "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
             "OtherShortTermInvestments",
-        ),
+        )
+        + _ifrs("OtherCurrentFinancialAssets"),
         instant=True,
     ),
-    LineSpec("receivables", "Receivables", _us("AccountsReceivableNetCurrent"), instant=True),
-    LineSpec("inventory", "Inventory", _us("InventoryNet"), instant=True),
-    LineSpec("current_assets", "Current assets", _us("AssetsCurrent"), instant=True),
-    LineSpec("total_assets", "Total assets", _us("Assets"), instant=True),
-    LineSpec("current_liabilities", "Current liabilities", _us("LiabilitiesCurrent"), instant=True),
+    LineSpec(
+        "receivables",
+        "Receivables",
+        _us("AccountsReceivableNetCurrent") + _ifrs("TradeAndOtherCurrentReceivables"),
+        instant=True,
+    ),
+    LineSpec("inventory", "Inventory", _us("InventoryNet") + _ifrs("Inventories"), instant=True),
+    LineSpec(
+        "current_assets",
+        "Current assets",
+        _us("AssetsCurrent") + _ifrs("CurrentAssets"),
+        instant=True,
+    ),
+    LineSpec("total_assets", "Total assets", _us("Assets") + _ifrs("Assets"), instant=True),
+    LineSpec(
+        "current_liabilities",
+        "Current liabilities",
+        _us("LiabilitiesCurrent") + _ifrs("CurrentLiabilities"),
+        instant=True,
+    ),
     LineSpec(
         "long_term_debt",
         "Long-term debt",
-        _us("LongTermDebtNoncurrent", "LongTermDebt"),
+        _us("LongTermDebtNoncurrent", "LongTermDebt")
+        + _ifrs("NoncurrentPortionOfNoncurrentBorrowings", "Borrowings"),
         instant=True,
     ),
-    LineSpec("total_liabilities", "Total liabilities", _us("Liabilities"), instant=True),
+    LineSpec(
+        "total_liabilities",
+        "Total liabilities",
+        _us("Liabilities") + _ifrs("Liabilities"),
+        instant=True,
+    ),
     LineSpec(
         "equity",
         "Shareholders' equity",
         _us(
             "StockholdersEquity",
             "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
-        ),
+        )
+        + _ifrs("Equity", "EquityAttributableToOwnersOfParent"),
         instant=True,
     ),
 )
@@ -174,17 +296,38 @@ CASH_FLOW: tuple[LineSpec, ...] = (
         _us(
             "NetCashProvidedByUsedInOperatingActivities",
             "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
-        ),
+        )
+        + _ifrs("CashFlowsFromUsedInOperatingActivities"),
     ),
-    LineSpec("capex", "Capital expenditure", _us("PaymentsToAcquirePropertyPlantAndEquipment")),
-    LineSpec("investing", "Investing cash flow", _us("NetCashProvidedByUsedInInvestingActivities")),
-    LineSpec("financing", "Financing cash flow", _us("NetCashProvidedByUsedInFinancingActivities")),
+    LineSpec(
+        "capex",
+        "Capital expenditure",
+        _us("PaymentsToAcquirePropertyPlantAndEquipment")
+        + _ifrs("PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"),
+    ),
+    LineSpec(
+        "investing",
+        "Investing cash flow",
+        _us("NetCashProvidedByUsedInInvestingActivities")
+        + _ifrs("CashFlowsFromUsedInInvestingActivities"),
+    ),
+    LineSpec(
+        "financing",
+        "Financing cash flow",
+        _us("NetCashProvidedByUsedInFinancingActivities")
+        + _ifrs("CashFlowsFromUsedInFinancingActivities"),
+    ),
     LineSpec(
         "dividends",
         "Dividends paid",
-        _us("PaymentsOfDividendsCommonStock", "PaymentsOfDividends"),
+        _us("PaymentsOfDividendsCommonStock", "PaymentsOfDividends")
+        + _ifrs("DividendsPaidClassifiedAsFinancingActivities"),
     ),
-    LineSpec("buybacks", "Share repurchases", _us("PaymentsForRepurchaseOfCommonStock")),
+    LineSpec(
+        "buybacks",
+        "Share repurchases",
+        _us("PaymentsForRepurchaseOfCommonStock") + _ifrs("PaymentsToAcquireOrRedeemEntitysShares"),
+    ),
 )
 
 STATEMENTS: tuple[tuple[str, str, tuple[LineSpec, ...]], ...] = (
@@ -358,10 +501,11 @@ def _derive_quarters(facts: list[Fact]) -> dict[date, Fact]:
     return out
 
 
-def _year_end_month(facts: dict | None) -> int | None:
+def _year_end_month(facts: dict | None, currency: str) -> int | None:
     """The month the fiscal year closes, read off the annual filings."""
     for taxonomy, concept in INCOME_STATEMENT[0].concepts + BALANCE_SHEET[5].concepts:
-        annual = _pick(_facts_for(facts, taxonomy, concept, "USD"), instant=False, annual=True)
+        rows = _facts_for(facts, taxonomy, concept, unit_key(MONEY, currency))
+        annual = _pick(rows, instant=False, annual=True)
         if annual:
             return _anchor_month(max(annual))
     return None
@@ -374,7 +518,8 @@ def build_statements(facts: dict | None, annual: bool, limit: int = 8) -> dict:
     concept: a company that changed concepts mid-history reports each half
     under a different name, and picking one name returns half a series.
     """
-    year_end_month = None if annual else _year_end_month(facts)
+    currency = reporting_currency(facts)
+    year_end_month = None if annual else _year_end_month(facts, currency)
 
     lines: list[dict] = []
     ends: set[date] = set()
@@ -383,7 +528,7 @@ def build_statements(facts: dict | None, annual: bool, limit: int = 8) -> dict:
             merged: dict[date, Fact] = {}
             used: list[str] = []
             for taxonomy, concept in spec.concepts:
-                reported = _facts_for(facts, taxonomy, concept, spec.unit)
+                reported = _facts_for(facts, taxonomy, concept, unit_key(spec.unit, currency))
                 found = _pick(reported, instant=spec.instant, annual=annual)
                 if not annual and not spec.instant and spec.additive:
                     # What the company stated wins; the arithmetic only fills
@@ -412,7 +557,7 @@ def build_statements(facts: dict | None, annual: bool, limit: int = 8) -> dict:
                     "statement_label": statement_label,
                     "key": spec.key,
                     "label": spec.label,
-                    "unit": spec.unit,
+                    "unit": unit_key(spec.unit, currency),
                     "concepts": used,
                     "_values": merged,
                 }
@@ -422,6 +567,11 @@ def build_statements(facts: dict | None, annual: bool, limit: int = 8) -> dict:
     keys = [_period_key(end, annual, year_end_month) for end in periods]
 
     return {
+        # Stated rather than assumed: a foreign private issuer reports in its
+        # own currency, and a figure with no currency beside it is a number
+        # that cannot be compared to anything.
+        "currency": currency,
+        "symbol_prefix": currency_symbol(currency),
         "periods": [
             {
                 "key": key,

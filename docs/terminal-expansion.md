@@ -29,7 +29,8 @@ Standing decisions from the brief:
 | 7 | Ownership — insider Form 4 trail | **done** |
 | 8 | Peers — ranked against its own industry | **done** |
 | 9 | Earnings proximity, where it is always visible | **done** |
-| 10 | Segments (bulk data sets), FINRA short interest | |
+| 10 | Foreign private issuers — IFRS filers | **done** |
+| 11 | Segments (bulk data sets), FINRA short interest | |
 
 ## Phase 1 — every indicator on every timeframe
 
@@ -541,3 +542,60 @@ the arithmetic version.
 - The e2e counts from the fixture's own frozen clock rather than wall time —
   the fixtures sit in March 2024 so runs stay byte-identical, and the first
   version of the test measured a gap of two and a half years.
+
+## Phase 10 — foreign private issuers
+
+The SEC tabs were empty for SNDL, and I said closing that gap needed a
+different data source. **That was wrong.** The data was already in hand: the
+same free `companyfacts` endpoint the terminal fetches for every symbol
+returns 200 for SNDL with 240 concepts. The tabs were empty because
+`financials.py` only looked in the `us-gaap` taxonomy.
+
+A company filing a 40-F or 20-F tags under **`ifrs-full`**. Every line the
+terminal draws has an IFRS equivalent, so each `LineSpec` chain simply gained
+its counterparts. No branching: a filer that *switched* taxonomies — Canopy
+Growth carries both — gets one continuous series from the same period-by-period
+merge that already handles the ASC 606 break.
+
+### The currency was the real work
+
+These filers do not report in dollars, and the unit key is the currency:
+`CAD`, not `USD`, and `CAD/shares` for earnings per share. Two consequences:
+
+- **The reporting currency is read, not assumed**, and stated on the table.
+  A figure with no currency beside it cannot be compared to anything.
+- **Valuation multiples are refused across a currency boundary.** Market cap
+  for a US listing is quoted in USD while the statements are in the filer's
+  own currency, so every multiple would be wrong by the exchange rate — and
+  wrong *quietly*, since a P/E of 12 where the truth is 17 looks like
+  nothing. Converting needs an FX rate the terminal does not have, so it
+  declines and prints why. Margins, growth and balance ratios are one
+  currency over itself and survive untouched.
+
+A frontend bug fell out of the same change: `formatStatementValue` tested for
+the literal `'USD/shares'`, so a CAD filer's EPS of −0.06 went down the money
+branch and rendered as "−$0". It now matches on shape.
+
+### What it actually opened up
+
+Not just Canadian small caps — every foreign private issuer on a US exchange:
+
+| filer | form | currency | revenue |
+|---|---|---|---|
+| SNDL | 40-F | CAD | 946M |
+| Canopy Growth | 40-F | CAD | 285M |
+| Tilray | 40-F | USD | 915M |
+| Shopify | 20-F | USD | 11,556M |
+| Novo Nordisk | 20-F | DKK | 309,064M |
+| Alibaba | 20-F | CNY | 1,023,670M |
+
+One honest limit: the **quarterly** view stays empty for these. Foreign
+private issuers file 6-K interim reports rather than 10-Qs, and those are not
+tagged the same way — the durations in `companyfacts` are twelve months only.
+
+### Verified
+
+- 1162 backend, 344 frontend, 316 chromium, 19 fullstack, 5 visual.
+- In the browser: SNDL showing eight fiscal years captioned "in CAD" with EPS
+  at −0.06, and its metrics tab dashing every multiple with the reason
+  printed beside them.

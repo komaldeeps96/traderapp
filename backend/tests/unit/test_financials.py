@@ -343,7 +343,11 @@ class TestEmptiness:
     @pytest.mark.parametrize("payload", [None, {}, {"facts": {}}, {"facts": {"us-gaap": {}}}])
     def test_nothing_reported_is_not_an_error(self, payload):
         built = build_statements(payload, annual=True)
-        assert built == {"periods": [], "statements": []}
+        assert built["periods"] == []
+        assert built["statements"] == []
+        # A filer with nothing on record is assumed to report in dollars,
+        # which is what an empty table is captioned with.
+        assert built["currency"] == "USD"
 
     def test_a_malformed_entry_is_skipped_rather_than_fatal(self):
         data = facts(
@@ -358,3 +362,146 @@ class TestEmptiness:
             )
         )
         assert line(build_statements(data, annual=True), "revenue")["values"] == [7.0]
+
+
+def ifrs(concept: str, rows: list[dict], unit: str = "CAD") -> dict:
+    """A concept under the IFRS taxonomy, in a filer's own currency."""
+    return {concept: {"units": {unit: rows}}}
+
+
+def facts_ifrs(*concept_maps: dict) -> dict:
+    merged: dict = {}
+    for entry in concept_maps:
+        merged.update(entry)
+    return {"facts": {"ifrs-full": merged}}
+
+
+class TestForeignPrivateIssuers:
+    """A 40-F or 20-F filer tags under `ifrs-full`, not `us-gaap`.
+
+    Its facts sit in the same free `companyfacts` payload the terminal
+    already fetches for every symbol — the tabs were empty only because the
+    parser looked in one taxonomy. This is most of the Canadian small-cap
+    universe.
+    """
+
+    def test_reads_a_statement_tagged_under_ifrs(self):
+        data = facts_ifrs(
+            ifrs(
+                "Revenue",
+                [fact("2025-01-01", "2025-12-31", 946.0, filed="2026-03-12", form="40-F")],
+            ),
+            ifrs(
+                "ProfitLoss",
+                [fact("2025-01-01", "2025-12-31", -16.0, filed="2026-03-12", form="40-F")],
+            ),
+        )
+        built = build_statements(data, annual=True)
+        assert line(built, "revenue")["values"] == [946.0]
+        assert line(built, "net_income")["values"] == [-16.0]
+
+    def test_reports_the_currency_it_was_filed_in(self):
+        data = facts_ifrs(
+            ifrs("Assets", [fact(None, "2025-12-31", 1336.0, filed="2026-03-12", form="40-F")]),
+        )
+        assert build_statements(data, annual=True)["currency"] == "CAD"
+
+    def test_a_us_filer_is_still_dollars(self):
+        data = facts(usd("Assets", [fact(None, "2025-12-31", 1.0, filed="2026-02-01")]))
+        assert build_statements(data, annual=True)["currency"] == "USD"
+
+    def test_earnings_per_share_is_found_in_the_filers_currency(self):
+        """The unit key is "CAD/shares", not "USD/shares"."""
+        data = facts_ifrs(
+            ifrs("Revenue", [fact("2025-01-01", "2025-12-31", 946.0, filed="2026-03-12")]),
+            ifrs(
+                "DilutedEarningsLossPerShare",
+                [fact("2025-01-01", "2025-12-31", -0.06, filed="2026-03-12")],
+                unit="CAD/shares",
+            ),
+        )
+        built = build_statements(data, annual=True)
+        assert line(built, "eps_diluted")["values"] == [-0.06]
+        assert line(built, "eps_diluted")["unit"] == "CAD/shares"
+
+    def test_a_taxonomy_switch_makes_one_continuous_series(self):
+        """Canopy Growth carries both, having moved from IFRS to US GAAP.
+
+        Branching on taxonomy would return whichever half was checked first;
+        merging the chains period by period returns the whole history, the
+        same way the ASC 606 break is handled.
+        """
+        data = {
+            "facts": {
+                "us-gaap": usd(
+                    REVENUE, [fact("2025-01-01", "2025-12-31", 285.0, filed="2026-02-01")]
+                ),
+                "ifrs-full": ifrs(
+                    "Revenue",
+                    [fact("2022-01-01", "2022-12-31", 476.0, filed="2023-02-01")],
+                    unit="USD",
+                ),
+            }
+        }
+        built = build_statements(data, annual=True)
+        assert line(built, "revenue")["values"] == [285.0, 476.0]
+
+    def test_us_gaap_wins_where_both_report_the_same_year(self):
+        """A filer stating both is reporting to US investors in the second."""
+        data = {
+            "facts": {
+                "us-gaap": usd(
+                    REVENUE, [fact("2025-01-01", "2025-12-31", 285.0, filed="2026-02-01")]
+                ),
+                "ifrs-full": ifrs(
+                    "Revenue",
+                    [fact("2025-01-01", "2025-12-31", 999.0, filed="2026-02-01")],
+                    unit="USD",
+                ),
+            }
+        }
+        assert line(build_statements(data, annual=True), "revenue")["values"] == [285.0]
+
+
+class TestCurrencyDetection:
+    def test_dollars_win_a_tie(self):
+        """A filer stating both is reporting to US investors in the dollars."""
+        from app.services.financials import reporting_currency
+
+        data = {
+            "facts": {
+                "ifrs-full": {
+                    "Assets": {
+                        "units": {
+                            "CAD": [fact(None, "2025-12-31", 1.0, filed="2026-01-01")],
+                            "USD": [fact(None, "2025-12-31", 1.0, filed="2026-01-01")],
+                        }
+                    }
+                }
+            }
+        }
+        assert reporting_currency(data) == "USD"
+
+    def test_nothing_on_record_is_assumed_to_be_dollars(self):
+        from app.services.financials import reporting_currency
+
+        assert reporting_currency(None) == "USD"
+        assert reporting_currency({"facts": {}}) == "USD"
+
+    def test_a_unit_that_is_not_a_currency_is_ignored(self):
+        """`shares` and `USD/shares` sit in the same units map."""
+        from app.services.financials import reporting_currency
+
+        data = {
+            "facts": {
+                "ifrs-full": {
+                    "Assets": {
+                        "units": {
+                            "shares": [fact(None, "2025-12-31", 1.0, filed="2026-01-01")] * 9,
+                            "CAD": [fact(None, "2025-12-31", 1.0, filed="2026-01-01")],
+                        }
+                    }
+                }
+            }
+        }
+        assert reporting_currency(data) == "CAD"

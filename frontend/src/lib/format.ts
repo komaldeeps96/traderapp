@@ -326,12 +326,16 @@ export function formatChange(change: Change | null, referencePrice?: number | nu
 export function formatStatementValue(
   value: number | null | undefined,
   unit: string,
+  symbol = '$',
 ): string {
   if (value == null || !Number.isFinite(value)) return '—';
-  if (unit === 'USD/shares') return value.toFixed(2);
+  // Matched by shape, not by name: a foreign private issuer quotes earnings
+  // per share in 'CAD/shares', and testing for the literal 'USD/shares' sent
+  // its EPS through the money branch, where -0.06 rendered as '-$0'.
+  if (unit.endsWith('/shares')) return value.toFixed(2);
   if (unit === 'shares') return formatCompact(value, 1);
   const sign = value < 0 ? '-' : '';
-  return `${sign}$${formatCompact(Math.abs(value), 2)}`;
+  return `${sign}${symbol}${formatCompact(Math.abs(value), 2)}`;
 }
 
 /**
@@ -345,11 +349,12 @@ export function formatStatementValue(
 export function formatMetricValue(
   value: number | null | undefined,
   unit: string,
+  symbol = '$',
 ): string {
   if (value == null || !Number.isFinite(value)) return '—';
   if (unit === 'percent') return `${(value * 100).toFixed(1)}%`;
   if (unit === 'multiple') return `${value.toFixed(2)}×`;
-  if (unit === 'money') return formatStatementValue(value, 'USD');
+  if (unit === 'money') return formatStatementValue(value, 'money', symbol);
   return value.toFixed(2);
 }
 
