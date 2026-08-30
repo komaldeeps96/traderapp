@@ -252,3 +252,65 @@ class TestNews:
         ).json()
         assert body["paragraphs"] == []
         assert body["article_id"] == "DJ-N$1f36"
+
+
+class TestFinancials:
+    """`/api/financials` — the statements the main-area tab draws."""
+
+    def test_builds_a_series_from_companyfacts(self, edgar_client):
+        payload = edgar_client.get("/api/financials/CELU").json()
+        assert payload["available"] is True
+        assert payload["period"] == "annual"
+        assert [period["key"] for period in payload["periods"]] == ["FY2025", "FY2024"]
+
+    def test_carries_the_period_end_beside_the_label(self, edgar_client):
+        """The label is a convention; the end date is the fact.
+
+        Companies with the same January year-end do not agree on what to call
+        it, so the exact close always travels with it.
+        """
+        payload = edgar_client.get("/api/financials/CELU").json()
+        assert payload["periods"][0]["end"] == "2025-12-31"
+
+    def test_groups_the_lines_by_statement(self, edgar_client):
+        payload = edgar_client.get("/api/financials/CELU").json()
+        assert [statement["key"] for statement in payload["statements"]] == [
+            "income",
+            "balance",
+            "cash_flow",
+        ]
+
+    def test_a_concept_change_does_not_break_the_series(self, edgar_client):
+        """The stub changes revenue concept between the two years."""
+        payload = edgar_client.get("/api/financials/CELU").json()
+        income = next(s for s in payload["statements"] if s["key"] == "income")
+        revenue = next(line for line in income["lines"] if line["key"] == "revenue")
+        assert revenue["values"] == [26_400_000, 48_100_000]
+        assert len(revenue["concepts"]) == 2
+
+    def test_names_the_concepts_that_answered(self, edgar_client):
+        """Which tag a number came from is part of reading it."""
+        payload = edgar_client.get("/api/financials/CELU").json()
+        income = next(s for s in payload["statements"] if s["key"] == "income")
+        revenue = next(line for line in income["lines"] if line["key"] == "revenue")
+        assert "RevenueFromContractWithCustomerExcludingAssessedTax" in revenue["concepts"]
+
+    def test_serves_a_quarterly_view(self, edgar_client):
+        payload = edgar_client.get("/api/financials/CELU?period=quarterly").json()
+        assert payload["period"] == "quarterly"
+
+    def test_caps_the_number_of_periods(self, edgar_client):
+        """An unbounded limit turns the endpoint into a scrape."""
+        payload = edgar_client.get("/api/financials/CELU?limit=9999").json()
+        assert len(payload["periods"]) <= 12
+
+    def test_a_symbol_that_files_nothing_is_empty_not_broken(self, edgar_client):
+        payload = edgar_client.get("/api/financials/NOSUCH").json()
+        assert payload["periods"] == []
+        assert payload["statements"] == []
+
+    def test_says_so_when_edgar_is_switched_off(self, client):
+        """The default test client runs with EDGAR disabled."""
+        payload = client.get("/api/financials/CELU").json()
+        assert payload["available"] is False
+        assert payload["statements"] == []

@@ -22,8 +22,8 @@ Standing decisions from the brief:
 |---|-------|-------|
 | 1 | Compute every indicator on every timeframe | **done** |
 | 2 | Toggle state per timeframe, served from `state.yaml` | **done** |
-| 3 | Main tab shell, Chart as tab one | next |
-| 4 | Financials tab (EDGAR `companyfacts`) | |
+| 3 | Financials API — EDGAR `companyfacts` → statements | **done** |
+| 4 | Main tab shell, Chart as tab one, Financials tab | next |
 | 5 | Metrics and valuation, with `frames` percentiles | |
 | 6 | Swing scanner tab | |
 | 7 | Ownership — Form 4, 13D/G, 13F | |
@@ -183,3 +183,64 @@ One thing the mocked suite can no longer prove: it used to verify the toggle
 survived a reload, which worked when the browser was the store. Its session
 is a fixed fixture, so that test now asserts the *command* goes out, and the
 round trip is proved in the fullstack suite instead.
+
+## Phase 3 — statements from companyfacts
+
+`/api/financials/{symbol}?period=annual|quarterly` builds an income
+statement, balance sheet and cash flow from EDGAR's `companyfacts`.
+
+The phases were re-cut here. The tab shell was going to come first, but a
+shell with one tab in it is an empty strip; the API lands first so the shell
+ships in Phase 4 with something real inside it.
+
+### Four traps, all found by reading real filings
+
+**`fy` and `fp` name the filing, not the fact.** Apple's FY2016 revenue is
+carried by the FY2018 10-K tagged `fy: 2018`, because a 10-K restates prior
+years as comparatives. Keying on those fields files six years of history
+under one heading. A fact's period is `start`–`end` and nothing else.
+
+**A 10-Q reports the quarter and the year to date in the same list.** One
+concept carries 3-, 6-, 9- and 12-month durations together — for Apple's
+revenue, 64 quarterly facts beside 32 cumulative ones. Only the duration in
+days separates them, so periods are classified by span, not by presence of a
+`start`.
+
+**Concepts fragment mid-history.** ASC 606 stopped `Revenues` in 2018 and
+continued it under `RevenueFromContractWithCustomerExcludingAssessedTax`.
+Resolving a fallback chain to the first concept that answers returns half a
+series, so the chains are merged period by period, earlier entries winning
+where both report.
+
+**Fiscal year names are a convention, not a fact.** The year ending January
+2026 is "FY2026" to Walmart and Salesforce and "fiscal 2025" to Target and
+Gap. The filings do not settle it either: the `fy` field contradicts itself
+(Salesforce tags two different year-ends as 2025). So periods are labelled by
+the calendar year they close in, and **every period carries its exact end
+date** — the label is the convention, the end is the fact.
+
+### Two holes that had to be filled
+
+A quarterly view is half empty without them, and both fall out of the same
+arithmetic — within a fiscal year the cumulative figures share a `start`, so
+consecutive differences are the quarters:
+
+- **Q4 exists in no 10-Q.** The 10-K covers it, so the last quarter of every
+  year is blank unless derived as the year minus the nine months.
+- **Quarterly cash flow is never reported.** A 10-Q states cash flow year to
+  date, so a three-month cash-flow fact often does not exist at all.
+
+What the company stated always wins; the arithmetic only fills what no form
+carried. Checked against Apple: the four derived quarters sum to 416.2B of
+revenue and 112.0B of net income, which are exactly the annual figures.
+
+### Verified
+
+- 1062 backend tests, ruff clean. 23 unit tests build fact fixtures by hand
+  — every trap above has a test that fails without its fix — and 9
+  integration tests drive the endpoint through the offline EDGAR stub, which
+  gained an income statement and a mid-series concept change.
+- Against live SEC data: AAPL (Sep year end), WMT and CRM (Jan year end),
+  and CELU (small cap), annual and quarterly. Apple's figures match its
+  reported statements; the Jan-year-end pair label their years and quarters
+  the way the companies themselves do.

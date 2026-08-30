@@ -22,7 +22,12 @@ from ..domain.protocol import SYMBOL_PATTERN
 from ..domain.scanner import SCAN_CODES, SCANNER_TIERS
 from ..domain.timeframes import Timeframe
 from ..services.container import AppContainer, get_container
+from ..services.financials import build_statements
 from ..services.scanner import UNAVAILABLE_NOTE
+
+# Twelve years of annual statements, or three of quarterly. Past that the
+# request is a scrape rather than a screen.
+MAX_FINANCIAL_PERIODS = 12
 
 router = APIRouter(prefix="/api")
 
@@ -133,6 +138,41 @@ async def fundamentals(symbol: str) -> dict:
         "dilution": read.to_dict() if read is not None else None,
         "profile": profile.to_dict() if profile is not None else None,
         "business": business,
+    }
+
+
+@router.get("/financials/{symbol}")
+async def financials(symbol: str, period: str = "annual", limit: int = 8) -> dict:
+    """Income statement, balance sheet and cash flow, from EDGAR.
+
+    Prefetched the same way the fundamentals panel is, and for the same
+    reason: a symbol reached by typing can arrive before the subscribe-time
+    warm has finished, and an empty statement that fills a second later reads
+    as a company that files nothing.
+    """
+    container = _container()
+    resolved = _symbol(symbol)
+    annual = period != "quarterly"
+    limit = max(1, min(limit, MAX_FINANCIAL_PERIODS))
+
+    if container.edgar is None:
+        return {
+            "symbol": resolved,
+            "available": False,
+            "note": None,
+            "period": "annual" if annual else "quarterly",
+            "periods": [],
+            "statements": [],
+        }
+
+    await container.edgar.prefetch(resolved)
+    built = build_statements(container.edgar.peek_facts(resolved), annual=annual, limit=limit)
+    return {
+        "symbol": resolved,
+        "available": True,
+        "note": container.edgar.note(),
+        "period": "annual" if annual else "quarterly",
+        **built,
     }
 
 

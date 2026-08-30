@@ -103,6 +103,40 @@ _CONCEPTS = [
         [_span("2025-01-01", "2025-12-31", -13_254_000)],
     ),
     _concept("dei", "EntityPublicFloat", "USD", [_instant("2025-06-30", 28_400_000)]),
+    # Enough of an income statement and balance sheet for the financials
+    # endpoint to have something to shape. Two years so a series is visible,
+    # and the revenue concept changes name between them, which is the ASC 606
+    # break every real filer of that vintage has.
+    _concept(
+        "us-gaap",
+        "Revenues",
+        "USD",
+        [_span("2024-01-01", "2024-12-31", 48_100_000, filed="2025-03-20")],
+    ),
+    _concept(
+        "us-gaap",
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "USD",
+        [_span("2025-01-01", "2025-12-31", 26_400_000)],
+    ),
+    _concept(
+        "us-gaap",
+        "NetIncomeLoss",
+        "USD",
+        [
+            _span("2024-01-01", "2024-12-31", -32_700_000, filed="2025-03-20"),
+            _span("2025-01-01", "2025-12-31", -21_500_000),
+        ],
+    ),
+    _concept(
+        "us-gaap",
+        "Assets",
+        "USD",
+        [
+            _instant("2024-12-31", 61_300_000, filed="2025-03-20"),
+            _instant("2025-12-31", 42_800_000),
+        ],
+    ),
 ]
 
 
