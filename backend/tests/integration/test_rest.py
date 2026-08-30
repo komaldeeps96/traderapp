@@ -352,3 +352,44 @@ class TestMetrics:
         payload = client.get("/api/metrics/CELU").json()
         assert payload["available"] is False
         assert payload["groups"] == []
+
+
+class TestConcepts:
+    """`/api/concepts` — everything a filer tags, not just the statement."""
+
+    def test_finds_a_concept_by_substring(self, edgar_client):
+        payload = edgar_client.get("/api/concepts/CELU?q=cash").json()
+        assert payload["available"] is True
+        assert payload["total"] >= 1
+        assert any("Cash" in row["concept"] for row in payload["rows"])
+
+    def test_shares_the_period_axis_with_the_statements(self, edgar_client):
+        """A number found by search must line up with the statement above it.
+
+        Search results include instants filed at every quarter end, and
+        letting those set the columns produced two columns both labelled
+        FY2026 with nothing in either.
+        """
+        found = edgar_client.get("/api/concepts/CELU?q=cash").json()
+        statements = edgar_client.get("/api/financials/CELU").json()
+        assert [p["key"] for p in found["periods"]] == [
+            p["key"] for p in statements["periods"]
+        ]
+
+    def test_reports_the_unit_as_filed(self, edgar_client):
+        payload = edgar_client.get("/api/concepts/CELU?q=cash").json()
+        assert all(row["unit"] for row in payload["rows"])
+
+    def test_an_empty_query_returns_nothing_rather_than_everything(self, edgar_client):
+        """A blank box must not stream nine hundred concepts."""
+        payload = edgar_client.get("/api/concepts/CELU?q=").json()
+        assert payload["rows"] == []
+
+    def test_a_query_matching_nothing_is_empty_not_broken(self, edgar_client):
+        payload = edgar_client.get("/api/concepts/CELU?q=zzzznotaconcept").json()
+        assert payload["total"] == 0
+        assert payload["rows"] == []
+
+    def test_says_so_when_edgar_is_switched_off(self, client):
+        payload = client.get("/api/concepts/CELU?q=cash").json()
+        assert payload["available"] is False

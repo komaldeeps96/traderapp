@@ -742,6 +742,26 @@ export interface PeersResponse {
   note: string | null;
 }
 
+export interface ConceptRow {
+  key: string;
+  label: string;
+  concept: string;
+  taxonomy: string;
+  /** The unit as filed — not normalised, because the meaning is unknown. */
+  unit: string;
+  values: Array<number | null>;
+}
+
+export interface ConceptsResponse {
+  symbol: string;
+  available: boolean;
+  currency: string;
+  query: string;
+  total: number;
+  periods: FinancialPeriod[];
+  rows: ConceptRow[];
+}
+
 export interface ScannerTiersResponse {
   scan_codes: Array<{ code: string; label: string }>;
   tiers: Array<{ id: ScannerTierId; label: string }>;

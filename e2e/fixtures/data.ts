@@ -1142,3 +1142,42 @@ export function makePeers(symbol = 'AAPL', overrides: Partial<Record<string, unk
     ...overrides,
   };
 }
+
+/**
+ * A concept search result.
+ *
+ * Units are as filed and deliberately not all money — that is the point of
+ * the raw view, and the table must not dress a share count as dollars.
+ */
+export function makeConcepts(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    symbol,
+    available: true,
+    currency: 'USD',
+    query: 'lease',
+    total: 27,
+    periods: [
+      { key: 'FY2025', end: '2025-09-27', fiscal_year: 2025 },
+      { key: 'FY2024', end: '2024-09-28', fiscal_year: 2024 },
+    ],
+    rows: [
+      {
+        key: 'us-gaap:FinanceLeaseLiability:USD',
+        label: 'Finance lease liability',
+        concept: 'FinanceLeaseLiability',
+        taxonomy: 'us-gaap',
+        unit: 'USD',
+        values: [1_230_000_000, 896_000_000],
+      },
+      {
+        key: 'us-gaap:OperatingLeaseWeightedAverageRemainingLeaseTerm1:Y',
+        label: 'Operating lease weighted average remaining lease term',
+        concept: 'OperatingLeaseWeightedAverageRemainingLeaseTerm1',
+        taxonomy: 'us-gaap',
+        unit: 'Y',
+        values: [10.3, null],
+      },
+    ],
+    ...overrides,
+  };
+}

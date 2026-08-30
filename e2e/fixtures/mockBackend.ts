@@ -23,6 +23,7 @@ import {
   makeFinancials,
   makeFundamentals,
   makeMetrics,
+  makeConcepts,
   makeOwnership,
   makePeers,
   makeSwingRows,
@@ -155,6 +156,7 @@ export async function installMockBackend(
       body: JSON.stringify(catalogue ? makeSwingScreens() : makeSwingRows()),
     });
   });
+  await json(page, '**/api/concepts/**', makeConcepts());
   await json(page, '**/api/ownership/**', makeOwnership());
   await json(page, '**/api/peers/**', makePeers());
   await json(page, '**/api/filings/**', makeFilings());

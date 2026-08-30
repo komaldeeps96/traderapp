@@ -217,6 +217,35 @@ INCOME_STATEMENT: tuple[LineSpec, ...] = (
         additive=False,
     ),
     LineSpec(
+        "other_income",
+        "Other income / expense",
+        _us("NonoperatingIncomeExpense", "OtherNonoperatingIncomeExpense")
+        + _ifrs("OtherOperatingIncomeExpenseNet"),
+    ),
+    LineSpec(
+        "depreciation",
+        "Depreciation & amortisation",
+        _us("DepreciationDepletionAndAmortization", "DepreciationAmortizationAndAccretionNet")
+        + _ifrs("DepreciationAndAmortisationExpense"),
+    ),
+    LineSpec(
+        "stock_compensation",
+        "Stock compensation",
+        _us("ShareBasedCompensation") + _ifrs("ShareBasedPaymentsExpense"),
+    ),
+    LineSpec(
+        "comprehensive_income",
+        "Comprehensive income",
+        _us("ComprehensiveIncomeNetOfTax") + _ifrs("ComprehensiveIncome"),
+    ),
+    LineSpec(
+        "shares_basic",
+        "Basic shares",
+        _us("WeightedAverageNumberOfSharesOutstandingBasic") + _ifrs("WeightedAverageShares"),
+        unit=SHARES,
+        additive=False,
+    ),
+    LineSpec(
         "shares_diluted",
         "Diluted shares",
         _us("WeightedAverageNumberOfDilutedSharesOutstanding")
@@ -258,7 +287,41 @@ BALANCE_SHEET: tuple[LineSpec, ...] = (
         _us("AssetsCurrent") + _ifrs("CurrentAssets"),
         instant=True,
     ),
+    LineSpec(
+        "ppe_net",
+        "Property, plant & equipment",
+        _us("PropertyPlantAndEquipmentNet") + _ifrs("PropertyPlantAndEquipment"),
+        instant=True,
+    ),
+    LineSpec("goodwill", "Goodwill", _us("Goodwill") + _ifrs("Goodwill"), instant=True),
+    LineSpec(
+        "intangibles",
+        "Intangible assets",
+        _us("IntangibleAssetsNetExcludingGoodwill", "FiniteLivedIntangibleAssetsNet")
+        + _ifrs("IntangibleAssetsOtherThanGoodwill"),
+        instant=True,
+    ),
     LineSpec("total_assets", "Total assets", _us("Assets") + _ifrs("Assets"), instant=True),
+    LineSpec(
+        "accounts_payable",
+        "Accounts payable",
+        _us("AccountsPayableCurrent") + _ifrs("TradeAndOtherCurrentPayables"),
+        instant=True,
+    ),
+    LineSpec(
+        "deferred_revenue",
+        "Deferred revenue",
+        _us("ContractWithCustomerLiabilityCurrent", "DeferredRevenueCurrent")
+        + _ifrs("ContractLiabilities"),
+        instant=True,
+    ),
+    LineSpec(
+        "short_term_debt",
+        "Short-term debt",
+        _us("DebtCurrent", "ShortTermBorrowings", "LongTermDebtCurrent")
+        + _ifrs("ShorttermBorrowings", "CurrentPortionOfLongtermBorrowings"),
+        instant=True,
+    ),
     LineSpec(
         "current_liabilities",
         "Current liabilities",
@@ -276,6 +339,26 @@ BALANCE_SHEET: tuple[LineSpec, ...] = (
         "total_liabilities",
         "Total liabilities",
         _us("Liabilities") + _ifrs("Liabilities"),
+        instant=True,
+    ),
+    LineSpec(
+        "operating_lease_liability",
+        "Operating lease liability",
+        _us("OperatingLeaseLiability", "OperatingLeaseLiabilityNoncurrent")
+        + _ifrs("LeaseLiabilities"),
+        instant=True,
+    ),
+    LineSpec(
+        "retained_earnings",
+        "Retained earnings",
+        _us("RetainedEarningsAccumulatedDeficit") + _ifrs("RetainedEarnings"),
+        instant=True,
+    ),
+    LineSpec(
+        "accumulated_oci",
+        "Accumulated OCI",
+        _us("AccumulatedOtherComprehensiveIncomeLossNetOfTax")
+        + _ifrs("AccumulatedOtherComprehensiveIncome"),
         instant=True,
     ),
     LineSpec(
@@ -317,6 +400,43 @@ CASH_FLOW: tuple[LineSpec, ...] = (
         "Financing cash flow",
         _us("NetCashProvidedByUsedInFinancingActivities")
         + _ifrs("CashFlowsFromUsedInFinancingActivities"),
+    ),
+    LineSpec(
+        "working_capital_change",
+        "Change in working capital",
+        _us("IncreaseDecreaseInOperatingCapital")
+        + _ifrs("AdjustmentsForDecreaseIncreaseInWorkingCapital"),
+    ),
+    LineSpec(
+        "acquisitions",
+        "Acquisitions",
+        _us("PaymentsToAcquireBusinessesNetOfCashAcquired")
+        + _ifrs(
+            "CashFlowsUsedInObtainingControlOfSubsidiariesOrOtherBusinessesClassifiedAsInvestingActivities"
+        ),
+    ),
+    LineSpec(
+        "debt_issued",
+        "Debt raised",
+        _us("ProceedsFromIssuanceOfLongTermDebt", "ProceedsFromIssuanceOfDebt")
+        + _ifrs("ProceedsFromBorrowingsClassifiedAsFinancingActivities"),
+    ),
+    LineSpec(
+        "debt_repaid",
+        "Debt repaid",
+        _us("RepaymentsOfLongTermDebt", "RepaymentsOfDebt")
+        + _ifrs("RepaymentsOfBorrowingsClassifiedAsFinancingActivities"),
+    ),
+    LineSpec(
+        "stock_issued",
+        "Stock issued",
+        _us("ProceedsFromIssuanceOfCommonStock") + _ifrs("ProceedsFromIssuingShares"),
+    ),
+    LineSpec(
+        "taxes_paid",
+        "Income taxes paid",
+        _us("IncomeTaxesPaidNet", "IncomeTaxesPaid")
+        + _ifrs("IncomeTaxesPaidClassifiedAsOperatingActivities"),
     ),
     LineSpec(
         "dividends",
@@ -688,3 +808,105 @@ async def convert_to_usd(built: dict, fx) -> dict:
     # table is the one thing worse than an unconverted one.
     built["unconverted_periods"] = unconverted
     return built
+
+
+# A search returns rows, not a statement, and a company can report nine
+# hundred concepts. This is what one screenful of them costs.
+MAX_CONCEPT_ROWS = 60
+
+
+def _humanise(concept: str) -> str:
+    """`RetainedEarningsAccumulatedDeficit` -> `Retained earnings accumulated deficit`."""
+    words: list[str] = []
+    current = ""
+    for character in concept:
+        if character.isupper() and current and not current.isupper():
+            words.append(current)
+            current = character
+        else:
+            current += character
+    if current:
+        words.append(current)
+    joined = " ".join(words).replace("  ", " ").strip()
+    return joined[:1].upper() + joined[1:].lower() if joined else concept
+
+
+def search_concepts(
+    facts: dict | None,
+    annual: bool,
+    query: str,
+    limit: int = 8,
+    max_rows: int = MAX_CONCEPT_ROWS,
+) -> dict:
+    """Every concept a company reports, not just the ones drawn on a statement.
+
+    A curated statement is the readable view and it is roughly a tenth of what
+    a filer actually tags — Apple reports 503 concepts, JP Morgan 931 — and the
+    rest is where a specific question gets answered: what tax was actually
+    paid, what sits in accumulated OCI, how large the lease liability is.
+
+    The period axis is the statement's own, not one derived from whatever
+    matched. Search results include instants filed at every quarter end, and
+    letting those set the columns produced two columns both labelled FY2026
+    with nothing in either. Reusing the statement axis also means a number
+    found here sits in the same column as the statement line above it.
+
+    Ranked by how much history each concept has, so something reported once in
+    2013 does not outrank a line reported every year since.
+    """
+    currency = reporting_currency(facts)
+    needle = query.strip().lower()
+    empty = {"currency": currency, "query": query, "total": 0, "periods": [], "rows": []}
+    if not isinstance(facts, dict) or not needle:
+        return empty
+
+    statements = build_statements(facts, annual=annual, limit=limit)
+    periods = statements["periods"]
+    if not periods:
+        return empty
+    ends = [date.fromisoformat(period["end"]) for period in periods]
+
+    matches: list[dict] = []
+    for taxonomy, concepts in (facts.get("facts") or {}).items():
+        if not isinstance(concepts, dict):
+            continue
+        for concept, node in concepts.items():
+            if needle not in concept.lower():
+                continue
+            for unit in (node or {}).get("units") or {}:
+                rows = _facts_for(facts, taxonomy, concept, unit)
+                # A concept is an instant or a duration, never both; the facts
+                # say which, and the answer decides how it is picked.
+                instant = all(row.start is None for row in rows) if rows else False
+                found = _pick(rows, instant=instant, annual=annual)
+                hits = sum(1 for end in ends if end in found)
+                if not hits:
+                    continue
+                matches.append(
+                    {
+                        "key": f"{taxonomy}:{concept}:{unit}",
+                        "label": _humanise(concept),
+                        "concept": concept,
+                        "taxonomy": taxonomy,
+                        "unit": unit,
+                        "hits": hits,
+                        "values": [
+                            round(found[end].value, 4) if end in found else None for end in ends
+                        ],
+                    }
+                )
+
+    # Most-populated first: a row with a value in every column is the one
+    # worth reading, and a search for "tax" returns a hundred and twenty.
+    matches.sort(key=lambda row: (-row["hits"], row["concept"]))
+
+    return {
+        "currency": currency,
+        "query": query,
+        "total": len(matches),
+        "periods": periods,
+        "rows": [
+            {key: row[key] for key in ("key", "label", "concept", "taxonomy", "unit", "values")}
+            for row in matches[:max_rows]
+        ],
+    }

@@ -6,6 +6,7 @@ import {
   formatChange,
   formatCompact,
   daysUntil,
+  formatAsFiled,
   formatMetricValue,
   formatStatementValue,
   formatElapsed,
@@ -421,5 +422,34 @@ describe('daysUntil', () => {
     expect(daysUntil(null, now)).toBeNull();
     expect(daysUntil(undefined, now)).toBeNull();
     expect(daysUntil(Number.NaN, now)).toBeNull();
+  });
+});
+
+describe('formatAsFiled', () => {
+  it('compacts what is large enough to need it', () => {
+    expect(formatAsFiled(1_230_000_000)).toBe('1.23B');
+    expect(formatAsFiled(896_000_000)).toBe('896.00M');
+  });
+
+  it('keeps the decimals on a small number', () => {
+    // formatCompact rounds anything under a thousand to an integer, which
+    // turned a 10.3-year lease term into "10".
+    expect(formatAsFiled(10.3)).toBe('10.30');
+    expect(formatAsFiled(0.21)).toBe('0.21');
+  });
+
+  it('leaves a whole number whole', () => {
+    expect(formatAsFiled(42)).toBe('42');
+    expect(formatAsFiled(1500)).toBe('1,500');
+  });
+
+  it('never assumes a currency', () => {
+    // The unit rides its own badge; a lease term in years is not dollars.
+    expect(formatAsFiled(10.3)).not.toContain('$');
+  });
+
+  it('shows a dash where nothing was filed', () => {
+    expect(formatAsFiled(null)).toBe('—');
+    expect(formatAsFiled(Number.NaN)).toBe('—');
   });
 });

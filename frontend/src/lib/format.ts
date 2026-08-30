@@ -385,3 +385,19 @@ export function daysUntil(
     (midnightUtc(epochSeconds) - midnightUtc(nowEpochSeconds)) / 86_400_000,
   );
 }
+
+/**
+ * One cell of the raw concept view, in whatever unit the company filed it.
+ *
+ * A search across everything a filer tags returns dollars beside lease terms
+ * in years, effective tax rates as decimals and share counts — so this
+ * cannot assume money. It compacts what is large enough to need it and keeps
+ * two decimals for the rest, because `formatCompact` rounds anything under a
+ * thousand to an integer and a lease term of 10.3 years became "10".
+ */
+export function formatAsFiled(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  if (Math.abs(value) >= 1e6) return formatCompact(value, 2);
+  if (Number.isInteger(value)) return value.toLocaleString('en-US');
+  return value.toFixed(2);
+}

@@ -2,6 +2,7 @@
 
 import type {
   ArticleResponse,
+  ConceptsResponse,
   FilingsResponse,
   FinancialPeriodKind,
   FinancialsResponse,
@@ -81,6 +82,16 @@ export const api = {
     getJson<OwnershipResponse>(`/api/ownership/${encodeURIComponent(symbol)}`, signal),
   peers: (symbol: string, signal?: AbortSignal) =>
     getJson<PeersResponse>(`/api/peers/${encodeURIComponent(symbol)}`, signal),
+  concepts: (
+    symbol: string,
+    query: string,
+    period: FinancialPeriodKind,
+    signal?: AbortSignal,
+  ) =>
+    getJson<ConceptsResponse>(
+      `/api/concepts/${encodeURIComponent(symbol)}?q=${encodeURIComponent(query)}&period=${period}`,
+      signal,
+    ),
   filings: (symbol: string, signal?: AbortSignal) =>
     getJson<FilingsResponse>(`/api/filings/${encodeURIComponent(symbol)}`, signal),
   news: (symbol: string, signal?: AbortSignal) =>

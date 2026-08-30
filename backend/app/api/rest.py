@@ -24,7 +24,7 @@ from ..domain.scanner import SCAN_CODES, SCANNER_TIERS
 from ..domain.sessions import ny_date
 from ..domain.timeframes import Timeframe
 from ..services.container import AppContainer, get_container
-from ..services.financials import build_statements, convert_to_usd
+from ..services.financials import build_statements, convert_to_usd, search_concepts
 from ..services.metrics import build_metrics
 from ..services.ownership import summarise
 from ..services.scanner import UNAVAILABLE_NOTE
@@ -182,6 +182,31 @@ async def financials(symbol: str, period: str = "annual", limit: int = 8) -> dic
         "period": "annual" if annual else "quarterly",
         **built,
     }
+
+
+@router.get("/concepts/{symbol}")
+async def concepts(symbol: str, q: str = "", period: str = "annual", limit: int = 8) -> dict:
+    """Every concept a filer tags, searchable — not just the statement lines.
+
+    The curated statement is roughly a tenth of what a company reports, and
+    the rest is where a specific question gets answered. Values here are **as
+    filed**, in the unit the company used: this is the raw view, and
+    converting a concept whose meaning is not known would be inventing a
+    number rather than reporting one.
+    """
+    container = _container()
+    resolved = _symbol(symbol)
+    annual = period != "quarterly"
+    limit = max(1, min(limit, MAX_FINANCIAL_PERIODS))
+
+    if container.edgar is None:
+        return {"symbol": resolved, "available": False, "query": q, "periods": [], "rows": []}
+
+    await container.edgar.prefetch(resolved)
+    found = search_concepts(
+        container.edgar.peek_facts(resolved), annual=annual, query=q, limit=limit
+    )
+    return {"symbol": resolved, "available": True, **found}
 
 
 @router.get("/metrics/{symbol}")
