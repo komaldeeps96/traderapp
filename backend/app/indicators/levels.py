@@ -8,6 +8,7 @@ otherwise the level repaints under the trader.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import date
 
@@ -101,10 +102,13 @@ class DailyLevelIndex:
         self._highs = [bar.high for bar in daily_bars]
         self._lows = [bar.low for bar in daily_bars]
         self._rolling: dict[LevelKey, list[Number]] = {}
+        self._index_cache: dict[date, int] = {}
         self._build_rolling(spans or set())
         self._periods = {
             prefix: self._build_period(bucket_of) for prefix, bucket_of in _PERIOD_BUCKETS
         }
+        # Sorted once so `_previous_bucket` can bisect instead of scan.
+        self._period_keys = {prefix: sorted(buckets) for prefix, buckets in self._periods.items()}
 
     def _build_rolling(self, keys: set[LevelKey]) -> None:
         for key in keys:
@@ -133,7 +137,16 @@ class DailyLevelIndex:
         return buckets
 
     def _last_index_before(self, day: date) -> int:
-        """Index of the newest daily bar that closed before ``day``."""
+        """Index of the newest daily bar that closed before ``day``.
+
+        Memoised because the answer depends only on the day, while every
+        span and prev-day level asks it again for the same day — some thirty
+        identical binary searches per bar on a daily chart. The index is
+        rebuilt whenever the daily bars change, so the cache cannot go stale.
+        """
+        hit = self._index_cache.get(day)
+        if hit is not None:
+            return hit
         lo, hi = 0, len(self._dates)
         while lo < hi:
             mid = (lo + hi) // 2
@@ -141,13 +154,23 @@ class DailyLevelIndex:
                 lo = mid + 1
             else:
                 hi = mid
+        self._index_cache[day] = lo - 1
         return lo - 1
 
-    def _previous_bucket(self, buckets: dict[object, _Aggregate], current) -> _Aggregate | None:
-        earlier = [key for key in buckets if key < current]
-        if not earlier:
+    def _previous_bucket(self, prefix: str, current) -> _Aggregate | None:
+        """The newest completed bucket strictly before ``current``.
+
+        This looked like a handful of calls when levels only ever landed on
+        intraday charts, where 2,000 bars span a week of distinct days. On a
+        daily chart every bar is its own day, so it runs once per bar per
+        level, and scanning every bucket made the snapshot quadratic in the
+        length of history.
+        """
+        keys = self._period_keys[prefix]
+        position = bisect_left(keys, current)
+        if position == 0:
             return None
-        return buckets[max(earlier)]
+        return self._periods[prefix][keys[position - 1]]
 
     # One return per level family. A lookup table would collapse them into a
     # single expression and hide which family answered.
@@ -170,7 +193,7 @@ class DailyLevelIndex:
         for prefix, bucket_of in _PERIOD_BUCKETS:
             if not key.kind.startswith(prefix):
                 continue
-            agg = self._previous_bucket(self._periods[prefix], bucket_of(day))
+            agg = self._previous_bucket(prefix, bucket_of(day))
             if agg is None:
                 return None
             field = key.kind.split("_")[-1]

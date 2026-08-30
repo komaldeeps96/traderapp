@@ -186,3 +186,40 @@ class TestLongerPeriods:
     def test_no_earlier_period_yields_none(self):
         idx = DailyLevelIndex([self.day(2026, 8, 10, 45)])
         assert idx.value(LevelKey("prev_year_close"), date(2026, 8, 13)) is None
+
+
+class TestLookupShortcuts:
+    """The bisect and the memo must agree with the obvious slow version.
+
+    Both exist because a daily chart asks for a level once per bar rather
+    than once per session, which turned a scan over every calendar bucket
+    into the dominant cost of a snapshot. Speed-ups on a repainting rule are
+    only safe if they are provably the same answer, so this pins them
+    against a brute-force scan across the whole history rather than trusting
+    the two spot checks the other suites happen to cover.
+    """
+
+    @staticmethod
+    def _brute_previous(index, prefix, current):
+        buckets = index._periods[prefix]
+        earlier = [key for key in buckets if key < current]
+        return buckets[max(earlier)] if earlier else None
+
+    def test_previous_bucket_matches_a_full_scan(self, index):
+        from app.indicators.levels import _PERIOD_BUCKETS
+
+        for prefix, bucket_of in _PERIOD_BUCKETS:
+            # Reach a year either side so the empty-history edge is covered.
+            for ordinal in range(date(2023, 12, 1).toordinal(), date(2024, 6, 1).toordinal()):
+                day = date.fromordinal(ordinal)
+                expected = self._brute_previous(index, prefix, bucket_of(day))
+                assert index._previous_bucket(prefix, bucket_of(day)) is expected
+
+    def test_memoised_index_matches_a_fresh_search(self, index, daily_bars):
+        cold = DailyLevelIndex(daily_bars)
+        for ordinal in range(date(2023, 12, 1).toordinal(), date(2024, 6, 1).toordinal()):
+            day = date.fromordinal(ordinal)
+            # Ask twice: the second read comes from the cache, not the search.
+            first = index._last_index_before(day)
+            assert first == index._last_index_before(day)
+            assert first == cold._last_index_before(day)

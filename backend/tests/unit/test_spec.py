@@ -14,6 +14,7 @@ from app.domain.timeframes import Timeframe
 from app.indicators.spec import (
     IndicatorConfigError,
     IndicatorSpec,
+    IndicatorType,
     Pane,
     load_indicator_specs,
 )
@@ -53,6 +54,60 @@ class TestShippedConfig:
         for level in levels:
             option = level.option_for(Timeframe.M1)
             assert option is not None and option.enabled, level.id
+
+    def test_daily_and_weekly_compute_every_daily_level(self):
+        """Every level derived from daily bars is available on 1d and 1w.
+
+        These used to be computed for intraday timeframes only, so a daily
+        chart carried four indicators and no levels at all — the 200-day
+        average was missing from the one timeframe it is named after. The
+        backend now computes them everywhere and the frontend decides what to
+        draw, which is what makes toggling a level instant rather than a
+        round trip.
+        """
+        specs = load_indicator_specs(CONFIG_DIR / "indicators.yaml")
+        daily_levels = [s for s in specs if s.type is IndicatorType.DAILY_LEVEL]
+        assert daily_levels
+        for level in daily_levels:
+            for timeframe in (Timeframe.D1, Timeframe.W1):
+                assert level.applies_to(timeframe), f"{level.id} missing on {timeframe.value}"
+
+    def test_session_levels_stay_off_the_daily_and_weekly_charts(self):
+        """A premarket high has no meaning on a bar that spans a week.
+
+        These are derived from the session inside the chart's own bars, not
+        from daily history, so they are the one family that must *not* follow
+        the rest onto the higher timeframes.
+        """
+        specs = load_indicator_specs(CONFIG_DIR / "indicators.yaml")
+        session_levels = [
+            s for s in specs if s.group == "key_levels" and s.type is not IndicatorType.DAILY_LEVEL
+        ]
+        assert session_levels
+        for level in session_levels:
+            assert level.applies_to(Timeframe.M1), level.id
+            for timeframe in (Timeframe.D1, Timeframe.W1):
+                assert not level.applies_to(timeframe), f"{level.id} on {timeframe.value}"
+
+    def test_the_daily_chart_opens_on_a_readable_set(self):
+        """Computed everywhere, but not all switched on at once.
+
+        Thirty-three levels drawn over one daily candle series is a wall of
+        horizontal lines. The ones that default to visible are the ones a
+        daily chart is actually read against; the rest are a click away.
+        """
+        specs = load_indicator_specs(CONFIG_DIR / "indicators.yaml")
+        on = [
+            s.id
+            for s in specs
+            if (option := s.option_for(Timeframe.D1)) is not None and option.enabled
+        ]
+        assert "d_sma200" in on, "the 200-day average belongs on the daily chart"
+        assert {"high_52w", "low_52w"} <= set(on), "the 52-week range anchors a daily chart"
+        assert not any(i.startswith("prev_day_") for i in on), (
+            "a previous-day level on a daily chart is the bar next to it"
+        )
+        assert len(on) < 12, f"too many series on by default: {sorted(on)}"
 
     def test_every_key_level_is_directly_labelled(self):
         """A level's identity must never rest on colour alone.

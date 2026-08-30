@@ -63,7 +63,19 @@
 # 'level' values: sma:N | ema:N | high:N | low:N (N = daily bars), or one of
 # prev_{day,week,month}_{high,low,close}.
 
+# A timeframe listed here means "this indicator is *meaningful* on this bar
+# size", which is what the backend computes against. The `enabled` flag beside
+# it is only the default the toggle starts at -- once a chart has been toggled,
+# the saved state wins. So the question when adding a timeframe is never "do I
+# want this on", it is "would this line mean anything here".
+#
+# Three of the four sets below therefore list every timeframe and differ only
+# in what they start switched on. `intraday` is the exception, and it is a
+# genuine one: a session VWAP on a weekly bar retraces the closes, a pre-market
+# high cannot be derived from daily bars at all, and the engine guards both.
 _anchors:
+  # Session-derived: computed from the chart's own intraday bars, so these
+  # have nothing to read on a daily or weekly one.
   intraday: &intraday
     10s: { enabled: true }
     1m: { enabled: true }
@@ -72,6 +84,49 @@ _anchors:
     30m: { enabled: true }
     1h: { enabled: true }
     4h: { enabled: true }
+
+  # Means the same thing at any bar size: the moving averages over the
+  # chart's own closes, and volume.
+  every: &every
+    10s: { enabled: true }
+    1m: { enabled: true }
+    5m: { enabled: true }
+    15m: { enabled: true }
+    30m: { enabled: true }
+    1h: { enabled: true }
+    4h: { enabled: true }
+    1d: { enabled: true }
+    1w: { enabled: true }
+
+  # Daily levels compute from the daily index rather than the chart's bars,
+  # so they are meaningful on every timeframe including the daily itself.
+  # Twenty-eight of them switched on would bury a daily chart, so they are
+  # present-but-off up there: the toggle exists, the chart stays legible.
+  levels: &levels
+    10s: { enabled: true }
+    1m: { enabled: true }
+    5m: { enabled: true }
+    15m: { enabled: true }
+    30m: { enabled: true }
+    1h: { enabled: true }
+    4h: { enabled: true }
+    1d: { enabled: false }
+    1w: { enabled: false }
+
+  # The handful worth having on by default when the daily chart opens: the
+  # 200-day and the yearly range are what a multi-day position is read
+  # against, and leaving them off would make the daily chart emptier than
+  # the ten-second one.
+  levels_on: &levels_on
+    10s: { enabled: true }
+    1m: { enabled: true }
+    5m: { enabled: true }
+    15m: { enabled: true }
+    30m: { enabled: true }
+    1h: { enabled: true }
+    4h: { enabled: true }
+    1d: { enabled: true }
+    1w: { enabled: true }
 
 indicators:
   # ── Moving averages ────────────────────────────────────────────────
@@ -113,6 +168,7 @@ indicators:
       1h: { enabled: true }
       4h: { enabled: true }
       1d: { enabled: true }
+      1w: { enabled: true }
 
   - id: ema20
     type: ema
@@ -132,6 +188,7 @@ indicators:
       1h: { enabled: true }
       4h: { enabled: true }
       1d: { enabled: true }
+      1w: { enabled: true }
 
   - id: ema45
     type: ema
@@ -154,6 +211,9 @@ indicators:
   # The slow structural line: 100 minutes, which is the one the 10-second
   # tape is read against when the fast fan has gone vertical and the question
   # is how far price has travelled from anything durable.
+      1d: { enabled: true }
+      1w: { enabled: true }
+
   - id: ema100
     type: ema
     label: EMA 100
@@ -171,6 +231,8 @@ indicators:
       30m: { enabled: true }
       1h: { enabled: true }
       4h: { enabled: true }
+      1d: { enabled: true }
+      1w: { enabled: true }
 
   - id: ema50
     type: ema
@@ -191,6 +253,8 @@ indicators:
   # the daily base carries that shape back over 50 sessions. Readout-only —
   # a ratio has no business on a price pane; the top-panel strip reads it
   # out per bar, 10-second charts included (stepping once a minute there).
+      1w: { enabled: true }
+
   - id: wrvol
     type: wrvol
     label: Windowed RVOL
@@ -304,7 +368,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: prev_day_high
     type: daily_level
@@ -314,7 +378,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: prev_day_low
     type: daily_level
@@ -324,7 +388,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   # ── Swing levels ───────────────────────────────────────────────────
   - id: prev_week_high
@@ -335,7 +399,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: prev_week_low
     type: daily_level
@@ -345,7 +409,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: prev_week_close
     type: daily_level
@@ -355,7 +419,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: prev_month_high
     type: daily_level
@@ -365,7 +429,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: prev_month_low
     type: daily_level
@@ -375,7 +439,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: prev_month_close
     type: daily_level
@@ -385,7 +449,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: prev_quarter_high
     type: daily_level
@@ -395,7 +459,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: prev_quarter_low
     type: daily_level
@@ -405,7 +469,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: prev_quarter_close
     type: daily_level
@@ -415,7 +479,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: prev_year_high
     type: daily_level
@@ -425,7 +489,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: prev_year_low
     type: daily_level
@@ -435,7 +499,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: prev_year_close
     type: daily_level
@@ -445,7 +509,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   # ── Where a runner meets supply ────────────────────────────────────
   - id: high_13w
@@ -456,7 +520,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: low_13w
     type: daily_level
@@ -466,7 +530,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: high_26w
     type: daily_level
@@ -476,7 +540,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: low_26w
     type: daily_level
@@ -486,7 +550,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: high_52w
     type: daily_level
@@ -496,7 +560,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels_on
 
   - id: low_52w
     type: daily_level
@@ -506,7 +570,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: key_levels
-    timeframes: *intraday
+    timeframes: *levels_on
 
   # ── Daily moving averages projected onto intraday ──────────────────
   - id: d_sma20
@@ -517,7 +581,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: daily_ma
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: d_sma50
     type: daily_level
@@ -527,7 +591,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: daily_ma
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: d_sma200
     type: daily_level
@@ -537,7 +601,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: daily_ma
-    timeframes: *intraday
+    timeframes: *levels_on
 
   - id: d_ema20
     type: daily_level
@@ -547,7 +611,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: daily_ma
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: d_ema50
     type: daily_level
@@ -557,7 +621,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: daily_ma
-    timeframes: *intraday
+    timeframes: *levels
 
   - id: d_ema200
     type: daily_level
@@ -567,7 +631,7 @@ indicators:
     color_dark: '#a8a69d'
     last_value: true
     group: daily_ma
-    timeframes: *intraday
+    timeframes: *levels
 
   # ── Sub-panes ──────────────────────────────────────────────────────
   # Volume bars take the candle's own up/down colour, so the pane needs no
