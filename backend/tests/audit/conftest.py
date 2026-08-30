@@ -18,7 +18,7 @@ import json
 import math
 import warnings
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -135,6 +135,48 @@ def our_statements(edgar_facts):
 
                 built[key] = asyncio.run(run())
         return built[key]
+
+    return load
+
+
+@pytest.fixture(scope="session")
+def daily_bars():
+    """Daily bars per symbol, over the window the terminal itself loads.
+
+    The chart half has no published truth the way the statements do — nobody
+    else computes a moving average over *our* bars. What can be checked is
+    that our bars agree with everyone else's, and that our arithmetic over
+    them lands where theirs does.
+
+    The window matters and is taken from the app's own setting rather than
+    picked here. An exponential average never fully forgets its seed: over
+    three years a 200-day EMA is still 0.27% from where it settles, which
+    would look like an arithmetic error and is not one. Over the forty years
+    the terminal actually loads it agrees to the fourth decimal.
+    """
+    from app.core.settings import get_settings
+    from app.domain.timeframes import Timeframe
+    from app.providers.alpaca import AlpacaProvider
+
+    loaded: dict[str, list] = {}
+
+    def load(symbol: str) -> list:
+        if symbol in loaded:
+            return loaded[symbol]
+
+        async def fetch():
+            settings = get_settings()
+            provider = AlpacaProvider(settings.alpaca)
+            await provider.start()
+            try:
+                end = datetime.now(UTC)
+                start = end - timedelta(days=365 * settings.history.daily_years)
+                return await provider.fetch_bars(symbol, Timeframe.D1, start, end)
+            finally:
+                await provider.stop()
+
+        loaded[symbol] = asyncio.run(fetch())
+        return loaded[symbol]
 
     return load
 

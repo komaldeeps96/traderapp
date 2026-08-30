@@ -189,7 +189,7 @@ It is excluded from every normal run — `addopts` carries `-m 'not audit'`, so
 `pytest tests` still never leaves the machine. Run it deliberately:
 
     cd backend && .venv/bin/pip install -e '.[audit]'
-    cd backend && .venv/bin/pytest -m audit          # ~30 s, 113 tests
+    cd backend && .venv/bin/pytest -m audit          # ~35 s, 352 tests
 
 `companyfacts` is cached under `tests/audit/.cache/` so a second run costs
 nothing and the SEC is not asked twice.
@@ -199,6 +199,24 @@ filer's own currency, so it checks the *parse*: the right concept, the right
 period, before anything is restated. **TradingView** publishes in USD, so it
 checks the *conversion*. Failing one and passing the other localises a fault
 immediately, which is the reason for using two.
+
+`test_indicators.py` and `test_screens.py` cover the chart half. The chart
+has no published truth — nobody else computes a moving average over *our*
+bars — so it checks the two things that can be: that our bars agree with
+everyone else's (our closes match TradingView's exactly), and that our
+arithmetic over them lands where theirs does. It does, to the fourth decimal.
+
+Two differences there are **design, not error**, and are asserted rather than
+tolerated. A drawn level excludes today's bar so it cannot repaint mid-
+session, which is a deliberate one-bar difference from every other terminal.
+And the yearly extremes run over 252 *bars* where TradingView uses 52
+calendar *weeks*; the windows differ by a few days at the edge, which shows
+only when the extreme sits there.
+
+The screens have no external truth at all — they are our own definition — so
+they are checked against their own printed claim. A panel headed "within 10%
+of the 52-week high" returning something 40% below is worse than an empty
+panel, because it is believed.
 
 The ratio audit (`test_ratios.py`) covers what is built *on* the statements,
 which is where a mistake reaches a decision. It exists because that layer
