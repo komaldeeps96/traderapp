@@ -589,9 +589,24 @@ Not just Canadian small caps — every foreign private issuer on a US exchange:
 | Novo Nordisk | 20-F | DKK | 309,064M |
 | Alibaba | 20-F | CNY | 1,023,670M |
 
-One honest limit: the **quarterly** view stays empty for these. Foreign
-private issuers file 6-K interim reports rather than 10-Qs, and those are not
-tagged the same way — the durations in `companyfacts` are twelve months only.
+**Correction to an earlier claim here.** This section first said the
+quarterly view "stays empty for these" because foreign private issuers file
+6-K interims. That was generalised from SNDL and is wrong. Checked properly:
+
+- **Canopy Growth and Tilray file 10-Q**, so their quarterly view already
+  works — CGC back to FY2026 Q2 in CAD, TLRY four quarters in USD.
+- **Alibaba, Novo Nordisk and SNDL** genuinely have no interim statements in
+  `companyfacts`: BABA carries only three six-month `ProfitLoss` facts,
+  SNDL's sub-annual durations are ten-month stub periods, NVO has none.
+- But **TradingView carries the latest quarter for all of them** on a row the
+  terminal already fetches — `total_revenue_fq`, `net_income_fq`,
+  `gross_profit_fq`, `oper_income_fq`, `cash_f_operating_activities_fq`
+  and `earnings_per_share_diluted_fq` all resolve for BABA and NVO.
+
+So the gap is one quarter of data from a second source, not an impossibility.
+Not built yet, and it carries one hazard worth deciding deliberately:
+TradingView normalises to **USD** while these filers report in CNY and DKK,
+so it must not share a table with the SEC annuals.
 
 ### Verified
 

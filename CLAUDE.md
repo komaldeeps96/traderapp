@@ -41,6 +41,33 @@ Before writing "X is not available" or "this would need Y", run the smallest
 thing that proves it. If that is not worth two minutes, the claim is not
 worth making: say what was **not** checked instead.
 
+### And then find the way through
+
+A verified limit is a starting point, not an answer. Having established that
+something cannot be done *the way it was first tried*, go and find what
+would work, and bring that back instead of the refusal.
+
+The same day, the follow-up claim was that foreign filers can have no
+quarterly view — "a genuine limit, not something I can parse around". Ten
+minutes of checking found three different truths behind that one sentence:
+
+- **Canopy Growth and Tilray file 10-Q.** Their quarterly view already
+  worked. The claim was simply wrong, generalised from one company.
+- **Alibaba and Novo Nordisk have no interim statements in `companyfacts`** —
+  that part held, but only for the SEC as a source.
+- **TradingView carries their quarterly fundamentals**, on a row this
+  terminal already fetches: `total_revenue_fq`, `net_income_fq`,
+  `gross_profit_fq`, `oper_income_fq`, `cash_f_operating_activities_fq`,
+  `earnings_per_share_diluted_fq` all resolve, for both.
+
+So the honest report is not "cannot be done". It is: two of them already
+work, and the other two need a second source that is already in the building.
+
+**Check what a limit is really a limit of.** "The SEC does not have it" is
+not "the terminal cannot show it", and the difference is usually one more
+question. Where a second source exists, say which one and what it would
+cost — then the choice is the user's, made on facts.
+
 ## Running tests
 
 Run suites **one at a time**. Wait for each to finish before starting the
