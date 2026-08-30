@@ -8,6 +8,8 @@ can stop mid-history and continue under another name.
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from app.services.financials import build_statements, fiscal_year_of
@@ -505,3 +507,128 @@ class TestCurrencyDetection:
             }
         }
         assert reporting_currency(data) == "CAD"
+
+
+class TestFiftyTwoWeekCalendars:
+    """A fiscal year that closes in the first days of January.
+
+    Johnson & Johnson's FY2020 ends 2021-01-03. Naming it for the calendar
+    year the date falls in makes it "FY2021", which then collides with the
+    year that really is 2021 — two identically-labelled columns in one table.
+    Caught by the audit, which asserts period keys are distinct.
+    """
+
+    @pytest.mark.parametrize(
+        ("end", "expected"),
+        [
+            ("2021-01-03", 2020),  # J&J, 52/53-week year
+            ("2023-01-01", 2022),
+            ("2025-12-28", 2025),
+            ("2026-01-31", 2026),  # Walmart, and it calls this FY2026
+            ("2025-09-27", 2025),
+        ],
+    )
+    def test_a_year_is_named_for_the_year_it_covers(self, end, expected):
+        assert fiscal_year_of(date.fromisoformat(end)) == expected
+
+    def test_consecutive_years_get_distinct_labels(self):
+        rows = [
+            fact("2019-12-30", "2021-01-03", 100.0, filed="2021-02-01"),
+            fact("2021-01-04", "2022-01-02", 110.0, filed="2022-02-01"),
+            fact("2022-01-03", "2023-01-01", 120.0, filed="2023-02-01"),
+        ]
+        built = build_statements(facts(usd(REVENUE, rows)), annual=True)
+        keys = [period["key"] for period in built["periods"]]
+        assert keys == ["FY2022", "FY2021", "FY2020"]
+        assert len(set(keys)) == len(keys)
+
+
+class TestDerivedLiabilities:
+    """A total the filer stopped tagging.
+
+    AT&T tagged `Liabilities` until 2015 and files only the components since,
+    so the line is empty across every year anyone would look at. The number
+    is still on the balance sheet: it is what remains once everything with a
+    claim after creditors is removed.
+    """
+
+    def _sheet(self, equity_concept: str, extra: dict | None = None) -> dict:
+        entries = {
+            # A duration line, because only those set the period axis.
+            **usd(REVENUE, [fact("2025-01-01", "2025-12-31", 10.0, filed="2026-02-01")]),
+            **usd("Assets", [fact(None, "2025-12-31", 1000.0, filed="2026-02-01")]),
+            **usd(equity_concept, [fact(None, "2025-12-31", 300.0, filed="2026-02-01")]),
+        }
+        entries.update(extra or {})
+        return facts(entries)
+
+    def test_it_is_derived_when_absent(self):
+        built = build_statements(self._sheet("StockholdersEquity"), annual=True)
+        assert line(built, "total_liabilities")["values"] == [700.0]
+
+    def test_the_derivation_is_named_rather_than_passed_off_as_a_tag(self):
+        built = build_statements(self._sheet("StockholdersEquity"), annual=True)
+        assert any("derived" in c for c in line(built, "total_liabilities")["concepts"])
+
+    def test_minorities_are_taken_out_when_equity_excludes_them(self):
+        data = self._sheet(
+            "StockholdersEquity",
+            usd("MinorityInterest", [fact(None, "2025-12-31", 50.0, filed="2026-02-01")]),
+        )
+        assert line(build_statements(data, annual=True), "total_liabilities")["values"] == [650.0]
+
+    def test_minorities_are_not_taken_out_twice(self):
+        """The concept that answered says whether they are already inside.
+
+        Subtracting them again where they are makes the derived liabilities
+        too small by exactly that amount — AT&T's 2022 sheet was out by its
+        own $8.957bn of minorities.
+        """
+        data = self._sheet(
+            "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            usd("MinorityInterest", [fact(None, "2025-12-31", 50.0, filed="2026-02-01")]),
+        )
+        assert line(build_statements(data, annual=True), "total_liabilities")["values"] == [700.0]
+
+    def test_a_reported_total_is_never_overwritten(self):
+        data = self._sheet(
+            "StockholdersEquity",
+            usd("Liabilities", [fact(None, "2025-12-31", 690.0, filed="2026-02-01")]),
+        )
+        built = build_statements(data, annual=True)
+        assert line(built, "total_liabilities")["values"] == [690.0]
+        assert line(built, "total_liabilities")["concepts"] == ["Liabilities"]
+
+
+class TestOneDefinitionPerRow:
+    def test_equity_does_not_switch_definition_mid_series(self):
+        """Parent-only and including-minorities are different numbers.
+
+        Filling the gaps in one from the other makes a row that is not
+        comparable to itself, which is worse than a gap.
+        """
+        data = facts(
+            usd("StockholdersEquity", [fact(None, "2025-12-31", 300.0, filed="2026-02-01")]),
+            usd(
+                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+                [
+                    fact(None, "2025-12-31", 350.0, filed="2026-02-01"),
+                    fact(None, "2024-12-31", 340.0, filed="2025-02-01"),
+                ],
+            ),
+            usd(REVENUE, [fact("2025-01-01", "2025-12-31", 10.0, filed="2026-02-01")]),
+        )
+        built = build_statements(data, annual=True)
+        equity = line(built, "equity")
+        assert equity["concepts"] == ["StockholdersEquity"]
+        # The 2024 gap stays a gap rather than borrowing the other definition.
+        assert equity["values"] == [300.0]
+
+    def test_revenue_still_stitches_across_a_concept_change(self):
+        """The merge is right where the chain is one quantity under two
+        names — which is the ASC 606 case."""
+        data = facts(
+            usd(REVENUE, [fact("2025-01-01", "2025-12-31", 200.0, filed="2026-02-01")]),
+            usd("Revenues", [fact("2017-01-01", "2017-12-31", 100.0, filed="2018-02-01")]),
+        )
+        assert line(build_statements(data, annual=True), "revenue")["values"] == [200.0, 100.0]

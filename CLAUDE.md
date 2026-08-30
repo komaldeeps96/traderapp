@@ -178,3 +178,44 @@ that, so **a green visual run is not evidence that a small component change
 was noticed** — this has silently passed against stale baselines twice. After
 any toolbar or strip change, assert the new element renders, then regenerate
 with `--update-snapshots`.
+
+## The audit suite
+
+`backend/tests/audit/` checks our own figures against **yfinance** and
+**TradingView**, over the network, for twenty companies spanning market-cap
+tiers, sixteen sectors, four countries and four reporting currencies.
+
+It is excluded from every normal run — `addopts` carries `-m 'not audit'`, so
+`pytest tests` still never leaves the machine. Run it deliberately:
+
+    cd backend && .venv/bin/pip install -e '.[audit]'
+    cd backend && .venv/bin/pytest -m audit          # ~30 s, 113 tests
+
+`companyfacts` is cached under `tests/audit/.cache/` so a second run costs
+nothing and the SEC is not asked twice.
+
+The two auditors answer different questions. **yfinance** reports in the
+filer's own currency, so it checks the *parse*: the right concept, the right
+period, before anything is restated. **TradingView** publishes in USD, so it
+checks the *conversion*. Failing one and passing the other localises a fault
+immediately, which is the reason for using two.
+
+### Reading a disagreement
+
+**A disagreement is not automatically our bug.** The first run produced 49,
+and 38 were one thing: yfinance publishes an *adjusted* "Operating Income"
+alongside "Total Operating Income As Reported", and only the second is the
+figure in the filing. For Crocs in 2025 they are $888M and $150M, the
+difference being a goodwill impairment. Compare against the wrong one and
+the audit condemns thirty-eight correct readings.
+
+Before changing anything, find out which side is right — usually by reading
+the concept straight out of `companyfacts`.
+
+Genuine differences live in two tables in the suite, each entry carrying its
+reason: `EXPECTED_DIVERGENCE` (a bank's "revenue" has no single definition;
+yfinance folds redeemable minority interests into equity and US GAAP does
+not) and `INCOHERENT_PERIODS` (Celularity's 2020, where `companyfacts` holds
+both the SPAC's balance sheet and the predecessor's under one date because
+the dimensions that separate them are not published). The point of an audit
+is lost the moment those become a way to silence a failure.

@@ -21,6 +21,9 @@ dependencies = [
 [project.optional-dependencies]
 # IBKR is optional: without it the app runs on Alpaca alone.
 ibkr = ["ib-async>=1.0"]
+# Auditors for `pytest -m audit`. Deliberately not runtime dependencies:
+# nothing the terminal serves may depend on them.
+audit = ["yfinance>=0.2"]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
@@ -92,7 +95,11 @@ ban-relative-imports = "parents"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = ["error::DeprecationWarning:app.*"]
-addopts = "-q --strict-markers"
+addopts = "-q --strict-markers -m 'not audit'"
 markers = [
     "live: hits real market-data APIs; requires credentials (deselect with '-m \"not live\"')",
+    # Cross-checks our own figures against TradingView and yfinance over the
+    # network. Excluded by default so `pytest tests` never leaves the machine;
+    # run deliberately with `pytest -m audit`.
+    "audit: compares our numbers against outside sources; run with '-m audit'",
 ]

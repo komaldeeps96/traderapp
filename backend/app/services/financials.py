@@ -127,6 +127,13 @@ class LineSpec:
     unit: str = MONEY
     # A balance is reported at an instant; everything else spans a period.
     instant: bool = False
+    # Whether later concepts in the chain may fill periods the first one
+    # does not cover. True almost everywhere — it is what stitches a series
+    # across the ASC 606 break. False where the chain's entries are not the
+    # same quantity: "shareholders' equity" with and without minority
+    # interests are different numbers, and a row that switches between them
+    # mid-series is not comparable to itself.
+    merge_chain: bool = True
     # Whether the quarters of a year sum to the year. True of every flow —
     # revenue, expenses, cash moved. False of a weighted average or a ratio,
     # which is why share counts and EPS are never derived by subtraction:
@@ -199,8 +206,12 @@ INCOME_STATEMENT: tuple[LineSpec, ...] = (
     LineSpec(
         "net_income",
         "Net income",
+        # Attributable to the parent, first in both taxonomies. "Net income"
+        # in every terminal means the owners' share; `ProfitLoss` includes
+        # minority interest and is a different, larger number — for SNDL,
+        # -96.2M against the -94.8M every other source publishes.
         _us("NetIncomeLoss", "ProfitLoss")
-        + _ifrs("ProfitLoss", "ProfitLossAttributableToOwnersOfParent"),
+        + _ifrs("ProfitLossAttributableToOwnersOfParent", "ProfitLoss"),
     ),
     LineSpec(
         "eps_basic",
@@ -362,14 +373,37 @@ BALANCE_SHEET: tuple[LineSpec, ...] = (
         instant=True,
     ),
     LineSpec(
+        "noncontrolling_interest",
+        "Noncontrolling interest",
+        _us("MinorityInterest") + _ifrs("NoncontrollingInterests"),
+        instant=True,
+    ),
+    LineSpec(
+        "temporary_equity",
+        "Redeemable equity",
+        # Shares subject to redemption sit between liabilities and equity and
+        # belong to neither. Every SPAC-era balance sheet has this, and
+        # without it the sheet does not add up.
+        _us(
+            "TemporaryEquityCarryingAmountAttributableToParent",
+            "TemporaryEquityCarryingAmount",
+            # Redeemable minority interests are mezzanine too: outside equity,
+            # outside liabilities, and exactly the 0.6% by which Canopy
+            # Growth's balance sheet failed to add up without them.
+            "RedeemableNoncontrollingInterestEquityCarryingAmount",
+        ),
+        instant=True,
+    ),
+    LineSpec(
         "equity",
         "Shareholders' equity",
         _us(
             "StockholdersEquity",
             "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
         )
-        + _ifrs("Equity", "EquityAttributableToOwnersOfParent"),
+        + _ifrs("EquityAttributableToOwnersOfParent", "Equity"),
         instant=True,
+        merge_chain=False,
     ),
 )
 
@@ -532,8 +566,12 @@ def _covers(fact: Fact, instant: bool, annual: bool) -> bool:
     return low <= fact.days <= high
 
 
+def _anchor_date(end: date) -> date:
+    return end - _MONTH_ANCHOR
+
+
 def _anchor_month(end: date) -> int:
-    return (end - _MONTH_ANCHOR).month
+    return _anchor_date(end).month
 
 
 def fiscal_year_of(end: date) -> int:
@@ -549,7 +587,11 @@ def fiscal_year_of(end: date) -> int:
     So the label is a convention and the *end date* is the fact. Every period
     carries its end alongside the label for exactly that reason.
     """
-    return end.year
+    # The anchored date, not the raw one. A 52/53-week filer can close its
+    # year on 3 January — Johnson & Johnson's FY2020 ends 2021-01-03 — and
+    # `end.year` calls that 2021, colliding with the year that actually is
+    # 2021 and putting two identically-labelled columns in the table.
+    return _anchor_date(end).year
 
 
 def _period_key(end: date, annual: bool, year_end_month: int | None) -> str:
@@ -563,7 +605,9 @@ def _period_key(end: date, annual: bool, year_end_month: int | None) -> str:
     # March quarter of a September-year-end company is FY of that same year,
     # while the May quarter of a January-year-end retailer belongs to the
     # year that ends the following January.
-    year_end = date(end.year if month <= year_end_month else end.year + 1, year_end_month, 15)
+    # Day 28 so the fortnight anchor cannot push this sentinel into the
+    # previous month — and so into the previous fiscal year label.
+    year_end = date(end.year if month <= year_end_month else end.year + 1, year_end_month, 28)
     # Counted forward from the month the fiscal year closes, so Apple's
     # December quarter is Q1 — the company's own numbering, not the calendar's.
     quarter = ((month - year_end_month - 1) % 12) // 3 + 1
@@ -622,6 +666,85 @@ def _derive_quarters(facts: list[Fact]) -> dict[date, Fact]:
     return out
 
 
+def _derive_total_liabilities(lines: list[dict]) -> None:
+    """Fill a total-liabilities line the filer never tagged.
+
+    AT&T stopped reporting the `Liabilities` subtotal after 2015 — it files
+    the components and `LiabilitiesAndStockholdersEquity` instead — and it is
+    not alone. The balance sheet still states the number, just as the
+    remainder once everything with a claim after creditors is taken out.
+
+    Only filled where it is genuinely absent, and the arithmetic is named in
+    the line's concepts so a derived figure is never passed off as a tag.
+    """
+    by_key = {line["key"]: line for line in lines}
+    target = by_key.get("total_liabilities")
+    assets = by_key.get("total_assets")
+    equity = by_key.get("equity")
+    if assets is None or equity is None:
+        return
+
+    # Gap-filling, not all-or-nothing: AT&T tagged `Liabilities` until 2015
+    # and stopped, so the line exists and is empty across every year anyone
+    # would look at.
+    # Whether minority interests are already inside the equity figure
+    # depends on which concept answered. Subtracting them again where they
+    # are makes the derived liabilities too small by exactly that amount —
+    # AT&T's 2022 sheet was out by its own $8.957bn of minorities.
+    equity_includes_minorities = bool(
+        set(equity["concepts"])
+        & {
+            "Equity",
+            "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+        }
+    )
+    subtract = (
+        ["temporary_equity"]
+        if equity_includes_minorities
+        else [
+            "noncontrolling_interest",
+            "temporary_equity",
+        ]
+    )
+
+    derived: dict[date, Fact] = {}
+    existing = target["_values"] if target is not None else {}
+    for end, asset_fact in assets["_values"].items():
+        if end in existing:
+            continue
+        equity_fact = equity["_values"].get(end)
+        if equity_fact is None:
+            continue
+        residual = asset_fact.value - equity_fact.value
+        for key in subtract:
+            other = by_key.get(key)
+            found = other["_values"].get(end) if other else None
+            if found is not None:
+                residual -= found.value
+        derived[end] = replace(asset_fact, value=residual)
+
+    if not derived:
+        return
+    if target is None:
+        spec = next(s for s in BALANCE_SHEET if s.key == "total_liabilities")
+        target = {
+            "statement": "balance",
+            "instant": True,
+            "kind": spec.unit,
+            "key": spec.key,
+            "label": spec.label,
+            "unit": spec.unit,
+            "concepts": [],
+            "_values": {},
+        }
+        lines.append(target)
+    target["_values"] = {**existing, **derived}
+    target["concepts"] = [
+        *target["concepts"],
+        "derived: assets less equity and minority interests",
+    ]
+
+
 def _year_end_month(facts: dict | None, currency: str) -> int | None:
     """The month the fiscal year closes, read off the annual filings."""
     for taxonomy, concept in INCOME_STATEMENT[0].concepts + BALANCE_SHEET[5].concepts:
@@ -657,6 +780,10 @@ def build_statements(facts: dict | None, annual: bool, limit: int = 8) -> dict:
                     found = {**_derive_quarters(reported), **found}
                 if not found:
                     continue
+                if merged and not spec.merge_chain:
+                    # One definition for the whole row, not the best-covered
+                    # patchwork of several.
+                    continue
                 # Earlier in the chain wins: the first name is the one the
                 # company reports today, and a later name only fills the
                 # stretch of history the first one does not reach.
@@ -685,6 +812,8 @@ def build_statements(facts: dict | None, annual: bool, limit: int = 8) -> dict:
                     "_values": merged,
                 }
             )
+
+    _derive_total_liabilities(lines)
 
     periods = sorted(ends, reverse=True)[:limit]
     keys = [_period_key(end, annual, year_end_month) for end in periods]
