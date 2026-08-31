@@ -1,5 +1,5 @@
 """Remembers the last chart the user was looking at, each scanner tier's
-filters, and which indicators are switched on per timeframe.
+filters, which indicators are switched on per timeframe, and the watchlist.
 
 Kept in its own file so a write can never clobber credentials, which is what
 made this worth separating in the first place.
@@ -51,6 +51,16 @@ class StateStore:
                     if isinstance(timeframe, str) and isinstance(overrides, dict)
                 }
 
+            watchlist = data.get("watchlist")
+            if isinstance(watchlist, list):
+                # Order is the user's, so it is kept as written; anything
+                # that is not a symbol is dropped rather than shown.
+                self._cache["watchlist"] = [
+                    entry.strip().upper()
+                    for entry in watchlist
+                    if isinstance(entry, str) and entry.strip()
+                ]
+
             swing = data.get("swing")
             if isinstance(swing, dict):
                 # Shape only; SwingService.adopt_config validates each value,
@@ -95,6 +105,11 @@ class StateStore:
             return {}
         return {timeframe: dict(values) for timeframe, values in overrides.items()}
 
+    def watchlist(self) -> list[str]:
+        """The symbols being watched, in the order they were added."""
+        symbols = self._cache.get("watchlist")
+        return list(symbols) if isinstance(symbols, list) else []
+
     def swing_config(self) -> dict | None:
         """The swing screens' shared filters, or None if never saved."""
         config = self._cache.get("swing")
@@ -130,6 +145,10 @@ class StateStore:
             indicators[timeframe] = dict(overrides)
         else:
             indicators.pop(timeframe, None)
+        await asyncio.to_thread(self._write)
+
+    async def save_watchlist(self, symbols: list[str]) -> None:
+        self._cache["watchlist"] = list(symbols)
         await asyncio.to_thread(self._write)
 
     async def save_swing(self, config: dict) -> None:

@@ -11,6 +11,7 @@ import { PeersTab } from '@/components/PeersTab';
 import { ScannerPanel } from '@/components/ScannerPanel';
 import { ScannerTabs } from '@/components/ScannerTabs';
 import { SwingPanel } from '@/components/SwingPanel';
+import { WatchlistPanel } from '@/components/WatchlistPanel';
 import { Toolbar } from '@/components/Toolbar';
 import { TopPanel } from '@/components/TopPanel';
 import { useTerminal } from '@/hooks/useTerminal';
@@ -64,7 +65,7 @@ export default function App() {
             panel down to the same half-visible height. */}
         <ScannerTabs />
         <div className="scroll-thin flex max-h-[68%] min-h-0 flex-col overflow-y-auto">
-          {scannerTab === 'day' ? (
+          {scannerTab === 'day' &&
             SCANNER_TIER_IDS.map((scannerId) => (
               <ScannerPanel
                 key={scannerId}
@@ -72,9 +73,12 @@ export default function App() {
                 onSelect={(symbol) => subscribe(symbol, timeframe)}
                 onConfigure={(overrides) => configureScanner(scannerId, overrides)}
               />
-            ))
-          ) : (
+            ))}
+          {scannerTab === 'swing' && (
             <SwingPanel onSelect={(symbol) => subscribe(symbol, timeframe)} />
+          )}
+          {scannerTab === 'watch' && (
+            <WatchlistPanel onSelect={(symbol) => subscribe(symbol, timeframe)} />
           )}
         </div>
         <KeyLevelsPanel onToggle={toggleIndicator} onToggleGroup={setIndicatorGroup} />

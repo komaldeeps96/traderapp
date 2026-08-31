@@ -26,6 +26,7 @@ export function Toolbar({ onSubscribe, onTimeframe, onToggleTheme }: ToolbarProp
       className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-panel px-2 py-1"
     >
       <SymbolInput symbol={symbol} timeframe={timeframe} onSubscribe={onSubscribe} />
+      <WatchStar symbol={symbol} />
       <TimeframeTabs value={timeframe} onChange={onTimeframe} />
 
       {/* The slack in this row is where the instrument's name goes. It used
@@ -100,6 +101,37 @@ function Instrument() {
         </span>
       )}
     </div>
+  );
+}
+
+/**
+ * Put the chart's symbol on the watchlist, or take it off.
+ *
+ * The panel's own input is the deliberate way in; this is the other one, for
+ * the far more common case — the name is already on screen because something
+ * about it was interesting, and reaching for a text box to retype it is how a
+ * watchlist ends up empty.
+ */
+function WatchStar({ symbol }: { symbol: string }) {
+  const watched = useTerminalStore((state) => state.watchlist.includes(symbol));
+  const add = useTerminalStore((state) => state.addToWatchlist);
+  const remove = useTerminalStore((state) => state.removeFromWatchlist);
+  if (!symbol) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => (watched ? remove(symbol) : add(symbol))}
+      aria-pressed={watched}
+      aria-label={watched ? `Remove ${symbol} from the watchlist` : `Add ${symbol} to the watchlist`}
+      title={watched ? 'On the watchlist' : 'Add to the watchlist'}
+      data-testid="watch-star"
+      className={`-ml-1 rounded-sm px-1 text-[13px] leading-none transition-colors ${
+        watched ? 'text-accent-text' : 'text-ink-3 hover:text-ink-2'
+      }`}
+    >
+      {watched ? '\u2605' : '\u2606'}
+    </button>
   );
 }
 

@@ -318,6 +318,14 @@ export function handleMessage(message: ServerMessage): void {
       });
       break;
 
+    case 'watchlist':
+      store.setWatchlist({
+        symbols: message.symbols,
+        rows: message.rows,
+        note: message.note,
+      });
+      break;
+
     case 'regime':
       store.setRegime({
         regime: message.regime,

@@ -438,6 +438,21 @@ async def configure_swing(
     return {"config": config.to_dict()}
 
 
+@router.get("/watchlist")
+async def watchlist() -> dict:
+    """The list and a quote for each name on it.
+
+    Adding and removing go over the WebSocket, so every open window sees the
+    change; this is the first read, for a client that has just loaded.
+    """
+    container = _container()
+    return {
+        "symbols": container.watchlist.symbols(),
+        "rows": await container.watchlist.rows(),
+        "note": container.watchlist.note,
+    }
+
+
 @router.get("/scanner/tiers")
 async def scanner_tiers() -> dict:
     """Static, shared scanner metadata — the four tiers and the scan codes

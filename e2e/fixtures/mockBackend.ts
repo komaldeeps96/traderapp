@@ -28,6 +28,8 @@ import {
   makePeers,
   makeSwingRows,
   makeSwingScreens,
+  makeWatchlistMessage,
+  makeWatchlistRow,
   makeInfo,
   makeNews,
   makeQuote,
@@ -60,6 +62,8 @@ export interface MockBackendOptions {
   basePrice?: number;
   /** Serve the full overhead level stack, burying the last price in the panel. */
   manyLevels?: boolean;
+  /** Symbols already on the server's watchlist when the page loads. */
+  watchlist?: string[];
 }
 
 export interface MockBackend {
@@ -156,6 +160,20 @@ export async function installMockBackend(
       body: JSON.stringify(catalogue ? makeSwingScreens() : makeSwingRows()),
     });
   });
+  // The watchlist the mock server is holding. Add and remove edit *this*, and
+  // the whole list is broadcast back — the same contract the real server has,
+  // which is what lets a spec assert that the panel renders what came back
+  // rather than what it optimistically drew.
+  let watchlist: string[] = [...(options.watchlist ?? [])];
+
+  await page.route('**/api/watchlist', (route) => {
+    void route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ symbols: watchlist, rows: watchlist.map(makeWatchlistRow), note: null }),
+    });
+  });
   await json(page, '**/api/concepts/**', makeConcepts());
   await json(page, '**/api/ownership/**', makeOwnership());
   await json(page, '**/api/peers/**', makePeers());
@@ -182,6 +200,9 @@ export async function installMockBackend(
     }
     ws.send(JSON.stringify(makeRegimeMessage()));
     ws.send(JSON.stringify(makeApiUsage()));
+    // Sent only when there is one, exactly as the server does — an empty list
+    // costs a fresh connection no frame at all.
+    if (watchlist.length > 0) ws.send(JSON.stringify(makeWatchlistMessage(watchlist)));
 
     ws.onMessage((raw) => {
       let command: Record<string, unknown>;
@@ -252,6 +273,20 @@ export async function installMockBackend(
           } else {
             follow();
           }
+          break;
+        }
+
+        case 'watchlist.add': {
+          const symbol = text(command.symbol, '').toUpperCase();
+          if (symbol && !watchlist.includes(symbol)) watchlist = [...watchlist, symbol];
+          ws.send(JSON.stringify(makeWatchlistMessage(watchlist)));
+          break;
+        }
+
+        case 'watchlist.remove': {
+          const symbol = text(command.symbol, '').toUpperCase();
+          watchlist = watchlist.filter((entry) => entry !== symbol);
+          ws.send(JSON.stringify(makeWatchlistMessage(watchlist)));
           break;
         }
 

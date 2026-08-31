@@ -423,6 +423,28 @@ export interface RegimeMessage {
   error: string | null;
 }
 
+export interface WatchlistRow {
+  symbol: string;
+  /** The company name. Empty when the screener does not know the symbol. */
+  name: string;
+  close: number | null;
+  change: number | null;
+  volume: number | null;
+  rvol: number | null;
+  market_cap: number | null;
+  premarket_change: number | null;
+  /** Epoch seconds of the next scheduled report. */
+  next_earnings: number | null;
+}
+
+/** The whole list, every time — the server never sends a diff. */
+export interface WatchlistMessage {
+  type: 'watchlist';
+  symbols: string[];
+  rows: WatchlistRow[];
+  note: string | null;
+}
+
 export interface ErrorMessage {
   type: 'error';
   code: string;
@@ -442,6 +464,7 @@ export type ServerMessage =
   | ApiUsageMessage
   | ScannerMessage
   | RegimeMessage
+  | WatchlistMessage
   | NewsMessage
   | FilingMessage
   | ErrorMessage
@@ -479,6 +502,8 @@ export type ClientCommand =
       timeframe: Timeframe;
       visible: Record<string, boolean>;
     }
+  | { action: 'watchlist.add'; symbol: string }
+  | { action: 'watchlist.remove'; symbol: string }
   | { action: 'ping' };
 
 // ── REST payloads ──────────────────────────────────────────────────────
@@ -657,6 +682,12 @@ export interface SwingRowsResponse {
   screen_id: string;
   rows: SwingRow[];
   config: SwingConfig;
+  note: string | null;
+}
+
+export interface WatchlistResponse {
+  symbols: string[];
+  rows: WatchlistRow[];
   note: string | null;
 }
 

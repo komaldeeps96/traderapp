@@ -83,16 +83,16 @@ next, and never have two `playwright test` invocations alive at once.
     cd e2e     && npx tsc --noEmit -p . && npx eslint .
 
     # Browser tests — one project per invocation
-    cd e2e && npx playwright test --project=chromium    # ~1.3 min, 311 tests
+    cd e2e && npx playwright test --project=chromium    # ~1.5 min, 342 tests
     cd e2e && npx playwright test --project=visual      # ~7 s,      5 tests
-    cd e2e && npx playwright test --project=fullstack   # ~16 s,    19 tests
-    cd e2e && npx playwright test --project=firefox     # ~1.9 min, 311 tests
-    cd e2e && npx playwright test --project=webkit      # ~2.5 min, 311 tests
+    cd e2e && npx playwright test --project=fullstack   # ~18 s,    23 tests
+    cd e2e && npx playwright test --project=firefox     # ~2.1 min, 342 tests
+    cd e2e && npx playwright test --project=webkit      # ~2.7 min, 342 tests
     cd e2e && npx playwright test --project=mobile      # ~8 s,      8 tests
 
 A full sequential pass is about seven minutes and holds memory above 80%.
-All six browser projects pass clean this way: 311 / 5 / 19 / 311 / 311 / 8,
-alongside 1148 backend and 344 frontend unit tests.
+All six browser projects pass clean this way: 342 / 5 / 23 / 342 / 342 / 8,
+alongside 1261 backend and 357 frontend unit tests.
 
 ### Rules that keep it upright
 
@@ -171,13 +171,28 @@ from TradingView goes through `app/domain/screener.finite()`.
 prior years as comparatives, so Apple's FY2016 revenue is tagged `fy: 2018`.
 A fact's period is `start`–`end` and nothing else.
 
+**A screener's universe filter is not a lookup filter.** `_common_stock_terms()`
+in `services/tv.py` keeps to primary listings of US common stock, which is
+right when ranking a list nobody asked for names on and wrong when somebody
+typed the symbol. Reusing it in the watchlist blanked three whole classes
+while still drawing a row for each: Canopy Growth (`is_primary` is False —
+its primary listing is the TSX), every ADR (Alibaba is typed `dr`, not
+`stock`), and every ETF. The last one is not even ours: `tradingview_screener`
+injects its own default `filter2` that excludes ETFs outright, so the fix was
+`set_property("filter2", ...)`. See `services/watchlist.py`.
+
 ## Visual baselines
 
 Tolerance is `maxDiffPixelRatio: 0.004`. A small added chip is well under
 that, so **a green visual run is not evidence that a small component change
 was noticed** — this has silently passed against stale baselines twice. After
-any toolbar or strip change, assert the new element renders, then regenerate
-with `--update-snapshots`.
+any toolbar or strip change, assert the new element renders, then regenerate.
+
+**Regenerate with `--update-snapshots=all`, not `--update-snapshots`.** The
+bare flag only rewrites a baseline whose comparison *failed*, and the whole
+problem is that these changes do not fail. A toolbar star and a third sidebar
+tab left all five baselines untouched under the bare flag and rewrote three
+under `=all`.
 
 ## The audit suite
 
@@ -189,10 +204,17 @@ It is excluded from every normal run — `addopts` carries `-m 'not audit'`, so
 `pytest tests` still never leaves the machine. Run it deliberately:
 
     cd backend && .venv/bin/pip install -e '.[audit]'
-    cd backend && .venv/bin/pytest -m audit          # ~55 s, 497 tests
+    cd backend && .venv/bin/pytest -m audit          # ~60 s, 511 tests
 
 `companyfacts` is cached under `tests/audit/.cache/` so a second run costs
 nothing and the SEC is not asked twice.
+
+`test_watchlist.py` is the exception to the two-auditor pattern below: it has
+no outside source to compare against, because it is not checking a *figure*.
+It asks the live screener whether ten named symbols — an ADR, an ETF, a
+second share class, a secondary listing — come back with a price at all. That
+class of fault is invisible to a unit test, since every symbol still produced
+a row and every one of those rows was empty.
 
 The two auditors answer different questions. **yfinance** reports in the
 filer's own currency, so it checks the *parse*: the right concept, the right

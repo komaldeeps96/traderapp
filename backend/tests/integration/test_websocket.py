@@ -440,3 +440,47 @@ class TestIndicatorVisibility:
         receive_until(ws, "error")
         ws.send_json({"action": "ping"})
         assert receive_until(ws, "pong")["type"] == "pong"
+
+
+class TestWatchlist:
+    """Add and remove go over the socket, because the list is shared.
+
+    It lives in one file rather than one per connection, so a name added in
+    one window has to appear in the others — which is why the whole list is
+    broadcast rather than acknowledged to the sender.
+    """
+
+    def test_adding_returns_the_whole_list(self, ws, stub_watchlist_quotes):
+        ws.send_json({"action": "watchlist.add", "symbol": "AAPL"})
+        message = receive_until(ws, "watchlist")
+        assert message["symbols"] == ["AAPL"]
+        assert message["rows"][0]["symbol"] == "AAPL"
+
+    def test_removing_returns_the_whole_list(self, ws, stub_watchlist_quotes):
+        for symbol in ("AAPL", "TSLA"):
+            ws.send_json({"action": "watchlist.add", "symbol": symbol})
+            receive_until(ws, "watchlist")
+        ws.send_json({"action": "watchlist.remove", "symbol": "AAPL"})
+        assert receive_until(ws, "watchlist")["symbols"] == ["TSLA"]
+
+    def test_it_reaches_a_second_window(self, client, ws, stub_watchlist_quotes):
+        """Two tabs on the same terminal share one list."""
+        with client.websocket_connect("/ws") as other:
+            ws.send_json({"action": "watchlist.add", "symbol": "NVDA"})
+            assert receive_until(other, "watchlist", limit=20)["symbols"] == ["NVDA"]
+
+    def test_it_is_waiting_on_the_next_connection(self, client, ws, stub_watchlist_quotes):
+        ws.send_json({"action": "watchlist.add", "symbol": "ZM"})
+        receive_until(ws, "watchlist")
+        with client.websocket_connect("/ws") as fresh:
+            assert receive_until(fresh, "watchlist", limit=20)["symbols"] == ["ZM"]
+
+    def test_an_empty_list_costs_a_new_connection_nothing(self, client, ws):
+        """No list means no screener request while the socket is opening."""
+        with client.websocket_connect("/ws") as fresh:
+            for _ in range(7):
+                assert fresh.receive_json()["type"] != "watchlist"
+
+    def test_a_symbol_that_is_not_one_is_refused(self, ws):
+        ws.send_json({"action": "watchlist.add", "symbol": ""})
+        assert receive_until(ws, "error")["code"] == "bad_command"

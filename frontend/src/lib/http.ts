@@ -16,6 +16,7 @@ import type {
   SessionInfo,
   SwingRowsResponse,
   SwingScreensResponse,
+  WatchlistResponse,
   TimeframeInfo,
 } from '@/types/protocol';
 
@@ -77,6 +78,10 @@ export const api = {
     getJson<SwingScreensResponse>('/api/swing/screens', signal),
   swingRows: (screenId: string, signal?: AbortSignal) =>
     getJson<SwingRowsResponse>(`/api/swing/${encodeURIComponent(screenId)}`, signal),
+  // The socket pushes this after every edit; the fetch is only for a reload
+  // that lands before the socket is up.
+  watchlist: (signal?: AbortSignal) =>
+    getJson<WatchlistResponse>('/api/watchlist', signal),
   // Priced per filing, so it is fetched when the tab opens and never warmed.
   ownership: (symbol: string, signal?: AbortSignal) =>
     getJson<OwnershipResponse>(`/api/ownership/${encodeURIComponent(symbol)}`, signal),

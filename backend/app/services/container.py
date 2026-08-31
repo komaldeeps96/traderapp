@@ -19,6 +19,7 @@ from ..domain.protocol import (
     regime_message,
     scanner_message,
     status_message,
+    watchlist_message,
 )
 from ..domain.scanner import SCANNER_TIERS
 from ..indicators.engine import IndicatorEngine
@@ -47,6 +48,7 @@ from ..services.state import StateStore
 from ..services.swing import SwingService
 from ..services.symbol_info import SymbolInfoService
 from ..services.tv import TVDataService
+from ..services.watchlist import WatchlistService
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +137,9 @@ class AppContainer:
             scanner.on_update(functools.partial(self._broadcast_scanner, scanner_id))
 
         self.swing.adopt_config(self.state.swing_config())
+        self.watchlist = WatchlistService(
+            self.state, quotes_enabled=self.settings.regime.enabled
+        )
 
         self.regime.on_update(self._broadcast_regime)
         self.router.on_status_change(self._on_source_change)
@@ -190,6 +195,13 @@ class AppContainer:
             rows=[row.to_dict() for row in state.rows],
             config=state.config.to_dict(),
             running=state.running,
+        )
+
+    async def watchlist_payload(self) -> dict:
+        return watchlist_message(
+            symbols=self.watchlist.symbols(),
+            rows=await self.watchlist.rows(),
+            note=self.watchlist.note,
         )
 
     def api_payload(self) -> dict:

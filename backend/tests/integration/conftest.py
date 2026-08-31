@@ -133,6 +133,45 @@ def edgar_client(settings, alpaca_api) -> TestClient:
 
 
 @pytest.fixture
+def stub_watchlist_quotes(client):
+    """Answer the watchlist's screener query from a fixture.
+
+    The quote fetch is the one part of the panel that leaves the machine, and
+    nothing in these tests may. The list itself — order, duplicates, what
+    survives a restart — is what is being exercised here.
+    """
+    from app.services.container import get_container
+    from app.services.watchlist import COLUMNS
+
+    def make(symbol: str) -> list:
+        values = {
+            "name": symbol,
+            "description": f"{symbol} Inc.",
+            "close": 10.0,
+            "change": 1.5,
+            "volume": 1_000_000.0,
+            "relative_volume_10d_calc": 1.2,
+            "market_cap_basic": 400_000_000.0,
+            "premarket_change": 0.0,
+            "earnings_release_next_date": None,
+        }
+        return [values[name] for name in COLUMNS]
+
+    known = {"AAPL", "TSLA", "NVDA", "ZM"}
+
+    async def fetch(_query):
+        symbols = get_container().watchlist.symbols()
+        return [make(symbol) for symbol in symbols if symbol in known]
+
+    watchlist = get_container().watchlist
+    watchlist._fetch = fetch
+    # These settings run with the screener off so nothing dials out; the stub
+    # *is* the network here, so quotes are back on for the tests that use it.
+    watchlist._quotes_enabled = True
+    return watchlist
+
+
+@pytest.fixture
 def ws(client):
     """A connected client that has consumed the seven opening frames."""
     with client.websocket_connect("/ws") as socket:

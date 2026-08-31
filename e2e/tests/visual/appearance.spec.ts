@@ -77,6 +77,9 @@ test.describe('appearance', () => {
     // aside too, so the bare role matches two elements and the comparison
     // stopped running rather than failing loudly.
     await terminal.waitForChart();
+    // A third tab is well inside the pixel tolerance, so the screenshot alone
+    // would happily pass against a two-tab baseline. Asserted, then compared.
+    await expect(terminal.page.getByTestId('scanner-tab-watch')).toBeVisible();
     await terminal.moveMouseAway();
     const sidebar = terminal.page.getByRole('complementary', { name: 'Market tools' });
     await expect(sidebar).toHaveScreenshot('sidebar-dark.png', {
@@ -87,6 +90,9 @@ test.describe('appearance', () => {
 
   test('the top panel', async ({ terminal }) => {
     await terminal.waitForChart();
+    // Same reasoning as the sidebar's tab: one star is far too small to move
+    // the diff ratio, so its presence is asserted rather than assumed.
+    await expect(terminal.page.getByTestId('watch-star')).toBeVisible();
     await terminal.moveMouseAway();
     await expect(terminal.page.getByTestId('top-panel')).toHaveScreenshot('top-panel-dark.png', {
       maxDiffPixelRatio: 0.01,

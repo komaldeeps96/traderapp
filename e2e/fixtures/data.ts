@@ -999,6 +999,46 @@ export function makeSwingScreens() {
 }
 
 /** Rows for one screen. Signs matter: `off_high` is negative below the high. */
+/**
+ * One watchlist row, as the screener would fill it.
+ *
+ * A symbol not in this table still gets a row with empty numbers — that is
+ * how the real service answers for a delisted or mistyped ticker, and the
+ * panel has to keep showing it so it can be taken off the list.
+ */
+const WATCHLIST_QUOTES: Record<string, Record<string, unknown>> = {
+  AAPL: { name: 'Apple Inc.', close: 231.4, change: 1.24, premarket_change: 0.31, rvol: 1.1 },
+  TSLA: { name: 'Tesla Inc.', close: 412.8, change: -2.67, premarket_change: -0.9, rvol: 2.4 },
+  NVDA: { name: 'NVIDIA Corp', close: 178.2, change: 3.02, premarket_change: 1.15, rvol: 1.8 },
+  FGI: { name: 'FGI Industries', close: 4.12, change: 18.4, premarket_change: 12.6, rvol: 9.3 },
+};
+
+export function makeWatchlistRow(symbol: string) {
+  const quote = WATCHLIST_QUOTES[symbol];
+  return {
+    symbol,
+    name: '',
+    close: null,
+    change: null,
+    volume: null,
+    rvol: null,
+    market_cap: null,
+    premarket_change: null,
+    next_earnings: null,
+    ...(quote ?? {}),
+    ...(quote ? { volume: 3_400_000, market_cap: 900_000_000 } : {}),
+  };
+}
+
+export function makeWatchlistMessage(symbols: string[], note: string | null = null) {
+  return {
+    type: 'watchlist',
+    symbols,
+    rows: symbols.map(makeWatchlistRow),
+    note,
+  };
+}
+
 export function makeSwingRows(screenId = 'trend', overrides: Partial<Record<string, unknown>> = {}) {
   return {
     screen_id: screenId,

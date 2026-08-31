@@ -128,3 +128,39 @@ class TestIndicatorState:
         await first.save_indicators("1m", {"ema9": False})
         first.indicator_overrides()["1m"]["ema9"] = True
         assert first.indicator_overrides() == {"1m": {"ema9": False}}
+
+
+class TestWatchlist:
+    """A plain list of symbols, in the order they were added."""
+
+    async def test_round_trips(self, tmp_path):
+        await store(tmp_path).save_watchlist(["AAPL", "TSLA"])
+        assert store(tmp_path).watchlist() == ["AAPL", "TSLA"]
+
+    def test_empty_before_anything_is_watched(self, tmp_path):
+        assert store(tmp_path).watchlist() == []
+
+    async def test_order_is_the_users_and_is_kept(self, tmp_path):
+        """Not sorted: the order things were added in is information."""
+        await store(tmp_path).save_watchlist(["ZM", "AAPL", "NVDA"])
+        assert store(tmp_path).watchlist() == ["ZM", "AAPL", "NVDA"]
+
+    async def test_survives_a_chart_save(self, tmp_path):
+        first = store(tmp_path)
+        await first.save_watchlist(["AAPL"])
+        await first.save("TSLA", "1m")
+        reopened = store(tmp_path)
+        assert reopened.watchlist() == ["AAPL"]
+        assert reopened.symbol == "TSLA"
+
+    def test_a_hand_edited_file_cannot_poison_it(self, tmp_path):
+        (tmp_path / "state.yaml").write_text(
+            "watchlist:\n  - aapl\n  - 7\n  - ''\n  - ' tsla '\n"
+        )
+        assert store(tmp_path).watchlist() == ["AAPL", "TSLA"]
+
+    async def test_callers_cannot_mutate_the_cache(self, tmp_path):
+        first = store(tmp_path)
+        await first.save_watchlist(["AAPL"])
+        first.watchlist().append("TSLA")
+        assert first.watchlist() == ["AAPL"]

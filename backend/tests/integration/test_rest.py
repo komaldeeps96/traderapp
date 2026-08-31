@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.integration.conftest import receive_until
+
 
 class TestHealth:
     def test_reports_ok(self, client):
@@ -393,3 +395,25 @@ class TestConcepts:
     def test_says_so_when_edgar_is_switched_off(self, client):
         payload = client.get("/api/concepts/CELU?q=cash").json()
         assert payload["available"] is False
+
+
+class TestWatchlistEndpoint:
+    """The first read, for a client that has just loaded.
+
+    Edits go over the socket; this is only how a fresh page finds out what is
+    already on the list.
+    """
+
+    def test_it_is_empty_before_anything_is_watched(self, client):
+        payload = client.get("/api/watchlist").json()
+        assert payload == {"symbols": [], "rows": [], "note": None}
+
+    def test_it_serves_what_the_socket_added(self, client, stub_watchlist_quotes):
+        with client.websocket_connect("/ws") as socket:
+            socket.send_json({"action": "watchlist.add", "symbol": "AAPL"})
+            socket.send_json({"action": "ping"})
+            receive_until(socket, "pong", limit=20)
+
+        payload = client.get("/api/watchlist").json()
+        assert payload["symbols"] == ["AAPL"]
+        assert payload["rows"][0]["name"] == "AAPL Inc."

@@ -157,6 +157,21 @@ class SetIndicatorVisibilityCommand(_Command):
         return Timeframe.parse(self.timeframe)
 
 
+# A watchlist is a list somebody reads at a glance; past a few dozen names
+# it is a screener, and the terminal already has two of those.
+WatchSymbol = Annotated[str, Field(min_length=1, max_length=12)]
+
+
+class WatchlistAddCommand(_Command):
+    action: Literal["watchlist.add"]
+    symbol: WatchSymbol
+
+
+class WatchlistRemoveCommand(_Command):
+    action: Literal["watchlist.remove"]
+    symbol: WatchSymbol
+
+
 class PingCommand(_Command):
     action: Literal["ping"]
 
@@ -167,6 +182,8 @@ ClientCommand = Annotated[
     | ConfigureScannerCommand
     | StopScannerCommand
     | SetIndicatorVisibilityCommand
+    | WatchlistAddCommand
+    | WatchlistRemoveCommand
     | PingCommand,
     Field(discriminator="action"),
 ]
@@ -283,6 +300,19 @@ class FilingMessage(TypedDict):
     filing: dict
 
 
+class WatchlistMessage(TypedDict):
+    """The whole list, every time.
+
+    A list of a few dozen symbols costs less to send than a diff costs to
+    reason about, and the client can never drift out of step with the file.
+    """
+
+    type: Literal["watchlist"]
+    symbols: list[str]
+    rows: list[dict]
+    note: str | None
+
+
 class ErrorMessage(TypedDict):
     type: Literal["error"]
     code: str
@@ -366,6 +396,12 @@ def status_message(
         "alpaca_available": alpaca_available,
         "message": message,
     }
+
+
+def watchlist_message(
+    *, symbols: list[str], rows: list[dict], note: str | None = None
+) -> WatchlistMessage:
+    return {"type": "watchlist", "symbols": symbols, "rows": rows, "note": note}
 
 
 def scanner_message(

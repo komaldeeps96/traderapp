@@ -296,3 +296,72 @@ test.describe('indicator toggles, against the real server', () => {
     expect(await reopen(terminal)).toBe(before);
   });
 });
+
+
+/**
+ * The watchlist, against the real server.
+ *
+ * The mocked suite covers how the panel behaves; this covers the only thing
+ * a mock cannot prove — that the list is genuinely on the server. It survives
+ * a reload with the browser's own storage cleared, which no client-side list
+ * could do.
+ *
+ * The backend here runs with the screener switched off, because nothing in a
+ * test run may leave the machine. That is exactly the state this asserts is
+ * still useful: the names, their order and their persistence do not depend on
+ * a price being fetched for them.
+ */
+test.describe('watchlist, against the real server', () => {
+  async function openWatch(terminal: TerminalPage): Promise<void> {
+    await terminal.waitForChart();
+    await terminal.page.getByTestId('scanner-tab-watch').click();
+    await expect(terminal.page.getByTestId('watchlist-panel')).toBeVisible();
+  }
+
+  async function add(terminal: TerminalPage, symbol: string): Promise<void> {
+    await terminal.page.getByTestId('watchlist-input').fill(symbol);
+    await terminal.page.getByTestId('watchlist-input').press('Enter');
+    await expect(terminal.page.getByTestId(`watchlist-row-${symbol}`)).toBeVisible();
+  }
+
+  test('survives a reload with nothing left in the browser', async ({ terminal, page }) => {
+    await openWatch(terminal);
+    await add(terminal, 'AAPL');
+    await add(terminal, 'TSLA');
+
+    // Clear the browser's own storage, so nothing here can carry the answer.
+    await page.evaluate(() => localStorage.clear());
+    await terminal.goto();
+    await openWatch(terminal);
+
+    const rows = terminal.page.locator('[data-testid^="watchlist-row-"]');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0)).toContainText('AAPL');
+    await expect(rows.nth(1)).toContainText('TSLA');
+  });
+
+  test('a removal survives too', async ({ terminal }) => {
+    await openWatch(terminal);
+    await terminal.page.getByTestId('watchlist-remove-AAPL').click();
+    await expect(terminal.page.getByTestId('watchlist-row-AAPL')).toBeHidden();
+
+    await terminal.goto();
+    await openWatch(terminal);
+    await expect(terminal.page.getByTestId('watchlist-row-AAPL')).toBeHidden();
+    await expect(terminal.page.getByTestId('watchlist-row-TSLA')).toBeVisible();
+  });
+
+  test('says why the prices are blank rather than looking broken', async ({ terminal }) => {
+    // With the screener off there is nothing to quote, and an empty row with
+    // no explanation reads as a bug rather than as a switched-off feed.
+    await openWatch(terminal);
+    await expect(terminal.page.getByTestId('watchlist-warning')).toBeVisible();
+  });
+
+  test('and the list is empty again afterwards', async ({ terminal }) => {
+    // Left clean for the next run: this suite shares one state file.
+    await openWatch(terminal);
+    await terminal.page.getByTestId('watchlist-remove-TSLA').click();
+    await expect(terminal.page.getByTestId('watchlist-empty')).toBeVisible();
+  });
+});

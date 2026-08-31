@@ -21,6 +21,8 @@ from ..domain.protocol import (
     SetIndicatorVisibilityCommand,
     StopScannerCommand,
     SubscribeCommand,
+    WatchlistAddCommand,
+    WatchlistRemoveCommand,
     error_message,
     parse_command,
     quote_message,
@@ -46,6 +48,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         connection.send(container.scanner_payload(scanner_id))
     connection.send(container.regime_payload())
     connection.send(container.api_payload())
+    # Sent last, and only if there is one: the fetch reaches TradingView, and
+    # nothing above it should wait on the network.
+    if container.watchlist.symbols():
+        connection.send(await container.watchlist_payload())
 
     try:
         while True:
@@ -91,6 +97,25 @@ async def _dispatch(container: AppContainer, connection: ClientConnection, raw: 
 
     elif action == "indicators.visibility":
         await _save_indicator_visibility(container, command)
+
+    elif action in ("watchlist.add", "watchlist.remove"):
+        await _edit_watchlist(container, command)
+
+
+async def _edit_watchlist(
+    container: AppContainer, command: WatchlistAddCommand | WatchlistRemoveCommand
+) -> None:
+    """Add or drop one symbol, then tell every client the whole list.
+
+    The list lives in one file, not per connection, so a name added on one
+    window has to appear on the others — and broadcasting the full list is
+    what makes that free.
+    """
+    if command.action == "watchlist.add":
+        await container.watchlist.add(command.symbol)
+    else:
+        await container.watchlist.remove(command.symbol)
+    container.hub.broadcast(await container.watchlist_payload())
 
 
 _pending_prefetches: set[asyncio.Task] = set()

@@ -40,6 +40,7 @@ import type {
   ScannerRow,
   ScannerTierId,
   Timeframe,
+  WatchlistRow,
   WireBar,
 } from '@/types/protocol';
 import { SCANNER_TIER_IDS, SCANNER_TIER_LABELS } from '@/types/protocol';
@@ -110,6 +111,13 @@ interface TerminalState {
   /** The timeframe each mini-chart slot shows. */
   miniTimeframes: Timeframe[];
 
+  // watchlist — a flat list of symbols, in the order they were added, and one
+  // quote row per name. Both come from the server, which owns the list; the
+  // client never edits its own copy, so two windows cannot disagree.
+  watchlist: string[];
+  watchlistRows: WatchlistRow[];
+  watchlistNote: string | null;
+
   // the right-hand dock — which tab is open and how wide the rail is
   dockTab: DockTabId;
   mainTab: MainTabId;
@@ -176,6 +184,13 @@ interface TerminalState {
     scannerId: ScannerTierId,
     payload: { label: string; rows: ScannerRow[]; config: ScannerConfig; running: boolean },
   ) => void;
+  setWatchlist: (payload: {
+    symbols: string[];
+    rows: WatchlistRow[];
+    note: string | null;
+  }) => void;
+  addToWatchlist: (symbol: string) => void;
+  removeFromWatchlist: (symbol: string) => void;
   setScannerTiers: (payload: {
     note: string | null;
     scanCodes: Array<{ code: string; label: string }>;
@@ -217,6 +232,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   indicatorOverrides: {},
 
   scanners: emptyScanners(),
+  watchlist: [],
+  watchlistRows: [],
+  watchlistNote: null,
   miniTimeframes: loadMiniTimeframes(),
   dockTab: loadDockTab(),
   mainTab: loadMainTab(),
@@ -413,6 +431,21 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         [scannerId]: { label, rows: unique, config, running },
       },
     }));
+  },
+
+  setWatchlist: ({ symbols, rows, note }) =>
+    set({ watchlist: symbols, watchlistRows: rows, watchlistNote: note }),
+
+  // Both edits are sent and not applied: the list lives on the server, and the
+  // broadcast that comes back is what every window renders. Echoing locally
+  // would show a name that a failed write never actually added.
+  addToWatchlist: (symbol) => {
+    const wanted = symbol.trim().toUpperCase();
+    if (wanted) sendCommand({ action: 'watchlist.add', symbol: wanted });
+  },
+
+  removeFromWatchlist: (symbol) => {
+    sendCommand({ action: 'watchlist.remove', symbol: symbol.trim().toUpperCase() });
   },
 
   setScannerTiers: ({ note, scanCodes }) => set({ scannerNote: note, scanCodes }),
