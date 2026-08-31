@@ -143,10 +143,15 @@ class ScannerSettings(BaseModel):
     # trade above it.
     above_price: float | None = None
     below_price: float | None = 50.0
-    # Trades per minute. Five hundred is a tape that is actually being
-    # worked; below it a name is drifting, however much volume it has already
-    # accumulated today.
-    above_trade_rate: int | None = 500
+    # Trades per minute. Two hundred already excludes the great majority of
+    # the tape while still admitting a small cap in the first minutes of a
+    # move, before the rate has built — which is the part of a run worth
+    # catching, and what a higher floor was cutting off.
+    #
+    # A first-run seed only. Once config/state.yaml exists it owns this, so
+    # changing the number here does nothing on a machine that has already run
+    # the terminal — press Apply in the panel instead.
+    above_trade_rate: int | None = 200
 
     # How many rows a panel shows is not settable here: it belongs to the
     # market-cap tier, beside the band, in app/domain/scanner.py's

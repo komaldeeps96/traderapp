@@ -42,10 +42,12 @@ class TestScannerDefaults:
         assert settings.above_price is None
 
     def test_the_tape_must_be_moving(self):
-        """Trades per minute, not cumulative volume. Volume is what a name
-        has already done today; by the time a runner has it, it is often
-        over. Five hundred is a tape actually being worked."""
-        assert ScannerSettings().above_trade_rate == 500
+        """Trades per minute, not cumulative volume. Volume is what a name has
+        already done today; by the time a runner has it, it is often over.
+
+        Two hundred admits a name in the first minutes of a move, before the
+        rate has built — which is the part worth catching."""
+        assert ScannerSettings().above_trade_rate == 200
 
     def test_only_names_up_on_the_day(self):
         assert ScannerSettings().change_perc_above == 10.0

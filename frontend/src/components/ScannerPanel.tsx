@@ -214,7 +214,7 @@ function ScannerFilters({
     scan_code: 'TOP_TRADE_RATE',
     above_price: '',
     below_price: '50',
-    above_trade_rate: '500',
+    above_trade_rate: '200',
     change_perc_above: '',
     market_cap_above: '',
     market_cap_below: '',

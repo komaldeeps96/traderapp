@@ -51,8 +51,8 @@ scanner:
   #
   # HALF OF THIS BLOCK IS A FIRST-RUN SEED, NOT A SETTING
   # -----------------------------------------------------
-  # The four filter keys below — scan_code, above_price, below_price,
-  # above_volume, change_perc_above — seed each tier's ScannerConfig the
+  # The five filter keys below — scan_code, above_price, below_price,
+  # above_trade_rate, change_perc_above — seed each tier's ScannerConfig the
   # first time the terminal runs. After that config/state.yaml owns them:
   # pressing Apply in the UI writes every filter there, and adopt_config
   # reads it back at startup and wins. Editing them here once state.yaml
