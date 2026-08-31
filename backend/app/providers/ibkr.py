@@ -723,8 +723,7 @@ class IBKRProvider(MarketDataProvider):
             subscription.abovePrice = config.above_price
         if config.below_price is not None:
             subscription.belowPrice = config.below_price
-        if config.above_volume is not None:
-            subscription.aboveVolume = config.above_volume
+
         # IBKR's scanner takes market cap in MILLIONS of dollars; our config
         # carries plain dollars like everything else in the app.
         if config.market_cap_above is not None:
@@ -738,6 +737,12 @@ class IBKRProvider(MarketDataProvider):
         filter_options = []
         if config.change_perc_above is not None:
             filter_options.append(_tag_value("changePercAbove", str(config.change_perc_above)))
+        # Trades per minute. IBKR honours this natively — measured on a live
+        # scan, >=500 cut ten rows to two and >=5000 to none — but like
+        # changePercAbove it rides the generic filter list rather than a
+        # subscription field, so rows are re-checked in _process_scanner.
+        if config.above_trade_rate is not None:
+            filter_options.append(_tag_value("tradeRateAbove", str(config.above_trade_rate)))
 
         # Stock type must go through the filter list too. `ScannerSubscription`
         # has a `stockTypeFilter` attribute and setting it does nothing at all
@@ -775,13 +780,14 @@ class IBKRProvider(MarketDataProvider):
             )
 
         logger.info(
-            "IBKR scanner[%s] subscribed: %s (price %s-%s, vol>%s, mcap %s-%s, chg>%s, %d rows) "
+            "IBKR scanner[%s] subscribed: %s (price %s-%s, trades/min>%s, mcap %s-%s, "
+            "chg>%s, %d rows) "
             "— waiting on first results",
             scanner_id,
             config.scan_code,
             config.above_price,
             config.below_price,
-            config.above_volume,
+            config.above_trade_rate,
             config.market_cap_above,
             config.market_cap_below,
             config.change_perc_above,
@@ -854,6 +860,7 @@ class IBKRProvider(MarketDataProvider):
         seen: set[str] = set()
         config = self._scanner_config.get(scanner_id)
         threshold = config.change_perc_above if config else None
+        rate_floor = config.above_trade_rate if config else None
 
         for entry in raw_rows:
             contract = entry.contractDetails.contract
@@ -890,6 +897,13 @@ class IBKRProvider(MarketDataProvider):
             # Re-apply the percent filter: subscription filterOptions are
             # honoured inconsistently across scan codes.
             if threshold is not None and pct_change is not None and pct_change < threshold:
+                continue
+
+            # And the trade rate, for the same reason. Only when a rate has
+            # actually arrived: it comes on ticks 294/295 a moment after the
+            # row does, and treating "not yet known" as "too slow" would empty
+            # the panel for the first seconds of every subscription.
+            if rate_floor is not None and trade_rate is not None and trade_rate < rate_floor:
                 continue
 
             trades = stream["trades"] if stream else ()

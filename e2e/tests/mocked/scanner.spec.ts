@@ -92,8 +92,9 @@ test.describe('scanner with IBKR', () => {
 
     await terminal.page.getByTestId('scanner-small_cap-above_price').fill('2');
     await terminal.page.getByTestId('scanner-small_cap-below_price').fill('15');
-    // Volume is entered in thousands.
-    await terminal.page.getByTestId('scanner-small_cap-above_volume').fill('500');
+    // Trades per minute, entered as-is — what the tape is doing now, not the
+    // volume it has already done today.
+    await terminal.page.getByTestId('scanner-small_cap-above_trade_rate').fill('750');
     await terminal.page.getByTestId('scanner-small_cap-market_cap_below').fill('500');
     await terminal.page.getByTestId('scanner-small_cap-change_perc_above').fill('10');
     await terminal.page.getByTestId('scanner-small_cap-apply').click();
@@ -102,7 +103,7 @@ test.describe('scanner with IBKR', () => {
     expect(command.scanner_id).toBe('small_cap');
     expect(command.above_price).toBe(2);
     expect(command.below_price).toBe(15);
-    expect(command.above_volume).toBe(500000);
+    expect(command.above_trade_rate).toBe(750);
     expect(command.market_cap_below).toBe(500_000_000);
     expect(command.change_perc_above).toBe(10);
     // Untouched bounds are explicitly cleared, not silently kept.

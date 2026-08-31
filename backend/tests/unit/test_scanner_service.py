@@ -89,19 +89,19 @@ class TestAdoptConfig:
         carries the old number, and adopting that would pin the panel back to
         it silently and permanently."""
         svc = service()
-        svc.adopt_config({"number_of_rows": 5})
-        assert svc.state.config.number_of_rows == 10
+        # Ten is what small cap used to run at, so this is the exact state
+        # file that exists on disk from before the depth changed.
+        svc.adopt_config({"number_of_rows": 10})
+        assert svc.state.config.number_of_rows == 5
 
         svc.adopt_config({"number_of_rows": 9999})
-        assert svc.state.config.number_of_rows == 10
+        assert svc.state.config.number_of_rows == 5
 
 
 class TestTierDepth:
-    def test_small_cap_shows_ten(self):
-        assert service().state.config.number_of_rows == 10
-
-    def test_the_context_tiers_show_five(self):
-        for tier_id in ("mid_cap", "large_cap", "mega_cap"):
+    def test_every_tier_shows_five(self):
+        """Four panels share one column with the key levels underneath."""
+        for tier_id in ("small_cap", "mid_cap", "large_cap", "mega_cap"):
             svc = ScannerService(FakeIBKR(), tier_id, ScannerSettings())
             assert svc.state.config.number_of_rows == 5
 

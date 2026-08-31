@@ -59,7 +59,7 @@ class ScannerService:
                 scan_code=settings.scan_code,
                 above_price=settings.above_price,
                 below_price=settings.below_price,
-                above_volume=settings.above_volume,
+                above_trade_rate=settings.above_trade_rate,
                 market_cap_above=tier["market_cap_above"],
                 market_cap_below=tier["market_cap_below"],
                 change_perc_above=settings.change_perc_above,

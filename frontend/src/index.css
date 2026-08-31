@@ -160,3 +160,15 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The symbol panel explains itself on hover.
+
+   Every field and badge up there has carried a `title` since the panel was
+   built, and it went unfound: a native tooltip needs about a second of hover
+   and advertises itself not at all, so ROT, WRVOL, HTB and R/S just read as
+   jargon. This marks the whole panel as askable in one rule, which also
+   covers the badges — chips are already coloured, so they get the cursor and
+   not the underline the `Field` labels carry. */
+[data-testid='top-panel'] [title] {
+  cursor: help;
+}

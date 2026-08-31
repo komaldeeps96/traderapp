@@ -109,7 +109,7 @@ describe('handleMessage scanner rows', () => {
     scan_code: 'TOP_TRADE_RATE',
     above_price: null,
     below_price: null,
-    above_volume: null,
+    above_trade_rate: 500,
     market_cap_above: null,
     market_cap_below: null,
     change_perc_above: null,

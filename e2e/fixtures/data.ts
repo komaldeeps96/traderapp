@@ -532,7 +532,7 @@ export function makeScannerMessage(
       scan_code: 'TOP_TRADE_RATE',
       above_price: 1,
       below_price: 20,
-      above_volume: 100_000,
+      above_trade_rate: 500,
       market_cap_above: null,
       market_cap_below: null,
       change_perc_above: null,

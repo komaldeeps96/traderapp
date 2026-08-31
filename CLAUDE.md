@@ -83,16 +83,16 @@ next, and never have two `playwright test` invocations alive at once.
     cd e2e     && npx tsc --noEmit -p . && npx eslint .
 
     # Browser tests — one project per invocation
-    cd e2e && npx playwright test --project=chromium    # ~1.7 min, 351 tests
+    cd e2e && npx playwright test --project=chromium    # ~1.7 min, 354 tests
     cd e2e && npx playwright test --project=visual      # ~7 s,      5 tests
     cd e2e && npx playwright test --project=fullstack   # ~18 s,    23 tests
-    cd e2e && npx playwright test --project=firefox     # ~2.1 min, 351 tests
-    cd e2e && npx playwright test --project=webkit      # ~2.7 min, 351 tests
+    cd e2e && npx playwright test --project=firefox     # ~2.1 min, 354 tests
+    cd e2e && npx playwright test --project=webkit      # ~2.7 min, 354 tests
     cd e2e && npx playwright test --project=mobile      # ~8 s,      8 tests
 
 A full sequential pass is about seven minutes and holds memory above 80%.
-All six browser projects pass clean this way: 351 / 5 / 23 / 351 / 351 / 8,
-alongside 1322 backend and 357 frontend unit tests.
+All six browser projects pass clean this way: 354 / 5 / 23 / 354 / 354 / 8,
+alongside 1321 backend and 357 frontend unit tests.
 
 ### Rules that keep it upright
 

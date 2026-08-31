@@ -645,7 +645,7 @@ class TestScannerSubscription:
             scan_code="TOP_PERC_GAIN",
             above_price=1.5,
             below_price=20.0,
-            above_volume=100_000,
+            above_trade_rate=500,
             number_of_rows=15,
         )
         assert await provider.start_scanner(TIER_ID, config) is True
@@ -655,7 +655,12 @@ class TestScannerSubscription:
         assert subscription.numberOfRows == 15
         assert subscription.abovePrice == 1.5
         assert subscription.belowPrice == 20.0
-        assert subscription.aboveVolume == 100_000
+        # Trade rate has no subscription field of its own; like changePercAbove
+        # it rides the generic filter list.
+        assert not hasattr(subscription, "aboveVolume")
+        assert ("tradeRateAbove", "500") in [
+            (tag.tag, tag.value) for tag in ib.scanner_filter_options
+        ]
 
     async def test_omits_filters_that_were_not_set(self, provider, ib):
         await provider.start_scanner(TIER_ID, ScannerConfig(scan_code="MOST_ACTIVE"))

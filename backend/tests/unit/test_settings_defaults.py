@@ -26,11 +26,11 @@ class TestScannerDefaults:
             (200_000_000_000, None),
         ]
 
-    def test_small_cap_runs_deeper_than_the_context_tiers(self):
-        """Depth is spent on the tier the terminal is actually for."""
+    def test_every_tier_runs_at_the_same_depth(self):
+        """Four panels stacked in one column share their height with the key
+        levels underneath, so none of them gets to be the deep one."""
         rows = {str(tier["id"]): tier["rows"] for tier in SCANNER_TIERS}
-        assert rows["small_cap"] == 10
-        assert rows["mid_cap"] == rows["large_cap"] == rows["mega_cap"] == DEFAULT_SCANNER_ROWS
+        assert set(rows.values()) == {DEFAULT_SCANNER_ROWS}
 
     def test_the_row_count_is_not_a_settings_knob(self):
         """It belongs to the tier, beside the band — one source of truth."""
@@ -41,8 +41,11 @@ class TestScannerDefaults:
         assert settings.below_price == 50.0
         assert settings.above_price is None
 
-    def test_no_volume_floor(self):
-        assert ScannerSettings().above_volume is None
+    def test_the_tape_must_be_moving(self):
+        """Trades per minute, not cumulative volume. Volume is what a name
+        has already done today; by the time a runner has it, it is often
+        over. Five hundred is a tape actually being worked."""
+        assert ScannerSettings().above_trade_rate == 500
 
     def test_only_names_up_on_the_day(self):
         assert ScannerSettings().change_perc_above == 10.0

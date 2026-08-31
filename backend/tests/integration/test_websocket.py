@@ -27,7 +27,7 @@ class TestHandshake:
             # frame count. Every scanner_id is distinct above, so any one
             # tier's shape stands in for the rest.
             config = frames[0]["config"]
-            assert {"scan_code", "above_price", "below_price", "above_volume"} <= set(config)
+            assert {"scan_code", "above_price", "below_price", "above_trade_rate"} <= set(config)
 
     def test_status_names_the_active_source(self, client):
         with client.websocket_connect("/ws") as socket:

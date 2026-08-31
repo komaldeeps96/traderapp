@@ -214,7 +214,7 @@ function ScannerFilters({
     scan_code: 'TOP_TRADE_RATE',
     above_price: '',
     below_price: '50',
-    above_volume: '',
+    above_trade_rate: '500',
     change_perc_above: '',
     market_cap_above: '',
     market_cap_below: '',
@@ -230,7 +230,7 @@ function ScannerFilters({
       scan_code: config.scan_code,
       above_price: config.above_price?.toString() ?? '',
       below_price: config.below_price?.toString() ?? '',
-      above_volume: config.above_volume != null ? String(config.above_volume / 1e3) : '',
+      above_trade_rate: config.above_trade_rate?.toString() ?? '',
       change_perc_above: config.change_perc_above?.toString() ?? '',
       market_cap_above: config.market_cap_above != null ? String(config.market_cap_above / 1e6) : '',
       market_cap_below: config.market_cap_below != null ? String(config.market_cap_below / 1e6) : '',
@@ -247,7 +247,7 @@ function ScannerFilters({
       scan_code: draft.scan_code,
       above_price: num(draft.above_price) ?? 'clear',
       below_price: num(draft.below_price) ?? 'clear',
-      above_volume: num(draft.above_volume, 1e3),
+      above_trade_rate: num(draft.above_trade_rate) ?? 'clear',
       change_perc_above: num(draft.change_perc_above) ?? 'clear',
       market_cap_above: num(draft.market_cap_above, 1e6) ?? 'clear',
       market_cap_below: num(draft.market_cap_below, 1e6) ?? 'clear',
@@ -292,9 +292,14 @@ function ScannerFilters({
         </select>
       </label>
       <div className="grid grid-cols-3 gap-1">
-        {field('above_price', 'Min $')}
-        {field('below_price', 'Max $')}
-        {field('above_volume', 'Vol K')}
+        {field('above_price', 'Min $', 'Minimum share price — blank for none')}
+        {field('below_price', 'Max $', 'Maximum share price — blank for none')}
+        {field(
+          'above_trade_rate',
+          'T/min ≥',
+          'Minimum trades per minute — what the tape is doing now, rather than ' +
+            'the volume it has already done today. Blank for none.',
+        )}
         {field('change_perc_above', 'Chg% ≥', 'Minimum percent change — blank for none')}
         {field('market_cap_above', 'MCap≥ M', 'Minimum market cap, $ millions — blank for none')}
         {field('market_cap_below', 'MCap≤ M', 'Maximum market cap, $ millions — blank for none')}

@@ -33,17 +33,21 @@ DEFAULT_SCANNER_ROWS = 5
 # price and volume stay open on each tier so a low share price or a quiet
 # day doesn't discard a name the market cap has already qualified.
 #
-# ``rows`` is the depth of the panel, and it is a property of the tier for
-# the same reason the band is. Small cap is the tier this terminal exists
-# for — sub-$2B runners are the setup — so it gets twice the depth; the
-# other three are context, and five names of context is plenty.
+# ``rows`` is the depth of the panel, and it is a property of the tier rather
+# than of the client for the same reason the band is: a state file written
+# before a depth changed must not pin the panel back to the old number.
+#
+# Every tier shows five. Small cap ran at ten for a while, being the tier this
+# terminal exists for, but four panels stacked in one 320px column share their
+# height with the key levels underneath, and the depth was spent on names
+# nobody scrolled to.
 SCANNER_TIERS: tuple[dict[str, object], ...] = (
     {
         "id": "small_cap",
         "label": "Small Cap",
         "market_cap_above": 1_000_000,
         "market_cap_below": 2_000_000_000,
-        "rows": 10,
+        "rows": DEFAULT_SCANNER_ROWS,
     },
     {
         "id": "mid_cap",
@@ -77,7 +81,15 @@ class ScannerConfig:
     scan_code: str
     above_price: float | None = None
     below_price: float | None = None
-    above_volume: int | None = None
+    # Trades per minute, IBKR's own ``tradeRateAbove``. This replaced a
+    # cumulative-volume floor, which asks the wrong question for this
+    # workflow: volume is what a name has already done today, and by the time
+    # a runner has the volume it is often over. Trade rate is what the tape is
+    # doing *now*, which is the thing being scanned for.
+    #
+    # Verified against a live TWS: on one small-cap scan, no filter and >=100
+    # both returned ten rows, >=500 returned two, and >=5000 returned none.
+    above_trade_rate: int | None = None
     # Dollars. IBKR filters on these natively via the scanner subscription.
     market_cap_above: float | None = None
     market_cap_below: float | None = None

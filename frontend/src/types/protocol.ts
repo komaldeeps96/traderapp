@@ -401,7 +401,8 @@ export interface ScannerConfig {
   scan_code: string;
   above_price: number | null;
   below_price: number | null;
-  above_volume: number | null;
+  /** Trades per minute, IBKR's `tradeRateAbove`. */
+  above_trade_rate: number | null;
   market_cap_above: number | null;
   market_cap_below: number | null;
   change_perc_above: number | null;
@@ -496,7 +497,7 @@ export type ClientCommand =
       scan_code?: string;
       above_price?: Clearable;
       below_price?: Clearable;
-      above_volume?: number;
+      above_trade_rate?: Clearable;
       market_cap_above?: Clearable;
       market_cap_below?: Clearable;
       change_perc_above?: Clearable;

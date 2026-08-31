@@ -403,3 +403,49 @@ test.describe('market regime', () => {
     await expect(terminal.page.getByTestId('regime')).toContainText('↑100%:1');
   });
 });
+
+
+/**
+ * The symbol panel says which of its terms it will explain.
+ *
+ * Every field up there has carried a `title` since the panel was built, and
+ * it went unfound — a native tooltip needs about a second of hover and
+ * advertises itself not at all, so ROT, WRVOL, HTB and R/S just read as
+ * jargon. What is asserted here is the affordance, not the tooltip: whether
+ * the browser chooses to paint one is not ours to test, but whether the panel
+ * offers to be asked is.
+ */
+test.describe('the symbol panel explains itself', () => {
+  test('marks the labels that carry an explanation', async ({ terminal }) => {
+    await terminal.waitForChart();
+    const marked = terminal.page.locator('[data-testid="top-panel"] [data-explained]');
+    // Both tape and volume rows, so this is the whole panel and not one row.
+    await expect(marked.filter({ hasText: 'ROT' }).first()).toBeVisible();
+    await expect(marked.filter({ hasText: 'RVOL' }).first()).toBeVisible();
+    expect(await marked.count()).toBeGreaterThan(10);
+  });
+
+  test('every marked label actually has text to show', async ({ terminal }) => {
+    // A dotted underline promising an answer and then not having one is
+    // worse than leaving the label plain.
+    await terminal.waitForChart();
+    const withoutTitle = await terminal.page
+      .locator('[data-testid="top-panel"] [data-explained]')
+      .evaluateAll((nodes) =>
+        nodes.filter((node) => !(node.closest('[title]')?.getAttribute('title') ?? '')).length,
+      );
+    expect(withoutTitle).toBe(0);
+  });
+
+  test('the whole panel offers the help cursor, badges included', async ({ terminal }) => {
+    // The chips are the most cryptic things up there — HTB, ROOM, R/S — and
+    // they are coloured already, so they take the cursor and not a underline.
+    await terminal.waitForChart();
+    const notHelp = await terminal.page
+      .locator('[data-testid="top-panel"] [title]')
+      .evaluateAll((nodes) =>
+        nodes.filter((node) => getComputedStyle(node).cursor !== 'help').length,
+      );
+    expect(notHelp).toBe(0);
+  });
+});

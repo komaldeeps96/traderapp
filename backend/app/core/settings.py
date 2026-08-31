@@ -143,11 +143,14 @@ class ScannerSettings(BaseModel):
     # trade above it.
     above_price: float | None = None
     below_price: float | None = 50.0
-    above_volume: int | None = None
+    # Trades per minute. Five hundred is a tape that is actually being
+    # worked; below it a name is drifting, however much volume it has already
+    # accumulated today.
+    above_trade_rate: int | None = 500
 
     # How many rows a panel shows is not settable here: it belongs to the
     # market-cap tier, beside the band, in app/domain/scanner.py's
-    # SCANNER_TIERS. Small cap runs deeper than the other three.
+    # SCANNER_TIERS, where every tier now runs at the same depth.
 
     # Market cap is no longer a single band here — the four scanner tiers
     # (app/domain/scanner.py, SCANNER_TIERS) each carry their own band, e.g.

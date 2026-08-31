@@ -116,7 +116,9 @@ class ConfigureScannerCommand(_Command):
     scan_code: str | None = Field(default=None, max_length=40)
     above_price: ClearablePrice = None
     below_price: ClearablePrice = None
-    above_volume: int | None = Field(default=None, ge=0)
+    # Trades per minute, not cumulative volume — what the tape is doing now
+    # rather than what it has already done today.
+    above_trade_rate: int | None = Field(default=None, ge=0)
     market_cap_above: Clearable = None
     market_cap_below: Clearable = None
     change_perc_above: Clearable = None

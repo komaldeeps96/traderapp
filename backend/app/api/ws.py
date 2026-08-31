@@ -222,7 +222,7 @@ async def _configure_scanner(
         scan_code=command.scan_code,
         above_price=command.above_price,
         below_price=command.below_price,
-        above_volume=command.above_volume,
+        above_trade_rate=command.above_trade_rate,
         market_cap_above=command.market_cap_above,
         market_cap_below=command.market_cap_below,
         change_perc_above=command.change_perc_above,
