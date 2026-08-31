@@ -56,13 +56,14 @@ export function NewsTab() {
   if (headlines.length === 0) {
     return empty(
       providers.length === 0
-        ? 'News needs a running IBKR TWS or Gateway connection.'
+        ? 'No news feed is reachable. Check the Alpaca keys, or start TWS.'
         : `No headlines for ${symbol} in the last 30 days.`,
     );
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="dock-news">
+      <Feeds providers={providers} />
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
         {headlines.map((headline) => (
           <Row
@@ -75,6 +76,28 @@ export function NewsTab() {
       </div>
       {open && <Reader symbol={symbol} headline={open} onClose={() => setOpen(null)} />}
     </div>
+  );
+}
+
+/**
+ * Which feeds are behind the list.
+ *
+ * Worth the one line because the answer is not fixed: the wire feeds are an
+ * IBKR entitlement and vanish with TWS, while Benzinga rides in on Alpaca and
+ * does not. A panel that goes thin should say which half went away.
+ */
+function Feeds({ providers }: { providers: Array<{ code: string; name: string }> }) {
+  if (providers.length === 0) return null;
+  return (
+    <p
+      className="shrink-0 truncate border-b border-line px-2 py-0.5 text-[9px] uppercase tracking-wide text-ink-3"
+      data-testid="news-providers"
+      title={providers.map((entry) => entry.name).join('\n')}
+    >
+      {providers.length} feed{providers.length === 1 ? '' : 's'} ·{' '}
+      {providers.some((entry) => entry.code.startsWith('BZ')) ? 'Benzinga' : 'wire only'}
+      {providers.some((entry) => entry.code.startsWith('DJ')) ? ' + Dow Jones' : ''}
+    </p>
   );
 }
 
@@ -105,7 +128,7 @@ function Row({
       title={CATALYST_TITLE[headline.catalyst]}
       className={`grid w-full grid-cols-[46px_44px_1fr] items-baseline gap-2 border-b border-line px-2 py-1 text-left outline-none hover:bg-elevated focus-visible:bg-elevated ${
         active ? 'bg-elevated' : ''
-      }`}
+      } ${headline.roundup ? 'opacity-60' : ''}`}
     >
       <span className="tnum text-[10px] text-ink-3">{formatNewsTime(headline.time)}</span>
       <span className="truncate text-[9px] uppercase tracking-wide text-ink-3">
@@ -116,6 +139,18 @@ function Row({
         {headline.related.length > 0 && (
           <span className="ml-1 text-[9px] text-ink-3" title="Duplicate wire copies folded in">
             +{headline.related.length}
+          </span>
+        )}
+        {/* A movers list names a dozen companies and this one is merely among
+            them, so the headline is usually about somebody else. Dimmed and
+            labelled rather than hidden: being on that list is itself a tell. */}
+        {headline.roundup && (
+          <span
+            className="ml-1 rounded-sm bg-elevated px-1 text-[9px] text-ink-3"
+            data-testid="news-roundup"
+            title={`A roundup naming ${headline.symbol_count} companies, not this one's news`}
+          >
+            LIST
           </span>
         )}
       </span>
@@ -151,6 +186,21 @@ function Reader({
         <p className="min-w-0 flex-1 text-[11px] font-semibold leading-snug text-ink">
           {headline.headline}
         </p>
+        {/* Only Benzinga publishes one; a wire article exists nowhere but on
+            the connection it came down. `noreferrer` because this is a
+            third-party link on the page that also holds the trading UI. */}
+        {headline.url && (
+          <a
+            href={headline.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="news-source-link"
+            title="Open the original on the publisher's site"
+            className="shrink-0 rounded-sm px-1 text-[10px] leading-none text-ink-3 outline-none hover:text-accent-text focus-visible:text-accent-text"
+          >
+            Source ↗
+          </a>
+        )}
         <button
           type="button"
           onClick={onClose}

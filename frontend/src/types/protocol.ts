@@ -239,11 +239,17 @@ export interface Headline {
   catalyst: Catalyst;
   /** Duplicate bulletins and continuations folded into this row. */
   related: string[];
+  /** Set only by sources that publish one — Benzinga does, the wire does not. */
+  url: string;
+  /** How many companies the story is about. A press release names one. */
+  symbol_count: number;
+  /** True when the story is about a basket rather than about this company. */
+  roundup: boolean;
 }
 
 export interface NewsResponse {
   symbol: string;
-  /** The feeds this login is entitled to; empty without TWS. */
+  /** The feeds behind the panel. Benzinga is here with no TWS running. */
   providers: Array<{ code: string; name: string }>;
   headlines: Headline[];
 }

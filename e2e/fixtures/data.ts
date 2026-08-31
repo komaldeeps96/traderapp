@@ -714,6 +714,9 @@ export function makeHeadline(overrides: Partial<Record<string, unknown>> = {}) {
     headline: 'Celularity Announces Pricing of $8M Public Offering',
     catalyst: 'supply' as const,
     related: [],
+    url: '',
+    symbol_count: 1,
+    roundup: false,
     ...overrides,
   };
 }
@@ -724,6 +727,7 @@ export function makeNews(symbol = 'AAPL', overrides: Partial<Record<string, unkn
     providers: [
       { code: 'DJ-N', name: 'Dow Jones Global Equity Trader' },
       { code: 'BRFG', name: 'Briefing.com General Market Columns' },
+      { code: 'BZ-ALP', name: 'Benzinga (via Alpaca)' },
     ],
     headlines: [
       makeHeadline(),
@@ -745,6 +749,28 @@ export function makeNews(symbol = 'AAPL', overrides: Partial<Record<string, unkn
         headline: 'Celularity Names Steven N. Gordon Chief Operating Officer',
         catalyst: 'none',
         time: SESSION_START + 100 * 10,
+      }),
+      // Benzinga, via Alpaca. It carries a link the wire feeds never do, and
+      // its body arrives with the headline rather than on a second request.
+      makeHeadline({
+        article_id: 'bz:61523000',
+        provider: 'BZ-ALP',
+        headline: 'Why Celularity Shares Are Trading Higher Today',
+        catalyst: 'none',
+        time: SESSION_START + 90 * 10,
+        url: 'https://www.benzinga.com/news/61523000/celularity',
+      }),
+      // A movers list naming twelve companies. This one is merely among them,
+      // so the headline is about somebody else entirely.
+      makeHeadline({
+        article_id: 'bz:61518626',
+        provider: 'BZ-ALP',
+        headline: "12 Health Care Stocks Moving In Monday's Pre-Market Session",
+        catalyst: 'none',
+        time: SESSION_START + 80 * 10,
+        url: 'https://www.benzinga.com/movers/61518626/',
+        symbol_count: 12,
+        roundup: true,
       }),
     ],
     ...overrides,

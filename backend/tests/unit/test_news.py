@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from app.domain.news import (
+    BENZINGA_CODE,
     MAX_ARTICLE_CHARS,
     Catalyst,
     build,
@@ -16,6 +17,7 @@ from app.domain.news import (
     clean_headline,
     is_continuation,
     stem,
+    to_benzinga_row,
     to_paragraphs,
 )
 
@@ -363,3 +365,129 @@ class TestToParagraphs:
     @pytest.mark.parametrize("body", ["", "   ", "<p></p>"])
     def test_nothing_to_say_is_no_paragraphs(self, body):
         assert to_paragraphs(body) == []
+
+
+class TestBenzingaRows:
+    """Alpaca's feed, mapped onto the shape the wire pipeline already reads.
+
+    It is here because IBKR's feeds go quiet on some of exactly the companies
+    this terminal is for: WETO returned its own halt and its own resume and
+    nothing else, while this source had ten rows.
+    """
+
+    @staticmethod
+    def entry(**overrides) -> dict:
+        base = {
+            "id": 61523000,
+            "headline": "Wetour Robotics Announces FDA Clearance",
+            "created_at": "2026-08-31T14:14:47Z",
+            "url": "https://www.benzinga.com/news/61523000/weto",
+            "symbols": ["WETO"],
+        }
+        base.update(overrides)
+        return base
+
+    def test_it_maps_the_fields_the_pipeline_reads(self):
+        row = to_benzinga_row(self.entry())
+        assert row["headline"] == "Wetour Robotics Announces FDA Clearance"
+        assert row["provider"] == BENZINGA_CODE
+        assert row["url"].startswith("https://")
+
+    def test_the_timestamp_becomes_epoch_seconds(self):
+        assert to_benzinga_row(self.entry())["time"] == 1788185687
+
+    def test_ids_are_namespaced_so_they_cannot_collide(self):
+        """IBKR ids are short numeric strings too, and both share one dict."""
+        assert to_benzinga_row(self.entry())["article_id"] == "bz:61523000"
+
+    def test_a_press_release_names_one_company(self):
+        assert to_benzinga_row(self.entry())["symbol_count"] == 1
+
+    def test_a_movers_list_carries_its_real_count(self):
+        """Twelve tickers, and the one asked for is merely among them."""
+        row = to_benzinga_row(self.entry(symbols=[f"S{n}" for n in range(12)]))
+        assert row["symbol_count"] == 12
+
+    def test_a_row_with_no_symbols_counts_as_one(self):
+        assert to_benzinga_row(self.entry(symbols=[]))["symbol_count"] == 1
+
+    @pytest.mark.parametrize("missing", ["headline", "id", "created_at"])
+    def test_a_row_missing_what_it_needs_is_dropped(self, missing):
+        assert to_benzinga_row(self.entry(**{missing: None})) is None
+
+    def test_an_unparseable_timestamp_is_dropped(self):
+        """Better no row than a row sorted to 1970."""
+        assert to_benzinga_row(self.entry(created_at="not a date")) is None
+
+
+class TestRoundups:
+    def test_a_roundup_is_flagged_for_the_panel(self):
+        rows = build(
+            [
+                {
+                    "article_id": "bz:1",
+                    "provider": BENZINGA_CODE,
+                    "time": 1000,
+                    "headline": "12 Health Care Stocks Moving In Monday's Pre-Market Session",
+                    "symbol_count": 12,
+                }
+            ]
+        )
+        assert rows[0].is_roundup is True
+        assert rows[0].to_dict()["roundup"] is True
+
+    def test_a_release_naming_two_companies_is_not_a_roundup(self):
+        """A partnership or a merger names both sides and is still news."""
+        rows = build(
+            [
+                {
+                    "article_id": "bz:2",
+                    "provider": BENZINGA_CODE,
+                    "time": 1000,
+                    "headline": "Alpha And Beta Announce Merger Agreement",
+                    "symbol_count": 2,
+                }
+            ]
+        )
+        assert rows[0].is_roundup is False
+
+    def test_an_ibkr_row_is_never_a_roundup(self):
+        """It carries no count, and its rows are fetched per symbol."""
+        rows = build([raw("Celularity Files 8K - Listing Notice", 1000, "a")])
+        assert rows[0].symbol_count == 1
+        assert rows[0].is_roundup is False
+
+    def test_the_narrowest_copy_wins_when_a_story_arrives_twice(self):
+        """Carried as its own press release and again inside a movers list,
+        it is this company's news — the roundup is the duplicate."""
+        headline = "Wetour Robotics Announces FDA Clearance"
+        rows = build(
+            [
+                {"article_id": "a", "provider": "DJ-N", "time": 1000, "headline": headline},
+                {
+                    "article_id": "bz:1",
+                    "provider": BENZINGA_CODE,
+                    "time": 1000,
+                    "headline": headline,
+                    "symbol_count": 12,
+                },
+            ]
+        )
+        assert len(rows) == 1
+        assert rows[0].is_roundup is False
+
+    def test_the_url_survives_the_collapse(self):
+        """The row that wins may be the one without a link; the story still
+        has one, and it is the only way to open a Benzinga article."""
+        rows = build(
+            [
+                {
+                    "article_id": "bz:1",
+                    "provider": BENZINGA_CODE,
+                    "time": 1000,
+                    "headline": "Wetour Robotics Announces FDA Clearance For Its Device",
+                    "url": "https://www.benzinga.com/news/1",
+                }
+            ]
+        )
+        assert rows[0].url == "https://www.benzinga.com/news/1"

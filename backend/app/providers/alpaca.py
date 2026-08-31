@@ -264,6 +264,37 @@ class AlpacaProvider(MarketDataProvider):
         rows = actions.get("reverse_splits") or []
         return [row for row in rows if isinstance(row, dict)]
 
+    # ── news ───────────────────────────────────────────────────────────
+
+    async def fetch_news(self, symbol: str, *, days: int, limit: int) -> list[dict]:
+        """Benzinga headlines for one symbol, raw from Alpaca.
+
+        This exists because the IBKR feeds, good as they are on most names,
+        go silent on some of exactly the companies this terminal is for.
+        WETO returned two rows — its own halt and its own resume — while this
+        endpoint had ten, and AEMD's catalyst was here when IBKR had nothing
+        in thirty days.
+
+        ``include_content`` is asked for so the body arrives with the
+        headline. IBKR articles are fetched one at a time by id; these come
+        whole, so opening one costs no request at all.
+        """
+        if not self._settings.enabled or self._client is None:
+            return []
+        start = datetime.now(UTC) - timedelta(days=days)
+        payload = await self._get(
+            "/v1beta1/news",
+            {
+                "symbols": symbol,
+                "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "limit": min(limit, 50),
+                "sort": "desc",
+                "include_content": "true",
+            },
+        )
+        rows = payload.get("news") or []
+        return [row for row in rows if isinstance(row, dict)]
+
     # ── streaming ──────────────────────────────────────────────────────
 
     async def set_stream_symbols(self, symbols: set[str]) -> None:

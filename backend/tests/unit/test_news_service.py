@@ -35,6 +35,32 @@ class FakeIBKR:
         return self.article
 
 
+class FakeAlpaca:
+    """Alpaca's one news method, answering in its own wire shape."""
+
+    def __init__(self, items=None, fails: bool = False):
+        self.items = items or []
+        self.fails = fails
+        self.calls: list[tuple[str, int, int]] = []
+
+    async def fetch_news(self, symbol, *, days, limit):
+        self.calls.append((symbol, days, limit))
+        if self.fails:
+            raise RuntimeError("Alpaca said no")
+        return list(self.items)
+
+
+def benzinga(headline: str, when: str, identifier: int, symbols=None, content="<p>Body</p>") -> dict:
+    return {
+        "id": identifier,
+        "headline": headline,
+        "created_at": when,
+        "url": f"https://www.benzinga.com/news/{identifier}",
+        "symbols": symbols if symbols is not None else ["WETO"],
+        "content": content,
+    }
+
+
 def row(headline: str, time: int, article_id: str, provider: str = "DJ-N") -> dict:
     return {
         "headline": headline,
@@ -185,3 +211,87 @@ class TestEviction:
         for index in range(MAX_SYMBOLS + 10):
             service.add_live(f"SYM{index}", row(f"Story number {index} about things", 1000, f"a{index}"))
         assert len(service._raw) <= MAX_SYMBOLS
+
+
+class TestTwoSources:
+    """The reason there are two.
+
+    WETO returned its own halt and its own resume from IBKR and nothing else,
+    while Benzinga had ten rows. Neither source is allowed to be the single
+    point of failure for the other.
+    """
+
+    async def test_headlines_from_both_land_in_one_list(self):
+        ibkr = FakeIBKR([row("Wetour Robotics Ltd. (WETO) Resumed Trading", 1000, "a")])
+        alpaca = FakeAlpaca([benzinga("Wetour Robotics Wins Contract", "2026-08-31T14:14:47Z", 1)])
+        service = NewsService(ibkr, alpaca)
+        await service.prefetch("WETO")
+        headlines = {h.headline for h in service.peek("WETO")}
+        assert len(headlines) == 2
+
+    async def test_alpaca_alone_still_fills_the_panel(self):
+        """The configuration of a desk with no TWS running."""
+        alpaca = FakeAlpaca([benzinga("Wetour Robotics Wins Contract", "2026-08-31T14:14:47Z", 1)])
+        service = NewsService(None, alpaca)
+        await service.prefetch("WETO")
+        assert len(service.peek("WETO")) == 1
+
+    async def test_one_source_failing_does_not_cost_the_other_its_rows(self):
+        ibkr = FakeIBKR([row("Wetour Robotics Files 8K", 1000, "a")])
+        service = NewsService(ibkr, FakeAlpaca(fails=True))
+        await service.prefetch("WETO")
+        assert len(service.peek("WETO")) == 1
+
+    async def test_the_wire_failing_does_not_cost_benzinga_its_rows(self):
+        class Broken(FakeIBKR):
+            async def fetch_historical_news(self, symbol, days, limit):
+                raise RuntimeError("TWS went away")
+
+        alpaca = FakeAlpaca([benzinga("Wetour Robotics Wins Contract", "2026-08-31T14:14:47Z", 1)])
+        service = NewsService(Broken(), alpaca)
+        await service.prefetch("WETO")
+        assert len(service.peek("WETO")) == 1
+
+    async def test_the_same_story_from_both_sources_is_one_row(self):
+        """A press release carried by Dow Jones and by Benzinga is one event."""
+        headline = "Wetour Robotics Announces FDA Clearance For Its Device"
+        ibkr = FakeIBKR([row(headline, 1_788_185_687, "a")])
+        alpaca = FakeAlpaca([benzinga(headline, "2026-08-31T14:14:47Z", 1)])
+        service = NewsService(ibkr, alpaca)
+        await service.prefetch("WETO")
+        assert len(service.peek("WETO")) == 1
+
+    async def test_both_feeds_are_named_in_the_footer(self):
+        service = NewsService(FakeIBKR(), FakeAlpaca())
+        codes = [entry["code"] for entry in await service.providers()]
+        assert codes == ["DJ-N", "BZ-ALP"]
+
+    async def test_the_footer_survives_the_wire_being_down(self):
+        class Broken(FakeIBKR):
+            async def fetch_news_providers(self):
+                raise RuntimeError("TWS went away")
+
+        service = NewsService(Broken(), FakeAlpaca())
+        assert [e["code"] for e in await service.providers()] == ["BZ-ALP"]
+
+
+class TestBenzingaArticles:
+    async def test_the_body_arrives_with_the_headline(self):
+        """It ships inline, so opening one spends no request."""
+        alpaca = FakeAlpaca([benzinga("Wetour Wins", "2026-08-31T14:14:47Z", 1, content="<p>Hi</p>")])
+        service = NewsService(None, alpaca)
+        await service.prefetch("WETO")
+        assert await service.article("BZ-ALP", "bz:1") == "<p>Hi</p>"
+
+    async def test_a_benzinga_id_is_never_asked_of_the_wire(self):
+        """Spending an IBKR request to be told no is the failure mode here."""
+        ibkr = FakeIBKR()
+        service = NewsService(ibkr, FakeAlpaca())
+        assert await service.article("BZ-ALP", "bz:999") == ""
+        assert ibkr.article_calls == []
+
+    async def test_a_wire_article_still_goes_to_the_wire(self):
+        ibkr = FakeIBKR(article="<p>Wire body</p>")
+        service = NewsService(ibkr, FakeAlpaca())
+        assert await service.article("DJ-N", "1f36") == "<p>Wire body</p>"
+        assert ibkr.article_calls == [("DJ-N", "1f36")]

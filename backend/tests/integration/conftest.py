@@ -85,10 +85,50 @@ def trades_endpoint():
 
 
 @pytest.fixture
-def alpaca_api(bars_endpoint, trades_endpoint):
+def news_endpoint():
+    """Serve Alpaca-shaped Benzinga news.
+
+    Two rows, deliberately unalike: a company press release naming one symbol,
+    and a movers roundup naming twelve. The panel has to tell them apart.
+    """
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        symbol = request.url.params.get("symbols", "AAPL")
+        return httpx.Response(
+            200,
+            json={
+                "news": [
+                    {
+                        "id": 61523000,
+                        "headline": f"{symbol} Announces FDA Clearance",
+                        "created_at": "2026-08-31T14:14:47Z",
+                        "source": "benzinga",
+                        "url": f"https://www.benzinga.com/news/61523000/{symbol.lower()}",
+                        "symbols": [symbol],
+                        "content": "<p>The company said the clearance covers…</p>",
+                    },
+                    {
+                        "id": 61518626,
+                        "headline": "12 Health Care Stocks Moving In Monday's Pre-Market",
+                        "created_at": "2026-08-31T12:06:15Z",
+                        "source": "benzinga",
+                        "url": "https://www.benzinga.com/movers/61518626/",
+                        "symbols": [symbol, *[f"X{n:02d}" for n in range(11)]],
+                        "content": "<h3>Gainers</h3><ul><li>…</li></ul>",
+                    },
+                ]
+            },
+        )
+
+    return respond
+
+
+@pytest.fixture
+def alpaca_api(bars_endpoint, trades_endpoint, news_endpoint):
     with respx.mock(base_url=ALPACA_HOST, assert_all_called=False) as mock:
         mock.get("/v2/stocks/bars").mock(side_effect=bars_endpoint)
         mock.get("/v2/stocks/trades").mock(side_effect=trades_endpoint)
+        mock.get("/v1beta1/news").mock(side_effect=news_endpoint)
         yield mock
 
 

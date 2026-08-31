@@ -232,12 +232,38 @@ class TestFilings:
 
 class TestNews:
     """The dock's news panel. IBKR is disabled in these settings, which is the
-    configuration a user without TWS has — the panel must say so rather than
-    fail."""
+    configuration a user without TWS has — and the panel still fills, because
+    Benzinga rides in on Alpaca's connection rather than on the wire feed."""
 
-    def test_answers_without_ibkr_rather_than_erroring(self, client):
+    def test_still_carries_headlines_without_ibkr(self, client):
         body = client.get("/api/news/CELU").json()
-        assert body == {"symbol": "CELU", "providers": [], "headlines": []}
+        assert body["symbol"] == "CELU"
+        assert [p["code"] for p in body["providers"]] == ["BZ-ALP"]
+        assert len(body["headlines"]) == 2
+
+    def test_a_press_release_is_not_marked_a_roundup(self, client):
+        rows = client.get("/api/news/CELU").json()["headlines"]
+        release = next(r for r in rows if "FDA" in r["headline"])
+        assert release["symbol_count"] == 1
+        assert release["roundup"] is False
+        assert release["url"].startswith("https://www.benzinga.com/")
+
+    def test_a_movers_list_is_marked_as_one(self, client):
+        """It names twelve companies; showing it as this one's news is how a
+        feed stops being read."""
+        rows = client.get("/api/news/CELU").json()["headlines"]
+        roundup = next(r for r in rows if "Moving" in r["headline"])
+        assert roundup["symbol_count"] == 12
+        assert roundup["roundup"] is True
+
+    def test_the_body_arrives_with_the_headline(self, client):
+        """Benzinga sends content inline, so opening one costs no request."""
+        rows = client.get("/api/news/CELU").json()["headlines"]
+        article = client.get(
+            "/api/news/CELU/article",
+            params={"provider": "BZ-ALP", "article_id": rows[0]["article_id"]},
+        ).json()
+        assert article["paragraphs"]
 
     def test_normalises_the_symbol(self, client):
         assert client.get("/api/news/celu").json()["symbol"] == "CELU"

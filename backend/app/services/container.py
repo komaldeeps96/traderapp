@@ -92,7 +92,13 @@ class AppContainer:
         )
         # IBKR is the news provider — the one research feed this account is
         # entitled to, while every fundamentals request answers error 10358.
-        self.news = NewsService(self.ibkr if self.settings.ibkr.enabled else None)
+        # Two sources, each optional. IBKR carries the entitled feeds; Alpaca
+        # carries Benzinga, which is the only one that answers with no TWS
+        # running and the one that covers the micro caps IBKR's feeds miss.
+        self.news = NewsService(
+            self.ibkr if self.settings.ibkr.enabled else None,
+            self.alpaca if self.settings.alpaca.enabled else None,
+        )
         self.ibkr.on_news(self._on_news)
 
         # A 424B5 landing while a runner is open is the surprise this whole

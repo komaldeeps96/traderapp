@@ -1,8 +1,13 @@
 """Headlines, cleaned up and read for what they do to the tape.
 
-IBKR is the one thing this account *is* entitled to — eight feeds, thirty days
-of history, live headlines on generic tick 292, and full article bodies. What
-arrives is not usable as-is:
+Two sources feed this. IBKR is the entitled one — eight feeds, thirty days of
+history, live headlines on generic tick 292, and full article bodies. Alpaca's
+Benzinga feed is the second, and it is here because the first goes quiet on
+some of exactly the companies this terminal exists for: WETO returned its own
+halt and its own resume and nothing else, while Benzinga had ten rows, and
+AEMD's catalyst 8-K was there when IBKR had nothing in thirty days.
+
+What arrives from IBKR is not usable as-is:
 
     {A:800015:L:en}Celularity Files 8K - Listing Notice >CELU
 
@@ -25,7 +30,15 @@ from __future__ import annotations
 import html as html_module
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
+from typing import NamedTuple
+
+# A story naming more than this many companies is a roundup, not this
+# company's news. Benzinga's movers lists run to twelve and twenty; a market
+# summary names a handful. A real press release names one, occasionally two
+# in a partnership or a merger.
+ROUNDUP_SYMBOLS = 2
 
 
 class Catalyst(str, Enum):
@@ -211,10 +224,25 @@ class Headline:
     time: int
     headline: str
     catalyst: Catalyst
+    # Set only by sources that publish one. An IBKR article is fetched by id
+    # over the wire connection; a Benzinga one is a link, and its body has
+    # already arrived, so the two are opened by different routes.
+    url: str = ""
+    # How many companies the story is about. A press release names one; a
+    # "12 Industrials Stocks Moving" roundup names twelve, and showing it as
+    # though it were this company's news is how a feed stops being read.
+    # IBKR reports no such count and its rows are fetched per symbol, so one
+    # is the honest default.
+    symbol_count: int = 1
     # Continuations and duplicate bulletins folded into this row, newest
     # first. Kept rather than dropped so the reader can still open the rest
     # of a long press release.
     related: tuple[str, ...] = ()
+
+    @property
+    def is_roundup(self) -> bool:
+        """A story about a basket rather than about this company."""
+        return self.symbol_count > ROUNDUP_SYMBOLS
 
     def to_dict(self) -> dict:
         return {
@@ -224,6 +252,9 @@ class Headline:
             "headline": self.headline,
             "catalyst": self.catalyst.value,
             "related": list(self.related),
+            "url": self.url,
+            "symbol_count": self.symbol_count,
+            "roundup": self.is_roundup,
         }
 
 
@@ -319,13 +350,71 @@ def stem(headline: str) -> str:
     return cut.rsplit(" ", 1)[0] if " " in cut else cut
 
 
+class _Copy(NamedTuple):
+    """One wire copy of a story. Indexed positionally by the matcher."""
+
+    time: int
+    article_id: str
+    provider: str
+    headline: str
+    url: str = ""
+    symbol_count: int = 1
+
+
+# Benzinga rides in on Alpaca's connection, so it needs a provider code of its
+# own — IBKR's are two-to-seven letters like ``DJ-N``, and this must not be
+# mistaken for one when an article body is fetched.
+BENZINGA_CODE = "BZ-ALP"
+
+# Article ids are integers on this feed and short numeric strings on IBKR's,
+# so they are namespaced before they share a dict.
+_BENZINGA_ID = "bz:"
+
+
+def to_benzinga_row(entry: dict) -> dict | None:
+    """One Alpaca news item, in the shape ``build`` already reads.
+
+    ``symbols`` is the field that earns its keep. Benzinga publishes movers
+    lists naming a dozen tickers, and the symbol asked for is simply one of
+    them — so "Why Elastic Shares Are Trading Higher By 22%" comes back under
+    AEMD. Carrying the count lets the panel show those without letting them
+    pose as this company's news.
+    """
+    headline = str(entry.get("headline") or "").strip()
+    identifier = entry.get("id")
+    if not headline or identifier is None:
+        return None
+    published = _epoch(str(entry.get("created_at") or ""))
+    if published is None:
+        return None
+    symbols = entry.get("symbols")
+    return {
+        "article_id": f"{_BENZINGA_ID}{identifier}",
+        "provider": BENZINGA_CODE,
+        "time": published,
+        "headline": headline,
+        "url": str(entry.get("url") or ""),
+        "symbol_count": len(symbols) if isinstance(symbols, list) and symbols else 1,
+    }
+
+
+def _epoch(timestamp: str) -> int | None:
+    """RFC 3339 as the wire sends it — ``2026-08-31T14:14:47Z``."""
+    if not timestamp:
+        return None
+    try:
+        return int(datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return None
+
+
 @dataclass
 class _Group:
     """One story, with every wire copy of it collected."""
 
     key: str
     time: int
-    members: list[tuple[int, str, str, str]]  # time, id, provider, headline
+    members: list[_Copy]
 
 
 def build(raw_headlines: list[dict]) -> list[Headline]:
@@ -334,36 +423,38 @@ def build(raw_headlines: list[dict]) -> list[Headline]:
     ``raw_headlines`` carries ``article_id``, ``provider``, ``time`` and
     ``headline``. The result is newest first, which is how a feed is read.
     """
-    rows: list[tuple[int, str, str, str]] = []
+    rows: list[_Copy] = []
     for raw in raw_headlines:
         headline = clean_headline(str(raw.get("headline") or ""))
         if not headline:
             continue
         rows.append(
-            (
-                int(raw.get("time") or 0),
-                str(raw.get("article_id") or ""),
-                str(raw.get("provider") or ""),
-                headline,
+            _Copy(
+                time=int(raw.get("time") or 0),
+                article_id=str(raw.get("article_id") or ""),
+                provider=str(raw.get("provider") or ""),
+                headline=headline,
+                url=str(raw.get("url") or ""),
+                symbol_count=max(1, int(raw.get("symbol_count") or 1)),
             )
         )
-    rows.sort(key=lambda row: row[0], reverse=True)
+    rows.sort(key=lambda row: row.time, reverse=True)
 
     groups: list[_Group] = []
     for row in rows:
         group = _match(groups, row)
         if group is None:
-            key = stem(row[3])
+            key = stem(row.headline)
             if not key:
                 continue
-            groups.append(_Group(key=key, time=row[0], members=[row]))
+            groups.append(_Group(key=key, time=row.time, members=[row]))
         else:
             group.members.append(row)
 
     return [_headline_for(group) for group in groups]
 
 
-def _match(groups: list[_Group], row: tuple[int, str, str, str]) -> _Group | None:
+def _match(groups: list[_Group], row: _Copy) -> _Group | None:
     """The story this wire copy belongs to, if any.
 
     A copy too short to produce a full stem is matched by prefix instead:
@@ -377,7 +468,7 @@ def _match(groups: list[_Group], row: tuple[int, str, str, str]) -> _Group | Non
     overwhelmingly the same story — and the cost of being wrong is one row
     folded, not one row lost: the copy is kept in ``related``.
     """
-    time, _, _, headline = row
+    time, headline = row.time, row.headline
     key = stem(headline)
     if not key:
         return None
@@ -411,21 +502,28 @@ def _headline_for(group: _Group) -> Headline:
     of them, so a bulletin that only mentions the offering in its second line
     still tints the row.
     """
-    _, article_id, provider, headline = max(group.members, key=lambda row: len(row[3]))
+    best = max(group.members, key=lambda row: len(row.headline))
     catalyst = Catalyst.NONE
-    for _, _, _, text in group.members:
-        found = classify(text)
+    for copy in group.members:
+        found = classify(copy.headline)
         if found is not Catalyst.NONE and (
             catalyst is Catalyst.NONE or _worse(found, catalyst)
         ):
             catalyst = found
     return Headline(
-        article_id=article_id,
-        provider=provider,
-        time=max(row[0] for row in group.members),
-        headline=_CONTINUATION.sub("", headline).strip(),
+        article_id=best.article_id,
+        provider=best.provider,
+        time=max(row.time for row in group.members),
+        headline=_CONTINUATION.sub("", best.headline).strip(),
         catalyst=catalyst,
-        related=tuple(row[1] for row in group.members if row[1] != article_id),
+        related=tuple(
+            row.article_id for row in group.members if row.article_id != best.article_id
+        ),
+        url=best.url,
+        # The narrowest copy wins. The same story reaching us twice — once as
+        # a press release and once inside a movers list — is this company's
+        # news, and the roundup is the duplicate, not the other way round.
+        symbol_count=min(row.symbol_count for row in group.members),
     )
 
 

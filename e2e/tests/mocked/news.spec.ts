@@ -17,7 +17,8 @@ test.describe('news tab', () => {
     await terminal.dockTab('news').click();
 
     const rows = terminal.page.getByTestId('news-row');
-    await expect(rows).toHaveCount(4);
+    // Four from the wire feeds, two from Benzinga.
+    await expect(rows).toHaveCount(6);
     await expect(rows.first()).toContainText('Announces Pricing of $8M Public Offering');
   });
 
@@ -84,7 +85,7 @@ test.describe('news tab', () => {
   test('a live headline arrives at the top without a refetch', async ({ terminal, backend }) => {
     await terminal.waitForChart();
     await terminal.dockTab('news').click();
-    await expect(terminal.page.getByTestId('news-row')).toHaveCount(4);
+    await expect(terminal.page.getByTestId('news-row')).toHaveCount(6);
 
     await backend.send(
       makeNewsMessage('AAPL', {
@@ -96,7 +97,7 @@ test.describe('news tab', () => {
     );
 
     const rows = terminal.page.getByTestId('news-row');
-    await expect(rows).toHaveCount(5);
+    await expect(rows).toHaveCount(7);
     await expect(rows.first()).toContainText('Halted, News Pending');
   });
 
@@ -108,7 +109,7 @@ test.describe('news tab', () => {
     await backend.send(message);
     await backend.send(message);
 
-    await expect(terminal.page.getByTestId('news-row')).toHaveCount(5);
+    await expect(terminal.page.getByTestId('news-row')).toHaveCount(7);
   });
 
   test('a headline for another symbol is ignored', async ({ terminal, backend }) => {
@@ -119,10 +120,16 @@ test.describe('news tab', () => {
       makeNewsMessage('ZZZZ', { article_id: 'other', time: 9_999_999_999 }),
     );
 
-    await expect(terminal.page.getByTestId('news-row')).toHaveCount(4);
+    await expect(terminal.page.getByTestId('news-row')).toHaveCount(6);
   });
 
-  test('says what is missing when there is no feed', async ({ terminal, page }) => {
+  test('does not blame TWS when Benzinga is the feed that is missing', async ({
+    terminal,
+    page,
+  }) => {
+    // This used to read "News needs a running IBKR TWS or Gateway
+    // connection", which stopped being true the moment Benzinga arrived on
+    // Alpaca's connection: it answers with no TWS at all.
     await page.route('**/api/news/*', (route) =>
       route.fulfill({
         status: 200,
@@ -134,7 +141,9 @@ test.describe('news tab', () => {
     await terminal.waitForChart();
     await terminal.dockTab('news').click();
 
-    await expect(terminal.dockPanel('news')).toContainText('IBKR TWS or Gateway');
+    const panel = terminal.dockPanel('news');
+    await expect(panel).toContainText('Alpaca keys');
+    await expect(panel).toContainText('TWS');
   });
 
   test('distinguishes an empty feed from a missing one', async ({ terminal, page }) => {
@@ -150,5 +159,69 @@ test.describe('news tab', () => {
     await terminal.dockTab('news').click();
 
     await expect(terminal.dockPanel('news')).toContainText('No headlines');
+  });
+});
+
+
+/**
+ * The second source.
+ *
+ * IBKR's eight feeds are good on most names and silent on some of exactly the
+ * companies this terminal is for — WETO returned its own halt and its own
+ * resume and nothing else. Benzinga rides in on Alpaca's connection, which
+ * also means it is the only source that answers with no TWS running.
+ */
+test.describe('Benzinga headlines', () => {
+  test.beforeEach(async ({ terminal }) => {
+    await terminal.waitForChart();
+    await terminal.dockTab('news').click();
+  });
+
+  test('sit in the same list as the wire feeds', async ({ terminal }) => {
+    await expect(
+      terminal.page.getByText('Why Celularity Shares Are Trading Higher Today'),
+    ).toBeVisible();
+  });
+
+  test('the feed is named in the footer', async ({ terminal }) => {
+    await expect(terminal.page.getByTestId('news-providers')).toContainText('Benzinga');
+  });
+
+  test('a roundup is marked rather than passed off as this company’s news', async ({
+    terminal,
+  }) => {
+    // It names twelve companies and this one is merely among them, so the
+    // headline is usually about somebody else.
+    const rows = terminal.page.getByTestId('news-roundup');
+    await expect(rows).toHaveCount(1);
+  });
+
+  test('a real press release is not marked', async ({ terminal }) => {
+    const release = terminal.page
+      .getByTestId('news-row')
+      .filter({ hasText: 'Why Celularity Shares Are Trading Higher' });
+    await expect(release.getByTestId('news-roundup')).toHaveCount(0);
+  });
+
+  test('opening one offers the original', async ({ terminal }) => {
+    await terminal.page
+      .getByTestId('news-row')
+      .filter({ hasText: 'Why Celularity Shares Are Trading Higher' })
+      .click();
+    const link = terminal.page.getByTestId('news-source-link');
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute('href', /benzinga\.com/);
+    // Third-party link on the page that also holds the trading UI.
+    await expect(link).toHaveAttribute('rel', /noreferrer/);
+  });
+
+  test('a wire headline offers no such link', async ({ terminal }) => {
+    // A wire article exists nowhere but on the connection it came down.
+    await terminal.page
+      .getByTestId('news-row')
+      .filter({ hasText: 'Announces Pricing of $8M Public Offering' })
+      .click();
+    await expect(terminal.page.getByTestId('news-article')).toBeVisible();
+    await expect(terminal.page.getByTestId('news-source-link')).toHaveCount(0);
   });
 });
