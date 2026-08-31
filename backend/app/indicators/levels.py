@@ -258,6 +258,18 @@ def _calendar_extreme(
     out. That is what makes this differ from the bar count it replaces —
     Celularity's high was dated 366 days back, inside a 252-bar window and
     outside a 52-week one, and the label says weeks.
+
+    **Not weekly resampling**, which is the obvious alternative and is wrong
+    for a level. Fifty-two weekly bars span 357 days on a Monday and 361 on a
+    Friday, because the newest bar is a partial week — so an old extreme
+    expires up to a week early and the level drops in Monday steps rather
+    than decaying by the day. Measured on Celularity: for four consecutive
+    days in August 2026 the weekly method read 3.1539 while the highest print
+    of the preceding fifty-two weeks was still 4.0098.
+
+    The two answer different questions. "The highest of the last 52 weekly
+    candles" is what a weekly chart shows; "the highest price in the last 52
+    weeks" is what a level labelled 52W means, and it is this one.
     """
     window = timedelta(weeks=weeks)
     out: list[Number] = []

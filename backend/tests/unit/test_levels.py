@@ -342,3 +342,34 @@ class TestCalendarParsing:
     def test_the_key_prints_back_the_way_it_was_written(self):
         assert str(parse_level_key("high:52w")) == "high:52w"
         assert str(parse_level_key("low:130")) == "low:130"
+
+
+class TestNotWeeklyResampling:
+    """The obvious alternative, and why it is not used.
+
+    Fifty-two weekly bars span 357 days on a Monday and 361 on a Friday,
+    because the newest bar is a partial week. An old extreme therefore
+    expires up to a week early, which understates the level for most of the
+    week.
+    """
+
+    def test_an_extreme_inside_the_year_is_kept_all_week(self):
+        last = date(2026, 8, 24)  # a Monday
+        # 360 days old: inside 52 calendar weeks, but already outside the
+        # 52 weekly bars that begin on the Monday of that week.
+        old = last - timedelta(days=360)
+        bars = [
+            TestCalendarWindows.bar(old, 4.0098),
+            TestCalendarWindows.bar(last, 3.1539),
+        ]
+        key = LevelKey("high", 52, weeks=True)
+        assert DailyLevelIndex(bars, {key})._rolling[key][-1] == 4.0098
+
+    def test_the_window_does_not_breathe_with_the_weekday(self):
+        """Every day looks back exactly 52 weeks, Monday or Friday."""
+        key = LevelKey("high", 52, weeks=True)
+        for last in (date(2026, 8, 24), date(2026, 8, 28)):  # Monday, Friday
+            inside = TestCalendarWindows.bar(last - timedelta(days=363), 9.0)
+            outside = TestCalendarWindows.bar(last - timedelta(days=365), 99.0)
+            bars = [outside, inside, TestCalendarWindows.bar(last, 1.0)]
+            assert DailyLevelIndex(bars, {key})._rolling[key][-1] == 9.0
