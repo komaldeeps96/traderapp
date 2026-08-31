@@ -189,7 +189,7 @@ It is excluded from every normal run — `addopts` carries `-m 'not audit'`, so
 `pytest tests` still never leaves the machine. Run it deliberately:
 
     cd backend && .venv/bin/pip install -e '.[audit]'
-    cd backend && .venv/bin/pytest -m audit          # ~35 s, 352 tests
+    cd backend && .venv/bin/pytest -m audit          # ~55 s, 497 tests
 
 `companyfacts` is cached under `tests/audit/.cache/` so a second run costs
 nothing and the SEC is not asked twice.
@@ -214,6 +214,19 @@ a year that drifts at the edge — exactly where a yearly extreme tends to sit.
 They now span calendar weeks (`high:52w` in `indicators.yaml`, against
 `high:252` for a bar count), and every symbol matches the market's figure to
 0.0000%.
+
+`test_key_levels.py` walks every level a chart draws and holds it against
+what other platforms show, because a level is a line a trader acts on and
+ours sitting somewhere nobody else's does means a different chart. The
+rolling extremes, previous close, and weekly and monthly bucketing all agree
+to 0.00%.
+
+Two differences there are real and are **asserted**, not tolerated. The day's
+range runs 04:00–20:00 rather than the regular session, because on a small
+cap the high of day is very often set before 09:30 — Apple's low on
+2026-08-28 was its pre-market low, 0.18% under the figure TradingView shows.
+And pre-market extremes sit within a few basis points of another vendor's,
+because two consolidated tapes disagree about which prints set an extreme.
 
 The screens have no external truth at all — they are our own definition — so
 they are checked against their own printed claim. A panel headed "within 10%

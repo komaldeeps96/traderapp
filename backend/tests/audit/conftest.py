@@ -182,6 +182,40 @@ def daily_bars():
 
 
 @pytest.fixture(scope="session")
+def minute_bars():
+    """A few days of one-minute bars, for the session levels.
+
+    Kept to the handful of symbols that need it: a week of minutes is a
+    thousand times the rows a daily series is, and the session levels are the
+    same code for every symbol.
+    """
+    from app.core.settings import get_settings
+    from app.domain.timeframes import Timeframe
+    from app.providers.alpaca import AlpacaProvider
+
+    loaded: dict[str, list] = {}
+
+    def load(symbol: str) -> list:
+        if symbol not in loaded:
+
+            async def fetch():
+                provider = AlpacaProvider(get_settings().alpaca)
+                await provider.start()
+                try:
+                    end = datetime.now(UTC)
+                    return await provider.fetch_bars(
+                        symbol, Timeframe.M1, end - timedelta(days=5), end
+                    )
+                finally:
+                    await provider.stop()
+
+            loaded[symbol] = asyncio.run(fetch())
+        return loaded[symbol]
+
+    return load
+
+
+@pytest.fixture(scope="session")
 def reference_stats():
     """The reference row the terminal fetches for every symbol.
 
