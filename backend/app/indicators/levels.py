@@ -9,8 +9,9 @@ otherwise the level repaints under the trader.
 from __future__ import annotations
 
 from bisect import bisect_left
+from collections import deque
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from ..domain.bars import Bar
 from ..domain.sessions import ny_date
@@ -19,17 +20,31 @@ from .functions import Number, ema, rolling_max, rolling_min, sma
 
 @dataclass(frozen=True, slots=True)
 class LevelKey:
-    """Identifies one daily level, e.g. ``sma`` over 20 bars."""
+    """Identifies one daily level, e.g. ``sma`` over 20 bars.
+
+    ``weeks`` switches the span from a count of bars to a span of calendar
+    time. A moving average is a bar count by nature — twenty closes averaged
+    — but a "52-week high" is a claim about the calendar, and 252 bars is
+    only an approximation of it. The two disagree at the edge, which is
+    exactly where a yearly extreme tends to sit.
+    """
 
     kind: str
     span: int = 0
+    weeks: bool = False
 
     def __str__(self) -> str:
-        return f"{self.kind}:{self.span}" if self.span else self.kind
+        if not self.span:
+            return self.kind
+        return f"{self.kind}:{self.span}{'w' if self.weeks else ''}"
 
 
 # Level kinds that take a span.
 SPAN_KINDS = frozenset({"sma", "ema", "high", "low"})
+# Of those, the ones a calendar span makes sense for. Averaging "the last
+# 52 weeks of closes" is a different and stranger thing than the highest
+# price in that time, so the suffix is only allowed where it means something.
+CALENDAR_KINDS = frozenset({"high", "low"})
 # Level kinds derived from the previous completed calendar period.
 PERIOD_KINDS = frozenset(
     {
@@ -119,9 +134,14 @@ class DailyLevelIndex:
             elif key.kind == "ema":
                 self._rolling[key] = ema(self._closes, key.span)
             elif key.kind == "high":
-                self._rolling[key] = rolling_max(self._highs, key.span)
+                self._rolling[key] = self._extreme(self._highs, key, highest=True)
             elif key.kind == "low":
-                self._rolling[key] = rolling_min(self._lows, key.span)
+                self._rolling[key] = self._extreme(self._lows, key, highest=False)
+
+    def _extreme(self, values: list[float], key: LevelKey, *, highest: bool) -> list[Number]:
+        if not key.weeks:
+            return rolling_max(values, key.span) if highest else rolling_min(values, key.span)
+        return _calendar_extreme(values, self._dates, key.span, highest=highest)
 
     def _build_period(self, bucket_of) -> dict[object, _Aggregate]:
         buckets: dict[object, _Aggregate] = {}
@@ -203,16 +223,53 @@ class DailyLevelIndex:
 
 
 def parse_level_key(raw: str) -> LevelKey:
-    """Parse ``"sma:20"`` / ``"prev_week_close"`` into a :class:`LevelKey`."""
+    """Parse ``"sma:20"``, ``"high:52w"`` or ``"prev_week_close"``.
+
+    A bare number is a count of bars; a ``w`` suffix is calendar weeks.
+    """
     text = raw.strip().lower()
     if ":" in text:
         kind, _, span = text.partition(":")
         if kind not in SPAN_KINDS:
             raise ValueError(f"Unknown spanned level kind {kind!r}")
+        weeks = span.endswith("w")
+        if weeks:
+            span = span[:-1]
+            if kind not in CALENDAR_KINDS:
+                raise ValueError(f"Level {raw!r} cannot span calendar weeks")
         if not span.isdigit() or int(span) <= 0:
             raise ValueError(f"Level {raw!r} needs a positive span")
-        return LevelKey(kind, int(span))
+        return LevelKey(kind, int(span), weeks=weeks)
 
     if text not in PERIOD_KINDS:
         raise ValueError(f"Unknown level {raw!r}")
     return LevelKey(text)
+
+
+def _calendar_extreme(
+    values: list[float], dates: list[date], weeks: int, *, highest: bool
+) -> list[Number]:
+    """The extreme over a span of calendar time rather than a count of bars.
+
+    A monotonic deque, so this stays linear over the forty years of daily
+    history the terminal loads.
+
+    The window is open at the far end: a bar exactly `weeks` old has fallen
+    out. That is what makes this differ from the bar count it replaces —
+    Celularity's high was dated 366 days back, inside a 252-bar window and
+    outside a 52-week one, and the label says weeks.
+    """
+    window = timedelta(weeks=weeks)
+    out: list[Number] = []
+    inside: deque[int] = deque()
+    for index, day in enumerate(dates):
+        while inside and (
+            values[inside[-1]] <= values[index] if highest else values[inside[-1]] >= values[index]
+        ):
+            inside.pop()
+        inside.append(index)
+        cutoff = day - window
+        while inside and dates[inside[0]] <= cutoff:
+            inside.popleft()
+        out.append(values[inside[0]])
+    return out

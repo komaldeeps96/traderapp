@@ -7,7 +7,7 @@ would drift as today trades, which is worse than not drawing it at all.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -135,8 +135,14 @@ class TestParseLevelKey:
 
     @pytest.mark.parametrize(
         "raw",
-        ["prev_quarter_high", "prev_quarter_low", "prev_quarter_close",
-         "prev_year_high", "prev_year_low", "prev_year_close"],
+        [
+            "prev_quarter_high",
+            "prev_quarter_low",
+            "prev_quarter_close",
+            "prev_year_high",
+            "prev_year_low",
+            "prev_year_close",
+        ],
     )
     def test_accepts_the_longer_periods(self, raw):
         assert parse_level_key(raw) == LevelKey(raw)
@@ -156,18 +162,24 @@ class TestLongerPeriods:
     def day(year: int, month: int, dom: int, close: float):
         return Bar(
             time=ny_epoch(year, month, dom, 16, 0),
-            open=close, high=close + 1, low=close - 1, close=close, volume=1_000,
+            open=close,
+            high=close + 1,
+            low=close - 1,
+            close=close,
+            volume=1_000,
         )
 
     def index(self):
-        return DailyLevelIndex([
-            self.day(2025, 2, 10, 50),
-            self.day(2025, 5, 12, 80),
-            self.day(2025, 11, 3, 60),
-            self.day(2026, 2, 9, 30),
-            self.day(2026, 5, 11, 40),
-            self.day(2026, 8, 10, 45),
-        ])
+        return DailyLevelIndex(
+            [
+                self.day(2025, 2, 10, 50),
+                self.day(2025, 5, 12, 80),
+                self.day(2025, 11, 3, 60),
+                self.day(2026, 2, 9, 30),
+                self.day(2026, 5, 11, 40),
+                self.day(2026, 8, 10, 45),
+            ]
+        )
 
     def test_previous_quarter_is_the_one_before_this_one(self):
         # 13 Aug 2026 is Q3; the previous quarter is Q2, whose only bar
@@ -179,9 +191,9 @@ class TestLongerPeriods:
 
     def test_previous_year_spans_the_whole_year(self):
         idx, today = self.index(), date(2026, 8, 13)
-        assert idx.value(LevelKey("prev_year_high"), today) == 81     # May 2025
-        assert idx.value(LevelKey("prev_year_low"), today) == 49      # Feb 2025
-        assert idx.value(LevelKey("prev_year_close"), today) == 60    # Nov 2025
+        assert idx.value(LevelKey("prev_year_high"), today) == 81  # May 2025
+        assert idx.value(LevelKey("prev_year_low"), today) == 49  # Feb 2025
+        assert idx.value(LevelKey("prev_year_close"), today) == 60  # Nov 2025
 
     def test_no_earlier_period_yields_none(self):
         idx = DailyLevelIndex([self.day(2026, 8, 10, 45)])
@@ -223,3 +235,110 @@ class TestLookupShortcuts:
             first = index._last_index_before(day)
             assert first == index._last_index_before(day)
             assert first == cold._last_index_before(day)
+
+
+class TestCalendarWindows:
+    """A "52-week high" is a claim about the calendar, not a bar count.
+
+    252 bars approximates a year and drifts at the edge, which is exactly
+    where a yearly extreme tends to sit: Celularity's 4.00 print was 366 days
+    old, inside a 252-bar window and outside a 52-week one, and it made our
+    high 27% higher than every other terminal's.
+    """
+
+    @staticmethod
+    def bar(day: date, high: float, low: float | None = None) -> Bar:
+        stamp = ny_epoch(day.year, day.month, day.day, 16, 0)
+        return Bar(
+            time=stamp,
+            open=high,
+            high=high,
+            low=low if low is not None else high,
+            close=high,
+            volume=1_000,
+        )
+
+    def _series(self, entries: list[tuple[date, float]]) -> list[Bar]:
+        return [self.bar(day, high) for day, high in entries]
+
+    def test_a_price_older_than_the_window_falls_out(self):
+        bars = self._series(
+            [
+                (date(2025, 1, 1), 100.0),  # 372 days before the last bar
+                (date(2025, 6, 1), 50.0),
+                (date(2026, 1, 8), 60.0),
+            ]
+        )
+        index = DailyLevelIndex(bars, {LevelKey("high", 52, weeks=True)})
+        assert index._rolling[LevelKey("high", 52, weeks=True)][-1] == 60.0
+
+    def test_a_price_inside_the_window_is_kept(self):
+        bars = self._series(
+            [
+                (date(2025, 2, 1), 100.0),  # 341 days back, still inside
+                (date(2026, 1, 8), 60.0),
+            ]
+        )
+        index = DailyLevelIndex(bars, {LevelKey("high", 52, weeks=True)})
+        assert index._rolling[LevelKey("high", 52, weeks=True)][-1] == 100.0
+
+    def test_the_far_edge_is_open(self):
+        """A bar exactly 52 weeks old has left the window.
+
+        Otherwise "52 weeks" quietly means 52 weeks and a day, which is the
+        boundary case that started this.
+        """
+        last = date(2026, 1, 8)
+        bars = self._series([(last - timedelta(weeks=52), 100.0), (last, 60.0)])
+        index = DailyLevelIndex(bars, {LevelKey("high", 52, weeks=True)})
+        assert index._rolling[LevelKey("high", 52, weeks=True)][-1] == 60.0
+
+    def test_lows_use_the_same_window(self):
+        bars = [
+            self.bar(date(2025, 1, 1), 100.0, low=1.0),
+            self.bar(date(2026, 1, 8), 60.0, low=50.0),
+        ]
+        index = DailyLevelIndex(bars, {LevelKey("low", 52, weeks=True)})
+        assert index._rolling[LevelKey("low", 52, weeks=True)][-1] == 50.0
+
+    def test_a_bar_count_still_counts_bars(self):
+        """The old form has to keep working; moving averages depend on it."""
+        bars = self._series([(date(2025, 1, 1), 100.0), (date(2026, 1, 8), 60.0)])
+        index = DailyLevelIndex(bars, {LevelKey("high", 2)})
+        # Two bars are inside a two-bar window however far apart in time,
+        # which is the whole difference from a calendar span.
+        assert index._rolling[LevelKey("high", 2)][-1] == 100.0
+
+    def test_each_bar_gets_its_own_window(self):
+        bars = self._series(
+            [
+                (date(2025, 1, 1), 100.0),
+                (date(2025, 6, 1), 50.0),
+                (date(2026, 1, 8), 60.0),
+            ]
+        )
+        series = DailyLevelIndex(bars, {LevelKey("high", 52, weeks=True)})._rolling[
+            LevelKey("high", 52, weeks=True)
+        ]
+        # The first two bars still see the 100; only the last has outrun it.
+        assert series == [100.0, 100.0, 60.0]
+
+
+class TestCalendarParsing:
+    def test_a_week_suffix_is_calendar_time(self):
+        key = parse_level_key("high:52w")
+        assert (key.kind, key.span, key.weeks) == ("high", 52, True)
+
+    def test_a_bare_number_is_still_bars(self):
+        key = parse_level_key("high:252")
+        assert (key.span, key.weeks) == (252, False)
+
+    def test_an_average_cannot_span_weeks(self):
+        """Averaging "the last 52 weeks of closes" is a different and
+        stranger thing than the highest price in that time."""
+        with pytest.raises(ValueError, match="calendar weeks"):
+            parse_level_key("sma:52w")
+
+    def test_the_key_prints_back_the_way_it_was_written(self):
+        assert str(parse_level_key("high:52w")) == "high:52w"
+        assert str(parse_level_key("low:130")) == "low:130"

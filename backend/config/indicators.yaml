@@ -515,7 +515,7 @@ indicators:
   - id: high_13w
     type: daily_level
     label: 13W High
-    level: high:65
+    level: high:13w
     color: '#6d6b66'
     color_dark: '#a8a69d'
     last_value: true
@@ -525,7 +525,7 @@ indicators:
   - id: low_13w
     type: daily_level
     label: 13W Low
-    level: low:65
+    level: low:13w
     color: '#6d6b66'
     color_dark: '#a8a69d'
     last_value: true
@@ -535,7 +535,7 @@ indicators:
   - id: high_26w
     type: daily_level
     label: 26W High
-    level: high:130
+    level: high:26w
     color: '#6d6b66'
     color_dark: '#a8a69d'
     last_value: true
@@ -545,7 +545,7 @@ indicators:
   - id: low_26w
     type: daily_level
     label: 26W Low
-    level: low:130
+    level: low:26w
     color: '#6d6b66'
     color_dark: '#a8a69d'
     last_value: true
@@ -555,7 +555,7 @@ indicators:
   - id: high_52w
     type: daily_level
     label: 52W High
-    level: high:252
+    level: high:52w
     color: '#6d6b66'
     color_dark: '#a8a69d'
     last_value: true
@@ -565,7 +565,7 @@ indicators:
   - id: low_52w
     type: daily_level
     label: 52W Low
-    level: low:252
+    level: low:52w
     color: '#6d6b66'
     color_dark: '#a8a69d'
     last_value: true

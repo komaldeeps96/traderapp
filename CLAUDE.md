@@ -209,9 +209,11 @@ arithmetic over them lands where theirs does. It does, to the fourth decimal.
 Two differences there are **design, not error**, and are asserted rather than
 tolerated. A drawn level excludes today's bar so it cannot repaint mid-
 session, which is a deliberate one-bar difference from every other terminal.
-And the yearly extremes run over 252 *bars* where TradingView uses 52
-calendar *weeks*; the windows differ by a few days at the edge, which shows
-only when the extreme sits there.
+The yearly extremes used to run over 252 *bars*, which is an approximation of
+a year that drifts at the edge — exactly where a yearly extreme tends to sit.
+They now span calendar weeks (`high:52w` in `indicators.yaml`, against
+`high:252` for a bar count), and every symbol matches the market's figure to
+0.0000%.
 
 The screens have no external truth at all — they are our own definition — so
 they are checked against their own printed claim. A panel headed "within 10%

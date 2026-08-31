@@ -20,13 +20,15 @@ terminal and it is intentional, so it is asserted rather than tolerated.
 from __future__ import annotations
 
 import math
+from datetime import timedelta
 
 import pytest
 
+from app.domain.sessions import ny_date
 from app.domain.timeframes import Timeframe
 from app.indicators.engine import IndicatorEngine
 from app.indicators.functions import ema, macd, rolling_max, rolling_min, sma
-from app.indicators.levels import DailyLevelIndex
+from app.indicators.levels import DailyLevelIndex, LevelKey
 from app.indicators.spec import load_indicator_specs
 from tests.audit.conftest import relative_difference
 from tests.audit.universe import UNIVERSE
@@ -50,13 +52,6 @@ ARITHMETIC_TOLERANCE = 0.001
 
 # Prices themselves must agree outright.
 PRICE_TOLERANCE = 0.0005
-
-# Our yearly extremes run over 252 *bars*; TradingView's over 52 calendar
-# *weeks*. The two windows differ by a few days at the edge, which only shows
-# when the extreme itself sits there — Celularity's high is dated 2025-08-29,
-# 366 days back, so it is inside our window and outside theirs. Allowed here
-# and named, because it is a definition to decide on rather than a fault.
-WINDOW_EDGE_TOLERANCE = 0.30
 
 
 @pytest.fixture(scope="session")
@@ -151,34 +146,47 @@ class TestTheArithmetic:
 class TestTheLevelsDrawn:
     @pytest.mark.parametrize("subject", SUBJECTS)
     def test_the_yearly_range_is_exact(self, subject, daily_bars, charts, engine):
-        """A 52-week high is a fact, not an average: it must match outright."""
+        """A 52-week high is a fact, not an average: it must match outright.
+
+        Measured at the latest bar, which is the window every other terminal
+        quotes. What the chart *draws* is one bar behind that on purpose, and
+        the next test is where that is pinned.
+        """
         row = charts.get(subject.symbol)
         bars = daily_bars(subject.symbol)
         if row is None or not bars:
             pytest.skip(f"no data for {subject.symbol}")
         index = DailyLevelIndex(bars, engine.all_level_keys())
-        latest = engine.latest(
-            bars, Timeframe.D1, level_index=index, daily_bars=bars, minute_bars=[]
-        )
-        for key, column in (("high_52w", "price_52_week_high"), ("low_52w", "price_52_week_low")):
-            ours, theirs = latest.get(key), row[column]
-            if ours is None or not _is_number(theirs):
+        for key, column in (
+            (LevelKey("high", 52, weeks=True), "price_52_week_high"),
+            (LevelKey("low", 52, weeks=True), "price_52_week_low"),
+        ):
+            series = index._rolling.get(key)
+            theirs = row[column]
+            if not series or not _is_number(theirs):
                 continue
-            drift = relative_difference(ours, float(theirs))
-            # A disagreement inside the window edge is the definition, not a
-            # reading error; anything larger is not explained by it.
-            assert drift <= WINDOW_EDGE_TOLERANCE, (
-                f"{subject.symbol} {key}: ours {ours} vs {theirs} ({drift:.1%})"
+            ours = series[-1]
+            assert relative_difference(ours, float(theirs)) <= PRICE_TOLERANCE, (
+                f"{subject.symbol} {key}: ours {ours} vs {theirs}"
             )
-            if drift > PRICE_TOLERANCE:
-                # Verified rather than waved through: the extreme has to be
-                # near the boundary for the window to explain it.
-                edge = [
-                    bar
-                    for bar in bars[-260:]
-                    if abs(bar.high - ours) < 1e-6 or abs(bar.low - ours) < 1e-6
-                ]
-                assert edge, f"{subject.symbol} {key}: {ours} is not any bar's extreme"
+
+    @pytest.mark.parametrize("subject", SUBJECTS)
+    def test_the_yearly_window_is_weeks_and_not_a_bar_count(self, subject, daily_bars, engine):
+        """252 bars is an approximation of a year and drifts at the edge.
+
+        Celularity's 4.00 print is dated 2025-08-29 — 366 days back, inside
+        a 252-bar window and outside a 52-week one — and it made our high
+        27% higher than the market's until the window was counted in weeks.
+        """
+        bars = daily_bars(subject.symbol)
+        if len(bars) < 300:
+            pytest.skip(f"not enough history for {subject.symbol}")
+        index = DailyLevelIndex(bars, {LevelKey("high", 52, weeks=True)})
+        ours = index._rolling[LevelKey("high", 52, weeks=True)][-1]
+
+        cutoff = ny_date(bars[-1].time) - timedelta(weeks=52)
+        inside = [bar.high for bar in bars if ny_date(bar.time) > cutoff]
+        assert ours == max(inside)
 
     @pytest.mark.parametrize("subject", SUBJECTS)
     def test_a_drawn_level_excludes_todays_bar(self, subject, daily_bars, engine):
