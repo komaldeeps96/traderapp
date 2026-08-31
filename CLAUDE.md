@@ -83,16 +83,16 @@ next, and never have two `playwright test` invocations alive at once.
     cd e2e     && npx tsc --noEmit -p . && npx eslint .
 
     # Browser tests — one project per invocation
-    cd e2e && npx playwright test --project=chromium    # ~1.5 min, 342 tests
+    cd e2e && npx playwright test --project=chromium    # ~1.7 min, 351 tests
     cd e2e && npx playwright test --project=visual      # ~7 s,      5 tests
     cd e2e && npx playwright test --project=fullstack   # ~18 s,    23 tests
-    cd e2e && npx playwright test --project=firefox     # ~2.1 min, 342 tests
-    cd e2e && npx playwright test --project=webkit      # ~2.7 min, 342 tests
+    cd e2e && npx playwright test --project=firefox     # ~2.1 min, 351 tests
+    cd e2e && npx playwright test --project=webkit      # ~2.7 min, 351 tests
     cd e2e && npx playwright test --project=mobile      # ~8 s,      8 tests
 
 A full sequential pass is about seven minutes and holds memory above 80%.
-All six browser projects pass clean this way: 342 / 5 / 23 / 342 / 342 / 8,
-alongside 1261 backend and 357 frontend unit tests.
+All six browser projects pass clean this way: 351 / 5 / 23 / 351 / 351 / 8,
+alongside 1322 backend and 357 frontend unit tests.
 
 ### Rules that keep it upright
 
@@ -180,6 +180,36 @@ its primary listing is the TSX), every ADR (Alibaba is typed `dr`, not
 `stock`), and every ETF. The last one is not even ours: `tradingview_screener`
 injects its own default `filter2` that excludes ETFs outright, so the fix was
 `set_property("filter2", ...)`. See `services/watchlist.py`.
+
+### News comes from two places, and one of them is a socket
+
+IBKR carries eight entitled feeds; Alpaca carries Benzinga. The second exists
+because the first goes quiet on exactly the companies this terminal is for —
+WETO returned its own halt and its own resume and nothing else, against ten
+rows from Benzinga, and AEMD had nothing in thirty days while its catalyst
+sat in EDGAR. Both land in one per-symbol dict keyed by article id, so the
+dedup runs across them.
+
+**Alpaca news is real time.** The `delayed_sip` entitlement governs the price
+tape only. Measured: the newest market-wide REST item was 93 seconds old, and
+headlines arrive on the websocket about 1.9 seconds *ahead* of their own
+`created_at` stamps.
+
+**Alpaca allows one news socket per account.** A second connection takes it
+rather than sharing, and the loser sees a close with no close frame — found
+by running a probe beside a live terminal and watching the probe get thrown
+off. Two copies of this app will trade the connection back and forth through
+their reconnect loops.
+
+**The stream is off in every test** (`TRADERAPP_ALPACA__NEWS_STREAM=false`,
+and `news_stream=False` in the integration settings). It is a websocket, so
+respx does not intercept it and a live one dials Alpaca for real from a unit
+run.
+
+The market-wide rate is about one headline a minute, so an end-to-end check
+against live news needs patience or a wide net: forty-five of the most
+covered US names produced nothing in four minutes, which was the feed being
+quiet and not a bug.
 
 ## Visual baselines
 

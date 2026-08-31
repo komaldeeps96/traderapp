@@ -45,6 +45,10 @@ class AlpacaSettings(BaseModel):
     key_id: str = ""
     secret_key: str = ""
     feed: AlpacaFeed = "iex"
+    # Live Benzinga headlines over their news socket. Separate from ``feed``,
+    # which governs the price tape only: news is a different product and is
+    # not delayed. Off in tests, where nothing may leave the machine.
+    news_stream: bool = True
     data_url: str = "https://data.alpaca.markets"
     stream_url: str = "wss://stream.data.alpaca.markets"
     # Alpaca caps a single bars request at 10k rows.

@@ -144,6 +144,9 @@ export default defineConfig({
         TRADERAPP_SCANNER__ENABLED: 'false',
         // The regime poll would dial the real TradingView API from a test.
         TRADERAPP_REGIME__ENABLED: 'false',
+        // So would the live news socket, and being a websocket it is not
+        // caught by the fixture server the way the REST paths are.
+        TRADERAPP_ALPACA__NEWS_STREAM: 'false',
         // So would EDGAR, for the same reason: the dock's fundamentals and
         // filings panels reach data.sec.gov, and nothing in a test run may
         // leave the machine. The mocked suite serves those routes itself.

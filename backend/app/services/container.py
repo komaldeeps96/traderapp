@@ -11,6 +11,7 @@ import functools
 import logging
 
 from ..core.settings import Settings, get_settings
+from ..domain.news import to_benzinga_row
 from ..domain.protocol import (
     DataSource,
     api_usage_message,
@@ -26,6 +27,7 @@ from ..indicators.engine import IndicatorEngine
 from ..indicators.spec import load_indicator_specs
 from ..market.store import BarStore
 from ..providers.alpaca import AlpacaProvider
+from ..providers.alpaca_news import AlpacaNewsStream
 from ..providers.edgar import EdgarProvider
 from ..providers.ibkr import IBKRProvider
 from ..providers.router import FeedRouter
@@ -101,6 +103,12 @@ class AppContainer:
         )
         self.ibkr.on_news(self._on_news)
 
+        # The whole market's headlines, live. IBKR's ride generic tick 292 and
+        # follow only the open chart; this reaches a watchlist name while it is
+        # nowhere on screen, and it answers with no TWS running.
+        self.alpaca_news = AlpacaNewsStream(self.settings.alpaca)
+        self.alpaca_news.on_headline(self._on_live_headline)
+
         # A 424B5 landing while a runner is open is the surprise this whole
         # feature exists to remove. One request a minute against SEC's
         # ten-a-second allowance.
@@ -161,6 +169,7 @@ class AppContainer:
             await scanner.start()
         await self.regime.start()
         await self.filing_watch.start()
+        await self.alpaca_news.start()
         logger.info(
             "Ready — data source: %s%s",
             self.router.active_source.value,
@@ -173,6 +182,7 @@ class AppContainer:
             await scanner.stop()
         await self.regime.stop()
         await self.filing_watch.stop()
+        await self.alpaca_news.stop()
         await self.router.stop()
         await self.yahoo.close()
         if self.edgar is not None:
@@ -249,6 +259,39 @@ class AppContainer:
         headline = self.news.add_live(symbol, row)
         if headline is not None:
             self.hub.broadcast(news_message(symbol, headline.to_dict()))
+
+    def _tracked_symbols(self) -> set[str]:
+        """The names this terminal is actually following.
+
+        The stream carries every headline published, so something has to
+        decide which are worth keeping. Charts open now, plus the watchlist —
+        which is precisely the set a person said they cared about.
+        """
+        return self.hub.symbols() | set(self.watchlist.symbols())
+
+    async def _on_live_headline(self, entry: dict) -> None:
+        """One Benzinga headline off the socket, routed to whoever wants it.
+
+        A story names every company it mentions, so one headline can belong to
+        several open charts at once — and to none, which is the common case on
+        a market-wide feed and costs nothing.
+        """
+        row = to_benzinga_row(entry)
+        if row is None:
+            return
+        named = entry.get("symbols")
+        if not isinstance(named, list):
+            return
+        wanted = {str(s).upper() for s in named if isinstance(s, str)} & self._tracked_symbols()
+        if not wanted:
+            return
+        # The body ships with the headline, so an article opened from this is
+        # already paid for.
+        self.news.remember_article(row["article_id"], entry.get("content") or "")
+        for symbol in sorted(wanted):
+            headline = self.news.add_live(symbol, row)
+            if headline is not None:
+                self.hub.broadcast(news_message(symbol, headline.to_dict()))
 
     async def _on_filing(self, symbol: str, filing) -> None:
         self.hub.broadcast(filing_message(symbol, filing.to_dict()))

@@ -367,13 +367,15 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     // collapsed into one already held never reaches here — but the id check
     // keeps a reconnect replay from doubling a row.
     if (state.news.some((row) => row.article_id === headline.article_id)) return;
-    set({
-      news: [headline, ...state.news],
-      dockAlerts:
-        state.dockTab === 'news'
-          ? state.dockAlerts
-          : { ...state.dockAlerts, news: (state.dockAlerts.news ?? 0) + 1 },
-    });
+    // A roundup goes in the list but never lights the badge. It names a dozen
+    // companies and this one is merely among them, so a badge for it is an
+    // interruption about somebody else's stock — and a badge that is usually
+    // wrong is a badge nobody looks at.
+    const badge =
+      state.dockTab === 'news' || headline.roundup
+        ? state.dockAlerts
+        : { ...state.dockAlerts, news: (state.dockAlerts.news ?? 0) + 1 };
+    set({ news: [headline, ...state.news], dockAlerts: badge });
   },
 
   addFiling: (symbol, filing) => {

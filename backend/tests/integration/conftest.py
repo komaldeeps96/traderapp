@@ -38,9 +38,18 @@ def settings(tmp_path) -> Settings:
 
     The TradingView screener and EDGAR are off so no test ever leaves the
     machine; ``edgar_client`` turns EDGAR back on against a stub transport.
+
+    ``news_stream`` is off for the same reason and needs saying out loud: it
+    is a *websocket*, so respx does not intercept it and a live one would dial
+    Alpaca for real from a unit run. The REST news path is stubbed instead.
     """
     return Settings(
-        alpaca=AlpacaSettings(key_id="test-key", secret_key="test-secret", feed="iex"),
+        alpaca=AlpacaSettings(
+            key_id="test-key",
+            secret_key="test-secret",
+            feed="iex",
+            news_stream=False,
+        ),
         ibkr=IBKRSettings(enabled=False),
         scanner=ScannerSettings(enabled=False),
         regime=RegimeSettings(enabled=False),

@@ -225,3 +225,59 @@ test.describe('Benzinga headlines', () => {
     await expect(terminal.page.getByTestId('news-source-link')).toHaveCount(0);
   });
 });
+
+
+test.describe('a live headline off the Benzinga socket', () => {
+  test('lands in the list like any other', async ({ terminal, backend }) => {
+    await terminal.waitForChart();
+    await terminal.dockTab('news').click();
+
+    await backend.send(
+      makeNewsMessage('AAPL', {
+        article_id: 'bz:live-1',
+        provider: 'BZ-ALP',
+        headline: 'Celularity Receives FDA Clearance',
+        time: 9_999_999_999,
+        url: 'https://www.benzinga.com/news/live-1',
+      }),
+    );
+
+    await expect(terminal.page.getByTestId('news-row').first()).toContainText('FDA Clearance');
+  });
+
+  test('a roundup does not light the dock badge', async ({ terminal, backend }) => {
+    // It names a dozen companies and this one is merely among them, so a
+    // badge for it interrupts about somebody else's stock.
+    await terminal.waitForChart();
+    await terminal.dockTab('charts').click();
+
+    await backend.send(
+      makeNewsMessage('AAPL', {
+        article_id: 'bz:live-roundup',
+        provider: 'BZ-ALP',
+        headline: "12 Health Care Stocks Moving In Monday's Pre-Market Session",
+        time: 9_999_999_999,
+        symbol_count: 12,
+        roundup: true,
+      }),
+    );
+
+    await expect(terminal.dockTab('news')).not.toContainText('1');
+  });
+
+  test('but a real headline does', async ({ terminal, backend }) => {
+    await terminal.waitForChart();
+    await terminal.dockTab('charts').click();
+
+    await backend.send(
+      makeNewsMessage('AAPL', {
+        article_id: 'bz:live-real',
+        provider: 'BZ-ALP',
+        headline: 'Celularity Receives FDA Clearance',
+        time: 9_999_999_999,
+      }),
+    );
+
+    await expect(terminal.dockTab('news')).toContainText('1');
+  });
+});

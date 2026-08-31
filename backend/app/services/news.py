@@ -184,6 +184,15 @@ class NewsService:
             self._articles[key] = body
         return body
 
+    def remember_article(self, article_id: str, body: str) -> None:
+        """Cache a body that arrived alongside its headline.
+
+        Benzinga sends the article with the notification, so opening one from
+        the live stream costs no request at all.
+        """
+        if body:
+            self._articles[(BENZINGA_CODE, article_id)] = body
+
     def _merge(self, symbol: str, rows: list[dict]) -> None:
         held = self._raw.setdefault(symbol, {})
         for row in rows:
