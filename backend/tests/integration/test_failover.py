@@ -48,6 +48,10 @@ class StubProvider(MarketDataProvider):
             raise RuntimeError(f"{self.name} is broken")
         return list(self.bars)
 
+    async def fetch_prior_tensec(self, symbol, start, end):
+        """The Alpaca-only prior-session walk, recorded like any other fetch."""
+        return await self.fetch_bars(symbol, Timeframe.S10, start, end)
+
     async def set_stream_symbols(self, symbols):
         self.streamed = set(symbols)
 

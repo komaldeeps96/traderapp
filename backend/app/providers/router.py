@@ -19,6 +19,7 @@ from datetime import UTC, datetime, timedelta
 from ..core.settings import HistorySettings
 from ..domain.bars import Bar, merge_bars
 from ..domain.protocol import DataSource
+from ..domain.sessions import prior_session_open
 from ..domain.timeframes import Timeframe
 from .alpaca import AlpacaProvider
 from .base import MarketDataProvider
@@ -43,6 +44,31 @@ logger = logging.getLogger(__name__)
 # only for the recent slice.
 TENSEC_WINDOW_SECONDS = 12 * 3600
 TENSEC_RECENT_SECONDS = 4 * 3600
+
+# Behind those twelve hours sit the previous session(s), and those *are*
+# walked off Alpaca's tape — the one place the paragraph above makes an
+# exception, because there is no other way to get them.
+#
+# IBKR could serve them natively, and that is not the cheap option it looks
+# like: its 10s requests cap at four hours each, so reaching the previous
+# session's 04:00 turns three chunked requests per ticker switch into nine or
+# ten, against a pacing allowance of sixty per ten minutes. Two of those
+# chunks are the dead overnight hours. Flipping between runners is the whole
+# workflow, and it would start tripping pacing after six switches.
+#
+# The tape walk costs Alpaca requests instead, from an allowance of 200 a
+# minute, and is capped (alpaca.max_prior_session_pages). Measured for one
+# previous session: AEMD 0.4s, WETO 1.8s, SPWR 7.3s uncapped.
+#
+# What it buys is the slow moving averages. EMA 600 on the 10s chart is the
+# 100-minute EMA, and ``ema()`` returns nothing at all until it has 600 bars:
+# at midday twelve hours held 1,078 of them for SPWR, so the line started
+# more than half way across the chart, and at the open it did not start.
+#
+# The seam this accepts: Alpaca's tape includes odd lots, IBKR's "Last" slice
+# does not (~21-26% of shares on a small-cap gapper), so the prior sessions
+# read higher on volume than today does. Prices — and therefore every moving
+# average, which is what the depth is for — are unaffected.
 
 
 class FeedRouter(MarketDataProvider):
@@ -145,14 +171,19 @@ class FeedRouter(MarketDataProvider):
         return await self._fetch_intraday(symbol, start, now)
 
     async def _fetch_tensec(self, symbol: str, end: datetime) -> list[Bar]:
-        """The full twelve-hour 10s window in one go (both slices merged)."""
-        recent, earlier = await asyncio.gather(
+        """The whole 10s window in one go, every slice merged.
+
+        Newer slices win the overlaps: IBKR's native bars over Alpaca's
+        rebuilt tape, and the recent slice over the earlier one.
+        """
+        recent, earlier, prior = await asyncio.gather(
             self.fetch_recent_tensec(symbol, end),
             self.fetch_earlier_tensec(symbol, end),
+            self.fetch_prior_tensec(symbol, end),
         )
-        if not recent and not earlier:
+        if not recent and not earlier and not prior:
             return []
-        return merge_bars(recent, earlier)
+        return merge_bars(recent, merge_bars(earlier, prior))
 
     async def _settle_ibkr(self) -> None:
         """Give a just-started IBKR connection a beat to come up.
@@ -202,6 +233,36 @@ class FeedRouter(MarketDataProvider):
             end - timedelta(seconds=TENSEC_WINDOW_SECONDS),
             end - timedelta(seconds=TENSEC_RECENT_SECONDS),
         )
+
+    async def fetch_prior_tensec(self, symbol: str, end: datetime | None = None) -> list[Bar]:
+        """The sessions behind the IBKR window, off Alpaca's trade tape.
+
+        Alpaca-only, and deliberately so — see the module header. The walk is
+        capped at ``alpaca.max_prior_session_pages`` and runs newest-first, so
+        a tape too heavy to finish leaves the stretch adjacent to today rather
+        than a disconnected island of yesterday morning.
+
+        Where it stops is where IBKR takes over, which depends on whether TWS
+        is up: with it up, the twelve-hour boundary; with it down, the four-
+        hour one, since the earlier slice is skipped entirely without IBKR
+        and this is the only thing that can close the hole it leaves.
+        """
+        if not self._alpaca.is_available or self._history.tensec_prior_sessions <= 0:
+            return []
+        await self._settle_ibkr()
+        end = end or datetime.now(UTC)
+        covered = TENSEC_WINDOW_SECONDS if self._ibkr.is_available else TENSEC_RECENT_SECONDS
+        stop = end - timedelta(seconds=covered)
+        start = prior_session_open(end, self._history.tensec_prior_sessions)
+        if start >= stop:
+            return []
+        try:
+            return await self._alpaca.fetch_prior_tensec(symbol, start, stop)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("alpaca prior-session 10s failed for %s: %s", symbol, exc)
+            return []
 
     async def _fetch_daily(self, symbol: str, start: datetime, end: datetime) -> list[Bar]:
         if self._alpaca.is_available:

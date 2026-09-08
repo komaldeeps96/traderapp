@@ -60,8 +60,9 @@
 # exactly where the levels that matter are read. Their colours are named in
 # the legend over the top-left of the chart.
 #
-# 'level' values: sma:N | ema:N | high:N | low:N (N = daily bars), or one of
-# prev_{day,week,month}_{high,low,close}.
+# 'level' values: sma:N | ema:N | high:N | low:N (N = daily bars, or Nw for
+# calendar weeks), one of prev_{day,week,month,quarter,year}_{high,low,close},
+# or ytd_high for the current calendar year.
 
 # A timeframe listed here means "this indicator is *meaningful* on this bar
 # size", which is what the backend computes against. The `enabled` flag beside
@@ -505,6 +506,23 @@ indicators:
     type: daily_level
     label: Prev Year Close
     level: prev_year_close
+    color: '#6d6b66'
+    color_dark: '#a8a69d'
+    last_value: true
+    group: key_levels
+    timeframes: *levels
+
+  # ── The year so far ────────────────────────────────────────────────
+  # Anchored to 1 January, where the 52-week high beside it rolls. Early in
+  # the year the two sit far apart and by December they nearly agree, and
+  # the gap between them is how much of the yearly range belongs to this
+  # year's move. Like every level here it stops at the previous close, so a
+  # new high today shows up tomorrow rather than dragging the line along
+  # under the trader.
+  - id: ytd_high
+    type: daily_level
+    label: YTD High
+    level: ytd_high
     color: '#6d6b66'
     color_dark: '#a8a69d'
     last_value: true

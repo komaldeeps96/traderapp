@@ -96,6 +96,29 @@ delayed feed cannot serve) are *resampled from the 10s base*, six
 consolidated 10-second bars to the minute. A ticker switch therefore costs
 exactly three IBKR historical requests: the 10s slices, nothing else.
 
+**Behind those twelve hours sits the previous session, and that one *is* a
+tape walk** — because the slow lines need the depth and nothing else can
+supply it cheaply. EMA 600 on the 10s chart is the 100-minute EMA, and it
+draws nothing at all until it holds 600 bars: measured at midday, twelve
+hours held 1,078 for SPWR and 1,741 for WETO, so the line began most of the
+way across the chart and at the open did not begin. One previous session
+takes those to 3,064 and 4,738. IBKR could serve it natively and it would be
+the *expensive* option — its 10s requests cap at four hours each, so reaching
+yesterday's 04:00 turns three chunked requests per ticker switch into ten
+against a pacing allowance of sixty per ten minutes, two of them the dead
+overnight hours. The walk is capped in pages (`alpaca.max_prior_session_pages`)
+and runs newest-first, so a tape too heavy to finish leaves the stretch
+adjacent to today rather than an island of yesterday morning; it runs in the
+background pass, so the first paint is untouched. Depth is
+`history.tensec_prior_sessions`, one session by default — raise it for a name
+thin enough that a session is not 600 bars of anything (AEMD's two sessions
+came to 299; four came to 3,866). The seam it accepts: Alpaca's tape carries
+odd lots and IBKR's `Last` slice does not, so the prior sessions read higher
+on volume than today does. Prices, and so every moving average, are
+unaffected — and the minute base is deliberately *not* re-derived from them,
+because Alpaca's own published minutes for a session that closed yesterday
+are better than our rebuild of them.
+
 **Loads are two-phase, judged by the first paint.** A symbol switch blanks
 the chart immediately (the old instrument must never pose as the new one),
 fetches only the daily bars and the viewed timeframe's base — for the 10s
@@ -164,11 +187,17 @@ wallpaper.
 
 Six 10-second candles fit inside every 1-minute candle, so the pullback that
 reads as a single topping tail on the 1-minute is visible structure on the
-10s. The EMAs there run at six times their minute spans — **EMA 54, 120 and
-270 are the 1-minute 9, 20 and 45 projected onto the 10-second chart** — same
-line, same colour, same toggle, relabelled per timeframe. VWAP anchors where
-the data starts, 4:00 a.m., so by the 7:00 open it already carries three hours
-of pre-market history.
+10s. The EMAs there run at six times their minute spans — **EMA 54, 120, 270
+and 600 are the 1-minute 9, 20, 45 and 100 projected onto the 10-second
+chart** — same line, same colour, same toggle, relabelled per timeframe. The
+slowest of them is why the window reaches back past yesterday's open: a
+100-minute EMA needs 600 bars before it draws its first point, and a session
+does not reliably hold that many.
+
+VWAP anchors at 4:00 a.m. and resets on the New York day, so it describes
+today's session no matter how far behind it the window reaches — by the 7:00
+open it already carries three hours of pre-market history, and yesterday's
+bars carry yesterday's line rather than extending today's.
 
 The toolbar clock shows New York time, the session (PRE/RTH/AH), the working
 window (prime 7:00–9:30, conditional to 10:00, wind-down to 11:00), and a

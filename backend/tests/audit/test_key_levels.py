@@ -13,8 +13,10 @@ becomes a bug the next time somebody reads the code.
 from __future__ import annotations
 
 import math
+from datetime import date
 
 import pytest
+import yfinance as yf
 
 from app.domain.sessions import ny_date
 from app.domain.timeframes import Timeframe
@@ -108,6 +110,40 @@ class TestRollingExtremes:
         ours = DailyLevelIndex(bars, {key})._rolling[key][-1]
         assert relative_difference(ours, float(row[column])) <= EXACT, (
             f"{subject.symbol} {level}: ours {ours} vs {row[column]}"
+        )
+
+
+class TestYearToDate:
+    """The high of the current calendar year, against the other tape.
+
+    TradingView audits every other level in this file and cannot audit this
+    one: `High.YTD` resolves as a column and comes back null for every symbol
+    asked, mega caps included. So the auditor here is yfinance, which
+    publishes the daily bars themselves — the check is the one anybody would
+    make by hand, the highest print since 1 January.
+    """
+
+    @pytest.mark.parametrize("subject", SUBJECTS)
+    def test_it_matches_the_other_tape(self, subject, daily_bars):
+        bars = daily_bars(subject.symbol)
+        if not bars:
+            pytest.skip(f"no daily bars for {subject.symbol}")
+        as_of = ny_date(bars[-1].time)
+        key = parse_level_key("ytd_high")
+        ours = DailyLevelIndex(bars).value(key, as_of)
+        # Ours excludes the day it is drawn on, so theirs must stop at the
+        # same bar: `end` is exclusive, and comparing across that one bar
+        # would read as a tape disagreement rather than the design it is.
+        history = yf.Ticker(subject.symbol).history(
+            start=date(as_of.year, 1, 1).isoformat(),
+            end=as_of.isoformat(),
+            auto_adjust=False,
+        )
+        if ours is None or history.empty:
+            pytest.skip(f"no year-to-date window for {subject.symbol}")
+        theirs = float(history["High"].max())
+        assert relative_difference(ours, theirs) <= EXACT, (
+            f"{subject.symbol} ytd high: ours {ours} vs {theirs}"
         )
 
 

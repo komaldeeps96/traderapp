@@ -45,6 +45,10 @@ SPAN_KINDS = frozenset({"sma", "ema", "high", "low"})
 # 52 weeks of closes" is a different and stranger thing than the highest
 # price in that time, so the suffix is only allowed where it means something.
 CALENDAR_KINDS = frozenset({"high", "low"})
+# Level kinds derived from the *current* calendar period rather than a
+# completed one. Still bounded by the previous close, so it does not repaint:
+# a year-to-date high is the highest price this year up to yesterday.
+CURRENT_KINDS = frozenset({"ytd_high"})
 # Level kinds derived from the previous completed calendar period.
 PERIOD_KINDS = frozenset(
     {
@@ -65,6 +69,10 @@ PERIOD_KINDS = frozenset(
         "prev_year_close",
     }
 )
+
+
+# Every kind that names a period instead of taking a span.
+BARE_KINDS = PERIOD_KINDS | CURRENT_KINDS
 
 
 def _week_bucket(day: date) -> tuple[int, int]:
@@ -122,6 +130,7 @@ class DailyLevelIndex:
         self._periods = {
             prefix: self._build_period(bucket_of) for prefix, bucket_of in _PERIOD_BUCKETS
         }
+        self._ytd_high = _running_year_max(self._highs, self._dates)
         # Sorted once so `_previous_bucket` can bisect instead of scan.
         self._period_keys = {prefix: sorted(buckets) for prefix, buckets in self._periods.items()}
 
@@ -210,6 +219,15 @@ class DailyLevelIndex:
             field = key.kind.removeprefix("prev_day_")
             return {"high": self._highs, "low": self._lows, "close": self._closes}[field][index]
 
+        if key.kind == "ytd_high":
+            index = self._last_index_before(day)
+            # In the first days of January the newest completed bar belongs
+            # to last year, and its running max is last year's high — a
+            # different level, and one already drawn as Prev Year High.
+            if index < 0 or self._dates[index].year != day.year:
+                return None
+            return self._ytd_high[index]
+
         for prefix, bucket_of in _PERIOD_BUCKETS:
             if not key.kind.startswith(prefix):
                 continue
@@ -241,9 +259,28 @@ def parse_level_key(raw: str) -> LevelKey:
             raise ValueError(f"Level {raw!r} needs a positive span")
         return LevelKey(kind, int(span), weeks=weeks)
 
-    if text not in PERIOD_KINDS:
+    if text not in BARE_KINDS:
         raise ValueError(f"Unknown level {raw!r}")
     return LevelKey(text)
+
+
+def _running_year_max(values: list[float], dates: list[date]) -> list[float]:
+    """The highest value so far in each bar's own calendar year.
+
+    Reset on 1 January rather than rolled over a window: unlike the 52-week
+    high beside it, this level is anchored, so it only moves when the year
+    makes a new high. Early in the year the two sit far apart and by December
+    they nearly agree, and that gap is how much of the yearly range this
+    year's move accounts for.
+    """
+    out: list[float] = []
+    year: int | None = None
+    best = 0.0
+    for value, day in zip(values, dates, strict=True):
+        best = value if day.year != year else max(best, value)
+        year = day.year
+        out.append(best)
+    return out
 
 
 def _calendar_extreme(

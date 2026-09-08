@@ -181,6 +181,42 @@ its primary listing is the TSX), every ADR (Alibaba is typed `dr`, not
 injects its own default `filter2` that excludes ETFs outright, so the fix was
 `set_property("filter2", ...)`. See `services/watchlist.py`.
 
+### The 10-second window is three slices, and only two are IBKR's
+
+The last four hours are the first paint, hours four to twelve the background
+extension — both native IBKR requests. Behind them, the previous session is
+walked off Alpaca's **trade tape**, because Alpaca's bars endpoint bottoms
+out at one minute (checked: `10Sec`, `10S`, `30Sec`, `1Sec` all answer 400
+`invalid timeframe`) and IBKR's 10s requests cap at four hours each, so
+reaching yesterday natively would cost ten chunks per ticker switch against
+a sixty-per-ten-minutes pacing allowance.
+
+That depth exists for one reason: **`ema()` returns nothing at all until it
+has `span` values**, and the 10s chart's slowest line is EMA 600. Twelve
+hours held 1,078 ten-second bars for SPWR at midday and 1,741 for WETO, so
+the line started most of the way across the chart; one previous session took
+those to 3,064 and 4,738. A bar exists only where a trade printed, so this
+is about the *name*, not the clock — AEMD managed 72 bars in twelve hours and
+299 in two sessions, and needs `history.tensec_prior_sessions` raised to draw
+a slow line at all.
+
+Two things follow that are easy to undo by accident:
+
+- **The tape walk is capped and newest-first** (`alpaca.max_prior_session_pages`).
+  Uncapped, AAPL burns forty pages and ten seconds and still never reaches
+  yesterday. Capped, what survives is the stretch adjacent to today, which is
+  the part that has to join up.
+- **Only the IBKR-served window is folded back into the minute base.**
+  `_refresh_minutes_from_tensec` deliberately clamps to the last twelve
+  hours: the prior sessions were rebuilt from Alpaca's tape through our own
+  condition filter, and Alpaca's *published* minutes for a session that
+  closed yesterday are better than our rebuild of them. There is no
+  delayed-feed gap to close in a closed session.
+
+Session-scoped indicators are safe across the wider window because every one
+of them keys on the New York date — VWAP, HOD/LOD and the pre-market range
+all reset per day, so yesterday's bars carry yesterday's lines.
+
 ### News comes from two places, and one of them is a socket
 
 IBKR carries eight entitled feeds; Alpaca carries Benzinga. The second exists
@@ -272,6 +308,12 @@ what other platforms show, because a level is a line a trader acts on and
 ours sitting somewhere nobody else's does means a different chart. The
 rolling extremes, previous close, and weekly and monthly bucketing all agree
 to 0.00%.
+
+One level has no TradingView column to check it with. `High.YTD` resolves as
+a column name and comes back null for every symbol asked, mega caps included,
+so the year-to-date high is audited against yfinance's own daily bars — the
+highest print since 1 January, by hand. It agrees to the fourth decimal on
+every US subject.
 
 Two differences there are real and are **asserted**, not tolerated. The day's
 range runs 04:00–20:00 rather than the regular session, because on a small

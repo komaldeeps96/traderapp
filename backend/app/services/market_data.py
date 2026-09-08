@@ -30,7 +30,7 @@ from ..indicators.levels import DailyLevelIndex
 from ..market.bar_builder import BarBuilder, Trade
 from ..market.resample import bucket_start, derive, resample
 from ..market.store import BarStore
-from ..providers.router import FeedRouter
+from ..providers.router import TENSEC_WINDOW_SECONDS, FeedRouter
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +38,9 @@ BackfillHandler = Callable[[str], Awaitable[None]]
 
 # A symbol nobody is watching keeps its bars warm for this long before the
 # memory is reclaimed. Flipping between the same few runners is the whole
-# workflow; reloading twelve hours of history on every flip costs three IBKR
-# requests and a second of blank chart for data we held moments ago.
+# workflow; reloading the 10s window on every flip costs three IBKR requests,
+# a capped Alpaca tape walk for the sessions behind them, and a second of
+# blank chart — for data we held moments ago.
 KEEP_WARM_SECONDS = 600.0
 KEEP_WARM_MAX_SYMBOLS = 8
 
@@ -193,23 +194,35 @@ class MarketDataService:
         minutes — the stretch a delayed Alpaca feed cannot serve — are
         resampled from the 10s base instead, which is IBKR-consolidated data
         already in hand. A ticker switch therefore costs exactly two IBKR
-        historical requests: the two 10s slices.
+        historical requests: the two 10s slices. The prior sessions behind
+        them are Alpaca's, and cost REST pages from a much larger allowance.
         """
         try:
-            fetches: dict[Timeframe, Awaitable[list[Bar]]] = {}
+            # A list of pairs rather than a dict keyed by timeframe: the 10s
+            # base is filled by two independent fetches, and the order they
+            # merge in is load-bearing. `merge` lets the incoming bars win, so
+            # the prior sessions go in first and IBKR's own bars overwrite them
+            # wherever the two windows overlap.
+            fetches: list[tuple[Timeframe, Awaitable[list[Bar]]]] = [
+                (Timeframe.S10, self._router.fetch_prior_tensec(symbol))
+            ]
             if fast_base is Timeframe.S10:
-                fetches[Timeframe.S10] = self._router.fetch_earlier_tensec(symbol)
-                fetches[Timeframe.M1] = self._router.fetch_intraday_fast(symbol)
+                fetches.append((Timeframe.S10, self._router.fetch_earlier_tensec(symbol)))
+                fetches.append((Timeframe.M1, self._router.fetch_intraday_fast(symbol)))
             elif fast_base is Timeframe.M1:
-                fetches[Timeframe.S10] = self._router.fetch_history(symbol, Timeframe.S10)
+                fetches.append((Timeframe.S10, self._router.fetch_earlier_tensec(symbol)))
+                fetches.append((Timeframe.S10, self._router.fetch_recent_tensec(symbol)))
             else:
-                fetches[Timeframe.M1] = self._router.fetch_intraday_fast(symbol)
-                fetches[Timeframe.S10] = self._router.fetch_history(symbol, Timeframe.S10)
+                fetches.append((Timeframe.M1, self._router.fetch_intraday_fast(symbol)))
+                fetches.append((Timeframe.S10, self._router.fetch_earlier_tensec(symbol)))
+                fetches.append((Timeframe.S10, self._router.fetch_recent_tensec(symbol)))
 
-            results = await asyncio.gather(*fetches.values(), return_exceptions=True)
+            results = await asyncio.gather(
+                *(awaitable for _, awaitable in fetches), return_exceptions=True
+            )
 
             landed = False
-            for timeframe, result in zip(fetches, results, strict=True):
+            for (timeframe, _), result in zip(fetches, results, strict=True):
                 if isinstance(result, list) and result:
                     self._store.merge(symbol, timeframe, result)
                     landed = True
@@ -237,7 +250,7 @@ class MarketDataService:
                 self._backfills.pop(symbol, None)
 
     def _refresh_minutes_from_tensec(self, symbol: str) -> bool:
-        """Fold the 10s base into fresh minute bars.
+        """Fold the *live* end of the 10s base into fresh minute bars.
 
         Six consolidated 10-second bars sum to the consolidated minute, so
         this closes the delayed feed's 15-minute gap without spending an
@@ -250,11 +263,29 @@ class MarketDataService:
         whole 10s window. Minutes older than the 10s base keep Alpaca's,
         which are on the consolidated tape's convention and so read higher —
         the one seam this arrangement accepts.
+
+        Which is why only the IBKR-served window is folded, not the whole 10s
+        base. The prior sessions behind it were themselves rebuilt from
+        Alpaca's tape, and rebuilt minutes are strictly worse than the ones
+        Alpaca publishes for those same minutes: our own condition filter
+        drops prints their bars count, so overwriting a settled published
+        minute with a derived one would trade an authoritative number for an
+        approximation of it, and for no gain — there is no delayed-feed gap
+        to close in a session that closed yesterday.
         """
         tensec = self._store.get(symbol, Timeframe.S10)
         if not tensec:
             return False
-        minutes = resample(tensec, Timeframe.M1)[:-1]
+        # Measured back from the live edge of the 10s base rather than from
+        # the wall clock: it is the same boundary the router fetched against
+        # (the newest 10s bar is either the live stream's or the recent
+        # slice's, both of which end at ``now``), and it stays true of a
+        # series loaded from a fixture instead of from a market.
+        cutoff = tensec[-1].time - TENSEC_WINDOW_SECONDS
+        live = [bar for bar in tensec if bar.time >= cutoff]
+        if not live:
+            return False
+        minutes = resample(live, Timeframe.M1)[:-1]
         if not minutes:
             return False
         self._store.merge(symbol, Timeframe.M1, minutes)

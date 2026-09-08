@@ -11,6 +11,7 @@ import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 
 from app.core.settings import AlpacaSettings
@@ -452,6 +453,98 @@ class TestFeedWindow:
     def test_reports_the_delay(self):
         assert make_provider(feed="delayed_sip").is_delayed is True
         assert make_provider(feed="iex").is_delayed is False
+
+
+# ── the 10-second tape walk ────────────────────────────────────────────
+
+
+class PagingTape:
+    """A trades endpoint that pages forever, counting the requests."""
+
+    def __init__(self, per_page: int = 3):
+        self.requests: list[httpx.Request] = []
+        self._per_page = per_page
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        page = len(self.requests)
+        # Each page is older than the last, walking backwards like the real
+        # newest-first sort.
+        base = datetime(2024, 3, 5, 15, 0, tzinfo=UTC) - timedelta(minutes=page)
+        return httpx.Response(
+            200,
+            json={
+                "trades": {
+                    "RUN": [
+                        {
+                            "t": (base + timedelta(seconds=10 * i)).strftime(
+                                "%Y-%m-%dT%H:%M:%S.%fZ"
+                            ),
+                            "p": 4.0 + i,
+                            "s": 100,
+                        }
+                        for i in range(self._per_page)
+                    ]
+                },
+                "next_page_token": f"page-{page}",
+            },
+        )
+
+
+async def provider_on(tape: PagingTape, **overrides) -> AlpacaProvider:
+    provider = make_provider(feed="iex", **overrides)
+    await provider.start()
+    provider._client = httpx.AsyncClient(
+        base_url="https://data.alpaca.markets", transport=httpx.MockTransport(tape)
+    )
+    return provider
+
+
+WINDOW = (
+    datetime(2024, 3, 4, 9, 0, tzinfo=UTC),
+    datetime(2024, 3, 5, 3, 0, tzinfo=UTC),
+)
+
+
+class TestTapeWalkPaging:
+    async def test_the_prior_session_walk_uses_its_own_smaller_cap(self):
+        """Off-screen background history is not worth forty pages of tape."""
+        tape = PagingTape()
+        provider = await provider_on(tape, max_trade_pages=40, max_prior_session_pages=3)
+
+        await provider.fetch_prior_tensec("RUN", *WINDOW)
+
+        assert len(tape.requests) == 3
+
+    async def test_the_on_screen_walk_still_uses_the_full_cap(self):
+        tape = PagingTape()
+        provider = await provider_on(tape, max_trade_pages=5, max_prior_session_pages=2)
+
+        await provider.fetch_bars("RUN", Timeframe.S10, *WINDOW)
+
+        assert len(tape.requests) == 5
+
+    async def test_truncation_drops_the_bar_whose_open_is_missing(self):
+        """The walk runs newest-first, so the oldest bar it reaches is the
+        one whose opening trades are still a page away."""
+        tape = PagingTape(per_page=2)
+        provider = await provider_on(tape, max_prior_session_pages=2)
+
+        bars = await provider.fetch_prior_tensec("RUN", *WINDOW)
+
+        # Four trades, ten seconds apart, over two pages: four 10s buckets,
+        # of which the earliest is dropped as incomplete.
+        assert len(bars) == 3
+
+    async def test_an_inverted_window_asks_for_nothing(self):
+        """The router hands over an empty range whenever IBKR's own window
+        already reaches past the previous session's open."""
+        tape = PagingTape()
+        provider = await provider_on(tape)
+
+        moment = datetime(2024, 3, 5, 3, 0, tzinfo=UTC)
+        assert await provider.fetch_prior_tensec("RUN", moment, moment) == []
+        assert tape.requests == []
 
 
 class TestAvailability:

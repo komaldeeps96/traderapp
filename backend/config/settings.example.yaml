@@ -19,9 +19,20 @@ alpaca:
   # delayed_sip free, whole tape, delayed 15 minutes
   # sip         paid, whole tape, real time
   feed: iex
+  # Live Benzinga headlines over Alpaca's news socket. Separate from `feed`,
+  # which governs the price tape only: news is a different product and is not
+  # delayed. Alpaca allows one news socket per account, and a second
+  # connection takes it rather than sharing it, so two copies of this app
+  # will trade the connection back and forth.
+  news_stream: true
   # 10-second history on Alpaca is rebuilt from the raw trade tape, paged
   # newest-first; the cap bounds how far a very heavy tape is walked.
   # max_trade_pages: 40
+  # The same walk for the *prior* sessions sitting behind the IBKR window.
+  # Twelve pages is 120k trades — measured, the whole previous session for a
+  # small-cap runner and the closing hours of it for a mega cap, which is the
+  # part that has to join up with today.
+  # max_prior_session_pages: 12
 
 ibkr:
   # The app prefers IBKR for live data and falls back to Alpaca automatically
@@ -33,16 +44,38 @@ ibkr:
 
 history:
   # Minute history is one Alpaca request (newest ~10k bars); the days value
-  # only bounds the requested window. The 10-second base loads the last 8
-  # hours from IBKR natively — the recent 4h up front, the older 4h as a
-  # background backfill — with Alpaca's trade tape as the recent-slice
-  # fallback when TWS is down.
+  # only bounds the requested window. The 10-second base is three slices: the
+  # last 4 hours from IBKR up front, hours 4-12 from IBKR as a background
+  # extension — with Alpaca's trade tape as the recent-slice fallback when TWS
+  # is down — and behind those the previous session(s), always walked off
+  # Alpaca's tape.
   # 20 days: the windowed-RVOL denominator wants real prior sessions,
   # not the handful a chart needs for display.
   intraday_days: 20
   # Daily history is one Alpaca request capped at 10k rows; 40 years is what
   # fills that page, so asking for less only throws away levels.
   daily_years: 40
+  # How many sessions the 10-second window reaches back over, behind the
+  # twelve hours IBKR serves. EMA 600 is the slowest line on that chart and
+  # draws nothing at all until it has 600 bars — and a bar exists only where a
+  # trade printed, so this is about the name rather than the clock. One
+  # session covers a liquid runner; raise it for a genuinely thin one, at the
+  # cost of one more capped tape walk per ticker switch.
+  # tensec_prior_sessions: 1
+
+tape:
+  # TIME AND SALES — the print-by-print window under the context chart.
+  # A separate reader on the same trade stream: no bars, no indicators, and
+  # nothing here reaches either. There is no on/off switch, because a tape
+  # that is not there is a window showing nothing.
+  #
+  # Rows held per symbol. The window itself keeps fewer; this is the depth a
+  # fresh subscribe is handed, so it is really "how far back can I scroll
+  # through the burst that just happened".
+  buffer: 600
+  # Symbols keeping a tape at once, evicted least-recently-printed. Well
+  # above a session's worth of flipping between runners.
+  max_symbols: 16
 
 scanner:
   # The trade-rate scanner is IBKR-only; there is no Alpaca equivalent to

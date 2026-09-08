@@ -92,7 +92,7 @@ class TestShippedConfig:
     def test_the_daily_chart_opens_on_a_readable_set(self):
         """Computed everywhere, but not all switched on at once.
 
-        Thirty-three levels drawn over one daily candle series is a wall of
+        Thirty-four series drawn over one daily candle series is a wall of
         horizontal lines. The ones that default to visible are the ones a
         daily chart is actually read against; the rest are a click away.
         """

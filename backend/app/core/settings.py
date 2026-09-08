@@ -58,6 +58,14 @@ class AlpacaSettings(BaseModel):
     # ticker prints millions of trades a day, so the walk is capped in pages
     # of ``page_limit`` and keeps the most recent window when it truncates.
     max_trade_pages: int = Field(default=40, ge=1, le=200)
+    # The same walk for the *prior* sessions of the 10s window, which is
+    # off-screen background history rather than the chart's live edge. Twelve
+    # pages is 120k trades: measured, that is the whole previous session for
+    # a small-cap runner (WETO's 09-02 tape was 6.4 pages) and the closing
+    # hours of it for a mega cap, which is the part that has to join up with
+    # today. Names liquid enough to truncate here already carry far more than
+    # a slow EMA needs inside the on-screen window.
+    max_prior_session_pages: int = Field(default=12, ge=1, le=200)
 
     @property
     def enabled(self) -> bool:
@@ -93,9 +101,23 @@ class HistorySettings(BaseModel):
     daily_years: int = Field(default=40, ge=1, le=50)
     max_bars_in_memory: int = Field(default=20_000, ge=100)
     # IBKR is only asked for the most recent slice; Alpaca covers the rest.
-    # (The 10-second window is not configured here: it always runs from the
-    # previous session's 16:00 close, split IBKR-recent / Alpaca-earlier.)
     ibkr_recent_seconds: int = Field(default=3600, ge=60)
+    # How many *earlier* sessions the 10-second window reaches back over,
+    # walked off Alpaca's trade tape in the background pass. IBKR serves the
+    # last twelve hours natively (app/providers/router.py); this is what sits
+    # behind them.
+    #
+    # One is enough for the slowest line on the 10s chart. EMA 600 is one
+    # hundred minutes of bars and draws nothing at all until it has 600 of
+    # them: measured at midday, twelve hours held 1,078 for SPWR and 1,741
+    # for WETO, so the line began most of the way across the chart — and
+    # first thing in the morning it does not begin at all. Adding the
+    # previous session took those to 3,064 and 4,738.
+    #
+    # Raise it for a genuinely thin name, where a session is not 600 bars of
+    # anything: AEMD's two sessions came to 299. Each extra session is one
+    # more capped tape walk per ticker switch.
+    tensec_prior_sessions: int = Field(default=1, ge=0, le=5)
 
 
 class EdgarSettings(BaseModel):

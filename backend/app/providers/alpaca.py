@@ -123,9 +123,10 @@ class AlpacaProvider(MarketDataProvider):
             raise ProviderError("Alpaca provider not started")
 
         # Alpaca's bars endpoint bottoms out at one minute; 10-second bars are
-        # rebuilt from the raw trade tape instead.
+        # rebuilt from the raw trade tape instead. (Checked, not assumed:
+        # 10Sec, 10S, 30Sec and 1Sec all answer 400 "invalid timeframe".)
         if timeframe is Timeframe.S10:
-            return await self._fetch_tensec(symbol, start, end)
+            return await self.fetch_tensec_tape(symbol, start, end)
 
         feed, end = self._resolve_feed_window(end)
         params = {
@@ -151,15 +152,32 @@ class AlpacaProvider(MarketDataProvider):
         logger.info("Alpaca: %s %s -> %d bars", symbol, timeframe.value, len(bars))
         return bars
 
-    async def _fetch_tensec(self, symbol: str, start: datetime, end: datetime) -> list[Bar]:
+    async def fetch_tensec_tape(
+        self,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        *,
+        max_pages: int | None = None,
+    ) -> list[Bar]:
         """Rebuild 10-second bars from the trade tape.
 
         Pages are walked newest-first so that when the page cap truncates a
         very heavy tape, what survives is the most recent window — the part a
         10-second chart is actually for. The oldest bar is dropped on
         truncation because its opening trades are missing.
+
+        ``max_pages`` overrides the configured cap. The prior-session slice
+        passes a smaller one: it is off-screen history fetched in the
+        background, and on a name liquid enough to exhaust the cap the
+        on-screen window is already deep enough to need nothing from it.
+        Truncating newest-first means what a small cap buys is the stretch
+        adjacent to today, which is the part that has to be contiguous.
         """
         feed, end = self._resolve_feed_window(end)
+        if start >= end:
+            return []
+        pages = max_pages if max_pages is not None else self._settings.max_trade_pages
         params = {
             "symbols": symbol,
             "start": rfc3339(start),
@@ -172,7 +190,7 @@ class AlpacaProvider(MarketDataProvider):
         trades: list[Trade] = []
         page_token: str | None = None
         truncated = False
-        for _page in range(self._settings.max_trade_pages):
+        for _page in range(max(pages, 1)):
             if page_token:
                 params["page_token"] = page_token
             payload = await self._get("/v2/stocks/trades", params)
@@ -197,6 +215,19 @@ class AlpacaProvider(MarketDataProvider):
             " (truncated)" if truncated else "",
         )
         return bars
+
+    async def fetch_prior_tensec(
+        self, symbol: str, start: datetime, end: datetime
+    ) -> list[Bar]:
+        """The 10s window's prior sessions, on the bounded page cap.
+
+        A named entry point rather than a keyword at the call site so the cap
+        that applies to off-screen history lives with the setting that
+        governs it, and the router stays out of Alpaca's paging rules.
+        """
+        return await self.fetch_tensec_tape(
+            symbol, start, end, max_pages=self._settings.max_prior_session_pages
+        )
 
     def _resolve_feed_window(self, end: datetime) -> tuple[str, datetime]:
         """Pick the REST feed and clamp the window for delayed entitlements.

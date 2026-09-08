@@ -121,6 +121,7 @@ class TestParseLevelKey:
             ("low:65", LevelKey("low", 65)),
             ("prev_day_close", LevelKey("prev_day_close")),
             ("PREV_WEEK_HIGH", LevelKey("prev_week_high")),
+            ("ytd_high", LevelKey("ytd_high")),
         ],
     )
     def test_parses_supported_forms(self, raw, expected):
@@ -155,29 +156,30 @@ class TestEmptyIndex:
         assert empty.value(LevelKey("prev_day_close"), date(2024, 3, 5)) is None
 
 
+def daily_bar(year: int, month: int, dom: int, close: float) -> Bar:
+    """One daily bar with a symmetric one-dollar range around its close."""
+    return Bar(
+        time=ny_epoch(year, month, dom, 16, 0),
+        open=close,
+        high=close + 1,
+        low=close - 1,
+        close=close,
+        volume=1_000,
+    )
+
+
 class TestLongerPeriods:
     """Quarter and year, on the same machinery as week and month."""
-
-    @staticmethod
-    def day(year: int, month: int, dom: int, close: float):
-        return Bar(
-            time=ny_epoch(year, month, dom, 16, 0),
-            open=close,
-            high=close + 1,
-            low=close - 1,
-            close=close,
-            volume=1_000,
-        )
 
     def index(self):
         return DailyLevelIndex(
             [
-                self.day(2025, 2, 10, 50),
-                self.day(2025, 5, 12, 80),
-                self.day(2025, 11, 3, 60),
-                self.day(2026, 2, 9, 30),
-                self.day(2026, 5, 11, 40),
-                self.day(2026, 8, 10, 45),
+                daily_bar(2025, 2, 10, 50),
+                daily_bar(2025, 5, 12, 80),
+                daily_bar(2025, 11, 3, 60),
+                daily_bar(2026, 2, 9, 30),
+                daily_bar(2026, 5, 11, 40),
+                daily_bar(2026, 8, 10, 45),
             ]
         )
 
@@ -196,8 +198,60 @@ class TestLongerPeriods:
         assert idx.value(LevelKey("prev_year_close"), today) == 60  # Nov 2025
 
     def test_no_earlier_period_yields_none(self):
-        idx = DailyLevelIndex([self.day(2026, 8, 10, 45)])
+        idx = DailyLevelIndex([daily_bar(2026, 8, 10, 45)])
         assert idx.value(LevelKey("prev_year_close"), date(2026, 8, 13)) is None
+
+
+class TestYearToDate:
+    """The high of the current calendar year, anchored to 1 January.
+
+    A different question from the 52-week high beside it, which rolls: for
+    most of a year the two sit nowhere near each other, and this one only
+    moves when *this* year prints a new high.
+    """
+
+    def index(self):
+        return DailyLevelIndex(
+            [
+                daily_bar(2025, 5, 12, 80),  # last year's high, 81
+                daily_bar(2025, 12, 30, 55),
+                daily_bar(2026, 2, 9, 30),
+                daily_bar(2026, 5, 11, 40),  # this year's high, 41
+                daily_bar(2026, 8, 10, 35),
+            ]
+        )
+
+    def test_it_is_the_highest_print_since_january(self):
+        assert self.index().value(LevelKey("ytd_high"), date(2026, 8, 13)) == 41
+
+    def test_last_years_higher_print_does_not_count(self):
+        """The whole of the difference from a rolling window."""
+        idx, today = self.index(), date(2026, 8, 13)
+        assert idx.value(LevelKey("prev_year_high"), today) == 81
+        assert idx.value(LevelKey("ytd_high"), today) == 41
+
+    def test_it_does_not_include_its_own_day(self):
+        """A new high made today draws tomorrow, so the line cannot move
+        under the trade that set it."""
+        idx = self.index()
+        assert idx.value(LevelKey("ytd_high"), date(2026, 5, 11)) == 31
+        assert idx.value(LevelKey("ytd_high"), date(2026, 5, 12)) == 41
+
+    def test_it_is_undefined_before_the_years_first_close(self):
+        """In the first days of January the newest completed bar is last
+        year's, and last year's running high is Prev Year High — a level
+        that already has its own line."""
+        idx = self.index()
+        assert idx.value(LevelKey("ytd_high"), date(2026, 1, 2)) is None
+        assert idx.value(LevelKey("ytd_high"), date(2026, 2, 9)) is None
+
+    def test_it_answers_for_the_day_it_is_asked_about(self):
+        """Asked about a day in 2025 it reports 2025, like every other level
+        here: a function of the day, not of where the series ends."""
+        assert self.index().value(LevelKey("ytd_high"), date(2025, 12, 31)) == 81
+
+    def test_is_undefined_with_no_history(self):
+        assert DailyLevelIndex([]).value(LevelKey("ytd_high"), date(2026, 8, 13)) is None
 
 
 class TestLookupShortcuts:

@@ -1,20 +1,28 @@
-"""The 10-second history window: eight hours, IBKR-native, two slices.
+"""The 10-second history window: twelve IBKR-native hours, plus what is behind them.
 
-The recent four hours are the fast first paint (one request); hours four to
-eight arrive as the background extension. Alpaca's tape walk exists only as
-the fallback for the recent slice when TWS is down — never for the extension,
-whose whole point is avoiding that download.
+Three slices. The recent four hours are the fast first paint (one IBKR
+request); hours four to twelve arrive as the background extension (two more).
+Behind those, the previous session comes off Alpaca's trade tape — the one
+place the window pays for a tape walk it does not have to, because IBKR
+cannot serve that depth without turning three chunked requests per ticker
+switch into ten.
+
+Alpaca's tape is otherwise only the *fallback* for the recent slice when TWS
+is down, and never the extension, whose whole point is avoiding that
+download.
 """
 
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from app.core.clock import NY_TZ, to_ny
 from app.core.settings import HistorySettings
 from app.domain.bars import Bar
+from app.domain.sessions import prior_session_open
 from app.domain.timeframes import Timeframe
 from app.providers.base import MarketDataProvider
 from app.providers.router import (
@@ -57,12 +65,25 @@ class StubProvider(MarketDataProvider):
             return list(self.bars.get(timeframe, []))
         return list(self.bars)
 
+    async def fetch_prior_tensec(self, symbol, start, end):
+        """The Alpaca-only prior-session walk, recorded like any other fetch."""
+        return await self.fetch_bars(symbol, Timeframe.S10, start, end)
+
 
 def router_with(alpaca: StubProvider, ibkr: StubProvider) -> FeedRouter:
     return FeedRouter(alpaca, ibkr, HistorySettings())  # type: ignore[arg-type]
 
 
+# 10:00 New York on Tuesday 2024-03-05, mid-session.
 NOW = datetime(2024, 3, 5, 15, 0, tzinfo=UTC)
+# 04:00 New York on Monday 2024-03-04 — the session before NOW's.
+PRIOR_OPEN = datetime(2024, 3, 4, 9, 0, tzinfo=UTC)
+
+
+def router_with_prior_sessions(
+    alpaca: StubProvider, ibkr: StubProvider, sessions: int
+) -> FeedRouter:
+    return FeedRouter(alpaca, ibkr, HistorySettings(tensec_prior_sessions=sessions))  # type: ignore[arg-type]
 
 
 class TestRecentSlice:
@@ -127,8 +148,78 @@ class TestEarlierSlice:
         assert alpaca.calls == []
 
 
+class TestPriorSessions:
+    """The depth behind the IBKR window, and who is allowed to fetch it."""
+
+    async def test_alpaca_walks_the_tape_from_the_previous_session_open(self):
+        ibkr = StubProvider("ibkr", True, [make_bar(900_000, 5.0)])
+        alpaca = StubProvider("alpaca", True, [make_bar(800_000, 4.0)])
+        router = router_with(alpaca, ibkr)
+
+        bars = await router.fetch_prior_tensec("RUN", NOW)
+
+        assert bars
+        assert ibkr.calls == []
+        (timeframe, start, end) = alpaca.calls[0]
+        assert timeframe is Timeframe.S10
+        assert start == PRIOR_OPEN
+        # It stops where IBKR's own window begins.
+        assert end == NOW - timedelta(seconds=TENSEC_WINDOW_SECONDS)
+
+    async def test_reaches_the_recent_slice_when_tws_is_down(self):
+        """Otherwise it would leave the hole the skipped extension makes.
+
+        With IBKR gone nothing serves hours four to twelve, so the tape walk
+        that is already happening covers them too rather than fetching an
+        island of yesterday with today's morning missing between.
+        """
+        ibkr = StubProvider("ibkr", False)
+        alpaca = StubProvider("alpaca", True, [make_bar(800_000, 4.0)])
+        router = router_with(alpaca, ibkr)
+
+        await router.fetch_prior_tensec("RUN", NOW)
+
+        (_, start, end) = alpaca.calls[0]
+        assert start == PRIOR_OPEN
+        assert end == NOW - timedelta(seconds=TENSEC_RECENT_SECONDS)
+
+    async def test_two_sessions_reaches_one_day_further(self):
+        alpaca = StubProvider("alpaca", True, [make_bar(800_000, 4.0)])
+        router = router_with_prior_sessions(alpaca, StubProvider("ibkr", True), 2)
+
+        await router.fetch_prior_tensec("RUN", NOW)
+
+        # Friday 2024-03-01, 04:00 New York: the weekend is stepped over.
+        assert alpaca.calls[0][1] == datetime(2024, 3, 1, 9, 0, tzinfo=UTC)
+
+    async def test_zero_sessions_turns_the_walk_off(self):
+        alpaca = StubProvider("alpaca", True, [make_bar(800_000, 4.0)])
+        router = router_with_prior_sessions(alpaca, StubProvider("ibkr", True), 0)
+
+        assert await router.fetch_prior_tensec("RUN", NOW) == []
+        assert alpaca.calls == []
+
+    async def test_nothing_to_fetch_when_ibkr_already_reaches_further(self, monkeypatch):
+        """Widen the native window past the previous session's open and the
+        walk stops happening rather than asking for an inverted range."""
+        monkeypatch.setattr("app.providers.router.TENSEC_WINDOW_SECONDS", 72 * 3600)
+        alpaca = StubProvider("alpaca", True, [make_bar(800_000, 4.0)])
+        router = router_with(alpaca, StubProvider("ibkr", True))
+
+        assert await router.fetch_prior_tensec("RUN", NOW) == []
+        assert alpaca.calls == []
+
+    async def test_a_broken_tape_walk_costs_the_window_nothing(self):
+        class Broken(StubProvider):
+            async def fetch_prior_tensec(self, symbol, start, end):
+                raise RuntimeError("tape unavailable")
+
+        router = router_with(Broken("alpaca", True), StubProvider("ibkr", True, [make_bar(1, 5.0)]))
+        assert await router.fetch_prior_tensec("RUN", NOW) == []
+
+
 class TestFullWindow:
-    async def test_merges_both_slices_with_recent_winning(self):
+    async def test_merges_every_slice_with_the_newer_one_winning(self):
         shared = 1_000_000
         ibkr = StubProvider("ibkr", True, [make_bar(shared, 5.0)])
         alpaca = StubProvider("alpaca", True, [make_bar(shared, 4.0)])
@@ -136,10 +227,19 @@ class TestFullWindow:
 
         bars = await router.fetch_history("RUN", Timeframe.S10)
 
-        # Both IBKR slices returned the same scripted bar; it lands once.
+        # Every slice returned the same scripted timestamp; it lands once, and
+        # IBKR's close wins it over the tape's.
         assert len(bars) == 1
         assert bars[0].close == pytest.approx(5.0)
         assert len(ibkr.calls) == 2
+        assert len(alpaca.calls) == 1
+
+    async def test_the_prior_slice_alone_still_draws_a_chart(self):
+        """TWS down and the recent tape empty: yesterday is better than nothing."""
+        alpaca = StubProvider("alpaca", True, {Timeframe.S10: [make_bar(800_000, 4.0)]})
+        router = router_with(alpaca, StubProvider("ibkr", False))
+
+        assert await router.fetch_history("RUN", Timeframe.S10)
 
     async def test_nothing_available_returns_nothing(self):
         router = router_with(StubProvider("alpaca", False), StubProvider("ibkr", False))
@@ -171,6 +271,48 @@ class TestFastMinutePath:
         assert (end - start).total_seconds() == HistorySettings().ibkr_recent_seconds
 
 
+class TestPriorSessionOpen:
+    """Which 04:00 the window anchors to, from any point in the week."""
+
+    @staticmethod
+    def opens_at(year, month, day, hour, minute=0, sessions=1):
+        """``prior_session_open`` for a New York wall-clock moment, in NY."""
+        reference = datetime(year, month, day, hour, minute, tzinfo=NY_TZ)
+        return to_ny(prior_session_open(reference, sessions).timestamp())
+
+    def test_midday_anchors_to_yesterday(self):
+        opened = self.opens_at(2024, 3, 5, 12)  # Tuesday lunchtime
+        assert (opened.date(), opened.hour) == (date(2024, 3, 4), 4)
+
+    def test_before_the_premarket_opens_today_has_not_traded(self):
+        """At 02:00 nothing has printed today, so today is not a session yet
+        and one back from the current one is the day before yesterday."""
+        opened = self.opens_at(2024, 3, 5, 2)  # Tuesday, small hours
+        assert opened.date() == date(2024, 3, 1)  # Friday, not Monday
+
+    def test_monday_steps_over_the_weekend(self):
+        opened = self.opens_at(2024, 3, 4, 12)  # Monday
+        assert opened.date() == date(2024, 3, 1)  # Friday
+
+    def test_the_weekend_itself_anchors_to_thursday(self):
+        """Saturday's most recent session is Friday's, so one back is Thursday."""
+        opened = self.opens_at(2024, 3, 9, 12)  # Saturday
+        assert opened.date() == date(2024, 3, 7)  # Thursday
+
+    def test_zero_sessions_is_this_session_own_open(self):
+        opened = self.opens_at(2024, 3, 5, 12, sessions=0)
+        assert (opened.date(), opened.hour) == (date(2024, 3, 5), 4)
+
+    def test_04_00_is_04_00_on_both_sides_of_a_dst_change(self):
+        """US clocks moved on 2024-03-10. Anchoring to the wall clock rather
+        than to a fixed offset is what keeps the pre-market open the
+        pre-market open."""
+        before = self.opens_at(2024, 3, 8, 12)  # Friday, EST
+        after = self.opens_at(2024, 3, 12, 12)  # Tuesday, EDT
+        assert before.hour == after.hour == 4
+        assert before.utcoffset() != after.utcoffset()
+
+
 class TestWindowShape:
     """The window is a deliberate size, not an incidental one."""
 
@@ -191,6 +333,41 @@ class TestWindowShape:
         from app.providers.ibkr import _MAX_REQUEST_SECONDS
 
         assert _MAX_REQUEST_SECONDS[Timeframe.S10] >= TENSEC_RECENT_SECONDS
+
+    def test_the_prior_sessions_cost_no_ibkr_requests_at_all(self):
+        """The reason they are Alpaca's. Reaching the previous session's
+        04:00 natively would be seven more chunks against a sixty-per-ten-
+        minutes pacing allowance, two of them the dead overnight hours."""
+        from app.providers.ibkr import _MAX_REQUEST_SECONDS
+
+        cap = _MAX_REQUEST_SECONDS[Timeframe.S10]
+        native = math.ceil((36 * 3600) / cap)  # NOW's window, were IBKR asked
+        assert native >= 9
+        assert HistorySettings().tensec_prior_sessions >= 1
+
+    def test_the_depth_matches_the_slowest_line_configured_on_the_chart(self):
+        """``ema()`` draws nothing until it has ``span`` bars, so the window
+        has to hold more of them than the slowest 10s indicator asks for.
+
+        Measured at midday, twelve hours held 1,078 ten-second bars for SPWR
+        and 1,741 for WETO — enough for a 600-span line to start most of the
+        way across the chart, and at the open, not to start. One previous
+        session took those to 3,064 and 4,738.
+        """
+        from app.core.settings import get_settings
+        from app.indicators.spec import load_indicator_specs
+
+        specs = load_indicator_specs(get_settings().indicators_file)
+        spans = [
+            spec.span_for(Timeframe.S10)
+            for spec in specs
+            if spec.span_for(Timeframe.S10) is not None
+        ]
+        assert max(spans) >= 600, (
+            "no slow line left on the 10s chart — if that is deliberate, the "
+            "prior-session walk is paying for depth nothing draws against"
+        )
+        assert HistorySettings().tensec_prior_sessions >= 1
 
 
 class TestWindowCoversTheSession:

@@ -119,6 +119,91 @@ class TestTwoPhaseLoad:
         assert (open_ - 3600) in minutes
 
 
+class TestPriorSessionDepth:
+    """The 10s window reaches behind IBKR's, and stops there for minutes.
+
+    Depth is what a slow moving average needs: ``ema()`` draws nothing at all
+    until it holds ``span`` bars, and EMA 600 on this chart is a hundred
+    minutes of them.
+    """
+
+    @staticmethod
+    def build(prior, today):
+        alpaca = StubProvider(
+            "alpaca",
+            True,
+            {
+                Timeframe.D1: [make_bar(ny_epoch(2024, 3, 4, 0, 0), 9.0)],
+                Timeframe.S10: prior,
+                Timeframe.M1: [],
+            },
+        )
+        ibkr = StubProvider("ibkr", True, {Timeframe.S10: today})
+        router = FeedRouter(alpaca, ibkr, HistorySettings())  # type: ignore[arg-type]
+        return alpaca, MarketDataService(router, BarStore(), IndicatorEngine([]))
+
+    async def test_yesterdays_bars_extend_the_window(self):
+        today = ny_epoch(2024, 3, 5, 9, 30)
+        yesterday = ny_epoch(2024, 3, 4, 9, 30)
+        _, service = self.build(
+            prior=[make_bar(yesterday + i * 10, 8.0) for i in range(6)],
+            today=[make_bar(today + i * 10, 10.0) for i in range(6)],
+        )
+
+        await service.ensure_loaded("RUN", Timeframe.S10)
+        # Phase one is today alone — the tape walk must not hold up the paint.
+        assert len(service.bars("RUN", Timeframe.S10)) == 6
+
+        await service.wait_for_backfill("RUN")
+        bars = service.bars("RUN", Timeframe.S10)
+        assert len(bars) == 12
+        assert bars[0].time == yesterday
+
+    async def test_ibkr_wins_wherever_the_two_windows_overlap(self):
+        """IBKR counts its duration in trading time, so its window reaches
+        further back than twelve wall-clock hours and the two do overlap.
+        Its bars are the ones the live stream continues, so they win."""
+        shared = ny_epoch(2024, 3, 5, 9, 30)
+        _, service = self.build(
+            prior=[make_bar(shared, 8.0, volume=999)],
+            today=[make_bar(shared, 10.0, volume=100)],
+        )
+
+        await service.ensure_loaded("RUN", Timeframe.S10)
+        await service.wait_for_backfill("RUN")
+
+        bars = service.bars("RUN", Timeframe.S10)
+        assert len(bars) == 1
+        assert bars[0].close == pytest.approx(10.0)
+
+    async def test_the_prior_sessions_do_not_overwrite_published_minutes(self):
+        """Alpaca publishes yesterday's minute bars; the 10s bars behind the
+        IBKR window were rebuilt from Alpaca's own tape through a condition
+        filter that drops prints those published bars count. Folding them
+        back over the published minute would trade a settled number for an
+        approximation of it, for no gain — there is no delayed-feed gap to
+        close in a session that closed yesterday.
+        """
+        today = ny_epoch(2024, 3, 5, 9, 30)
+        yesterday = ny_epoch(2024, 3, 4, 9, 30)
+        alpaca, service = self.build(
+            prior=[make_bar(yesterday + i * 10, 8.0, volume=50) for i in range(6)],
+            today=[make_bar(today + i * 10, 10.0, volume=50) for i in range(12)],
+        )
+        # Alpaca's published minute for that same minute yesterday, counting
+        # more volume than our rebuild of it does.
+        alpaca.bars[Timeframe.M1] = [make_bar(yesterday, 8.0, volume=900)]
+
+        await service.ensure_loaded("RUN", Timeframe.S10)
+        await service.wait_for_backfill("RUN")
+
+        minutes = {bar.time: bar for bar in service.bars("RUN", Timeframe.M1)}
+        assert minutes[yesterday].volume == pytest.approx(900)
+        # Today's first minute is still derived from the 10s base, which is
+        # the whole point of the fold.
+        assert minutes[today].volume == pytest.approx(300)
+
+
 class TestRecentRepair:
     """Healing the seam a delayed-fallback load leaves behind."""
 
