@@ -1,50 +1,55 @@
 import { expect, test } from '../../fixtures/test';
 
 /**
- * The 1m and 5m context charts beside the main one.
+ * The context chart beside the main one.
  *
- * Two things are worth a browser test rather than a unit test. First, that
- * they are genuinely minimal: they draw onto a shared canvas with the same
- * engine as the main chart, and the whole point is that the ~30 key levels,
- * MACD and the dollar grid do *not* come with it. Second, that the main chart
- * is unaffected — the minis subscribe to extra timeframes on the same socket,
+ * There were two of these — 1m over 5m — and the lower slot is now the
+ * time-and-sales window, which has its own spec. What remains worth a browser
+ * test rather than a unit test is unchanged. First, that the chart is
+ * genuinely minimal: it draws onto a shared canvas with the same engine as the
+ * main chart, and the whole point is that the ~30 key levels, MACD and the
+ * dollar grid do *not* come with it. Second, that the main chart is
+ * unaffected — the mini subscribes to an extra timeframe on the same socket,
  * and a bug there shows up as the main chart quietly losing its levels.
  */
 test.describe('mini charts', () => {
-  test('draws a 1m and a 5m chart beside the main one', async ({ terminal }) => {
+  test('draws one context chart beside the main one', async ({ terminal }) => {
     await terminal.waitForChart();
     await terminal.waitForMiniCharts();
 
     await expect(terminal.miniCharts).toBeVisible();
     await expect(terminal.miniChart('1m')).toBeVisible();
-    await expect(terminal.miniChart('5m')).toBeVisible();
-
     expect((await terminal.miniChartState('1m'))!.timeframe).toBe('1m');
-    expect((await terminal.miniChartState('5m'))!.timeframe).toBe('5m');
   });
 
-  test('asks the server for both timeframes alongside the main chart', async ({
+  test('shares the tab with the tape rather than a second chart', async ({ terminal }) => {
+    await terminal.waitForChart();
+    await terminal.waitForMiniCharts();
+
+    await expect(terminal.tape).toBeVisible();
+    await expect(terminal.miniChart('5m')).toHaveCount(0);
+  });
+
+  test('asks the server for its timeframe alongside the main chart', async ({
     terminal,
     backend,
   }) => {
     await terminal.waitForChart();
     const command = await backend.waitForCommand('subscribe');
-    expect(command.extra_timeframes).toEqual(['1m', '5m']);
+    expect(command.extra_timeframes).toEqual(['1m']);
   });
 
   test('carries only the two EMAs and volume', async ({ terminal }) => {
     await terminal.waitForChart();
     await terminal.waitForMiniCharts();
 
-    for (const timeframe of ['1m', '5m'] as const) {
-      const mini = (await terminal.miniChartState(timeframe))!;
-      expect(mini.seriesIds).toHaveLength(2);
-      expect(mini.seriesIds).toContain('ema9');
-      expect(mini.seriesIds).toContain('ema20');
-      expect(mini.hasVolumePane).toBe(true);
-      expect(mini.dollarLineCount).toBe(0);
-      expect(mini.bands).toEqual([]);
-    }
+    const mini = (await terminal.miniChartState('1m'))!;
+    expect(mini.seriesIds).toHaveLength(2);
+    expect(mini.seriesIds).toContain('ema9');
+    expect(mini.seriesIds).toContain('ema20');
+    expect(mini.hasVolumePane).toBe(true);
+    expect(mini.dollarLineCount).toBe(0);
+    expect(mini.bands).toEqual([]);
   });
 
   test('gives the EMAs real data rather than empty series', async ({ terminal }) => {
@@ -68,14 +73,12 @@ test.describe('mini charts', () => {
 
   test('opens on 60 bars, not the main chart’s 240', async ({ terminal }) => {
     // A mini showing the same 240 bars as the main chart at a fifth the width
-    // is a smear; 60 is the window these are read at.
+    // is a smear; 60 is the window this is read at.
     await terminal.waitForChart();
     await terminal.waitForMiniCharts();
 
-    for (const timeframe of ['1m', '5m'] as const) {
-      const range = (await terminal.miniChartState(timeframe))!.visibleRange!;
-      expect(Math.round(range.to - range.from)).toBe(59);
-    }
+    const range = (await terminal.miniChartState('1m'))!.visibleRange!;
+    expect(Math.round(range.to - range.from)).toBe(59);
   });
 
   test('a mini zoom survives a reload without touching the main chart', async ({
@@ -118,32 +121,32 @@ test.describe('mini charts', () => {
     expect(main.to - main.from).toBeCloseTo(mainBefore.to - mainBefore.from, 0);
   });
 
-  test('a slot can be retimed, and the choice survives a reload', async ({
+  test('the slot can be retimed, and the choice survives a reload', async ({
     terminal,
     backend,
   }) => {
     await terminal.waitForChart();
     await terminal.waitForMiniCharts();
 
-    // Slot 1 ships as 5m; move it to 15m.
-    await terminal.page.getByTestId('mini-tf-1').selectOption('15m');
+    // Ships as 1m; move it to 15m.
+    await terminal.page.getByTestId('mini-tf-0').selectOption('15m');
 
     // The wire follows: the resubscribe carries the new timeframe…
     const command = await backend.waitForCommand('subscribe');
     expect(command.extra_timeframes).toContain('15m');
-    expect(command.extra_timeframes).not.toContain('5m');
+    expect(command.extra_timeframes).not.toContain('1m');
 
     // …and the slot draws it. The mock serves 30 bars of 15m.
     await expect
       .poll(async () => (await terminal.miniChartState('15m'))?.barCount ?? 0)
       .toBeGreaterThan(0);
     expect((await terminal.miniChartState('15m'))!.timeframe).toBe('15m');
-    expect(await terminal.miniChartState('5m')).toBeNull();
+    expect(await terminal.miniChartState('1m')).toBeNull();
 
     // The choice is a preference, not session state.
     await terminal.page.reload();
     await terminal.waitForChart();
-    await expect(terminal.page.getByTestId('mini-tf-1')).toHaveValue('15m');
+    await expect(terminal.page.getByTestId('mini-tf-0')).toHaveValue('15m');
     await expect
       .poll(async () => (await terminal.miniChartState('15m'))?.barCount ?? 0)
       .toBeGreaterThan(0);
@@ -196,18 +199,18 @@ test.describe('mini charts', () => {
       .toBe(Math.round(framed.to - framed.from));
   });
 
-  test('zooming a mini leaves the main chart where it was', async ({ terminal }) => {
+  test('zooming the mini leaves the main chart where it was', async ({ terminal }) => {
     await terminal.waitForChart();
     await terminal.waitForMiniCharts();
 
     const before = (await terminal.chartState()).visibleRange!;
     const miniWidth = async () => {
-      const range = (await terminal.miniChartState('5m'))!.visibleRange!;
+      const range = (await terminal.miniChartState('1m'))!.visibleRange!;
       return range.to - range.from;
     };
     const miniBefore = await miniWidth();
 
-    await terminal.page.getByLabel('Zoom in 5m chart').click();
+    await terminal.page.getByLabel('Zoom in 1m chart').click();
     // Wait for the mini to actually move. Reading the main chart straight
     // after the click proves nothing: a leak onto it would land on a later
     // frame too, so the assertion would pass before the damage was done.

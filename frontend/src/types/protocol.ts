@@ -5,12 +5,22 @@
  * carries thousands of both; the compact shape roughly halves the payload.
  */
 
-export const TIMEFRAMES = ['10s', '1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w'] as const;
+export const TIMEFRAMES = [
+  "10s",
+  "1m",
+  "5m",
+  "15m",
+  "30m",
+  "1h",
+  "4h",
+  "1d",
+  "1w",
+] as const;
 export type Timeframe = (typeof TIMEFRAMES)[number];
 
-export type DataSource = 'ibkr' | 'alpaca' | 'none';
-export type Pane = 'price' | 'volume' | 'macd';
-export type LineStyleName = 'solid' | 'dashed' | 'dotted';
+export type DataSource = "ibkr" | "alpaca" | "none";
+export type Pane = "price" | "volume" | "macd";
+export type LineStyleName = "solid" | "dashed" | "dotted";
 
 export interface WireBar {
   /** Epoch seconds at which the period opened. */
@@ -30,7 +40,7 @@ export type SeriesPoint = [time: number, value: number];
 export type SeriesMap = Record<string, SeriesPoint[]>;
 
 export interface SnapshotMessage {
-  type: 'snapshot';
+  type: "snapshot";
   symbol: string;
   timeframe: Timeframe;
   bars: WireBar[];
@@ -41,7 +51,7 @@ export interface SnapshotMessage {
 }
 
 export interface BarMessage {
-  type: 'bar';
+  type: "bar";
   symbol: string;
   timeframe: Timeframe;
   bar: WireBar;
@@ -50,7 +60,7 @@ export interface BarMessage {
 }
 
 export interface StatusMessage {
-  type: 'status';
+  type: "status";
   source: DataSource;
   delayed: boolean;
   ibkr_connected: boolean;
@@ -60,13 +70,52 @@ export interface StatusMessage {
 
 /** Top-of-book quote. Sizes are in shares. */
 export interface QuoteMessage {
-  type: 'quote';
+  type: "quote";
   symbol: string;
   bid: number;
   ask: number;
   bs: number;
   as: number;
   t: number;
+}
+
+/**
+ * Which side of the book took a print, inferred from the standing quote.
+ *
+ * Nothing on either feed publishes it — see `backend/app/domain/tape.py`.
+ * `unk` means no quote had arrived yet, or the book was crossed when it did.
+ */
+export type Aggressor = "above" | "ask" | "mid" | "bid" | "below" | "unk";
+
+/** One row of the tape. Short keys: this is the chattiest message on the wire. */
+export interface TapePrint {
+  /** Per-symbol sequence, strictly increasing. The client dedupes on it. */
+  q: number;
+  /** Epoch MILLISECONDS — the one time on this wire that is not seconds. */
+  t: number;
+  p: number;
+  s: number;
+  a: Aggressor;
+  /** Market centre as the source names it: "D" from Alpaca, "NASDAQ" from IBKR. */
+  x?: string;
+  /** Sale conditions, absent when there are none. */
+  c?: string[];
+  /** Present and 0 only when the print is not price-forming. */
+  f?: number;
+}
+
+/**
+ * New prints for one symbol.
+ *
+ * `reset` marks the backlog sent at subscribe time: replace the list rather
+ * than appending. Incremental batches deliberately overlap that backlog, so
+ * anything at or below the newest sequence held is dropped.
+ */
+export interface TapeMessage {
+  type: "tape";
+  symbol: string;
+  reset: boolean;
+  prints: TapePrint[];
 }
 
 /** One upstream's request-budget window. */
@@ -78,14 +127,14 @@ export interface ApiWindow {
 
 /** Request-budget usage for the toolbar meters. */
 export interface ApiUsageMessage {
-  type: 'api';
+  type: "api";
   alpaca: ApiWindow;
   ibkr: ApiWindow;
 }
 
 /** Reference numbers and session-derived stats for the info strip. */
 export interface InfoMessage {
-  type: 'info';
+  type: "info";
   symbol: string;
   float_shares: number | null;
   market_cap: number | null;
@@ -148,7 +197,7 @@ export interface InfoMessage {
 }
 
 /** How much supply can hit the tape, and whether they need to sell it. */
-export type DilutionTone = 'clean' | 'watch' | 'heavy' | 'serial';
+export type DilutionTone = "clean" | "watch" | "heavy" | "serial";
 
 export interface DilutionSummary {
   tone: DilutionTone;
@@ -172,7 +221,7 @@ export interface DatedValue {
   stale_days: number;
 }
 
-export interface DilutionRead extends Omit<DilutionSummary, 'warrant_strike'> {
+export interface DilutionRead extends Omit<DilutionSummary, "warrant_strike"> {
   /** Overrides the summary's plain number: the full read ships every figure
    *  with the period it was reported for, the strike included. */
   warrant_strike: DatedValue | null;
@@ -228,7 +277,7 @@ export interface ShelfCapacity {
 }
 
 /** What a headline does to the tape. */
-export type Catalyst = 'supply' | 'distress' | 'upside' | 'none';
+export type Catalyst = "supply" | "distress" | "upside" | "none";
 
 export interface Headline {
   article_id: string;
@@ -254,6 +303,106 @@ export interface NewsResponse {
   headlines: Headline[];
 }
 
+/** The five bands a score falls into. Computed on the server so the panel
+ *  and the tests name the same thing. */
+export type NewsVerdict =
+  "strong" | "tradeable" | "mixed" | "weak" | "avoid";
+
+/**
+ * One trading session's headlines, read and scored by Claude.
+ *
+ * The scope is a *session*, not a calendar day: the window runs from the
+ * previous close (16:00 NY) to now, because a press release at 16:05 is not
+ * today's news — it is tomorrow's gap. `session` is the trading date the
+ * window feeds, which on a Sunday is Monday. `score` is catalyst *quality*
+ * out of ten — it knows nothing about float, gap or regime, so a low one
+ * means "this news is not a reason to be long", never "do not trade".
+ */
+export interface NewsBrief {
+  symbol: string;
+  /** ISO date of the trading session this news feeds. */
+  session: string;
+  /** The window actually read, epoch seconds. */
+  covers_from: number;
+  covers_to: number;
+  /** 0-10. */
+  score: number;
+  verdict: NewsVerdict;
+  summary: string;
+  /** One line per event, most important first. */
+  bullets: string[];
+  /** What would stop a long. Empty when there genuinely is nothing. */
+  risks: string[];
+  headline_count: number;
+  generated_at: number;
+  model: string;
+  /** Set when newer headlines have landed since this was written and the
+   *  cooldown has not yet allowed another reading. */
+  stale?: boolean;
+}
+
+/** The five pillars, in the order they are always rendered. */
+export type PillarName = "price" | "change" | "rvol" | "float" | "catalyst";
+export type PillarState = "strong" | "ok" | "weak" | "fail" | "unknown";
+
+export interface Pillar {
+  name: PillarName;
+  state: PillarState;
+  /** The number, in a few words. */
+  note: string;
+}
+
+/** A/B/C/F — Cameron's own grading, which carries measured accuracy. */
+export type SetupGrade = "A" | "B" | "C" | "F";
+
+/**
+ * The whole screen, judged.
+ *
+ * Unlike the news reading this is a read of a *moving* target, so it carries
+ * the price it was taken at and goes `stale` when the tape has moved out from
+ * under it — two percent, or five minutes.
+ */
+export interface SetupJudgement {
+  symbol: string;
+  /** 0-10, judged jointly rather than as a checklist. */
+  score: number;
+  grade: SetupGrade;
+  /** About ten words: what this is and what to do. */
+  headline: string;
+  /** Two to four sentences naming the factor that carries or kills it. */
+  judgement: string;
+  pillars: Pillar[];
+  /** Hard gates that fired, named specifically. Empty when none did. */
+  vetoes: string[];
+  /** What would change the read, in either direction. */
+  watch: string[];
+  /** The last price when the judgement was taken. */
+  price: number | null;
+  generated_at: number;
+  model: string;
+  /** The tape has moved since — 2% of price, or five minutes. */
+  stale: boolean;
+}
+
+export interface SetupResponse {
+  symbol: string;
+  /** `ready`, or why not: `off`, `no-cli`, `no-data`, `failed`. */
+  status: string;
+  available: boolean;
+  judgement: SetupJudgement | null;
+  note?: string;
+}
+
+export interface NewsBriefResponse {
+  symbol: string;
+  /** `ready`, or why there is nothing: `off`, `no-cli`, `no-news`, `failed`. */
+  status: string;
+  available: boolean;
+  brief: NewsBrief | null;
+  /** One line saying why, when `available` is false. */
+  note?: string;
+}
+
 export interface ArticleResponse {
   provider: string;
   article_id: string;
@@ -264,13 +413,14 @@ export interface ArticleResponse {
 
 /** A live headline, pushed as it arrives on IBKR's generic tick 292. */
 export interface NewsMessage {
-  type: 'news';
+  type: "news";
   symbol: string;
   headline: Headline;
 }
 
 /** Why a filing is on screen. */
-export type FilingKind = 'dilution' | 'distress' | 'periodic' | 'ownership' | 'routine';
+export type FilingKind =
+  "dilution" | "distress" | "periodic" | "ownership" | "routine";
 
 export interface FilingRow {
   form: string;
@@ -298,7 +448,7 @@ export interface FilingsResponse {
 
 /** A dilution or distress filing that landed while the symbol was open. */
 export interface FilingMessage {
-  type: 'filing';
+  type: "filing";
   symbol: string;
   filing: FilingRow;
 }
@@ -365,13 +515,18 @@ export interface FundamentalsResponse {
 // `scanner` frame lands — the same tolerance for small, stable literal
 // duplication already exists between the backend's SCAN_CODES and its
 // e2e-fixture copy.
-export const SCANNER_TIER_IDS = ['small_cap', 'mid_cap', 'large_cap', 'mega_cap'] as const;
+export const SCANNER_TIER_IDS = [
+  "small_cap",
+  "mid_cap",
+  "large_cap",
+  "mega_cap",
+] as const;
 export type ScannerTierId = (typeof SCANNER_TIER_IDS)[number];
 export const SCANNER_TIER_LABELS: Record<ScannerTierId, string> = {
-  small_cap: 'Small Cap',
-  mid_cap: 'Mid Cap',
-  large_cap: 'Large Cap',
-  mega_cap: 'Mega Cap',
+  small_cap: "Small Cap",
+  mid_cap: "Mid Cap",
+  large_cap: "Large Cap",
+  mega_cap: "Mega Cap",
 };
 
 export interface ScannerRow {
@@ -410,7 +565,7 @@ export interface ScannerConfig {
 }
 
 export interface ScannerMessage {
-  type: 'scanner';
+  type: "scanner";
   scanner_id: ScannerTierId;
   label: string;
   rows: ScannerRow[];
@@ -424,7 +579,7 @@ export interface MarketRegime {
 }
 
 export interface RegimeMessage {
-  type: 'regime';
+  type: "regime";
   regime: MarketRegime;
   running: boolean;
   error: string | null;
@@ -446,20 +601,85 @@ export interface WatchlistRow {
 
 /** The whole list, every time — the server never sends a diff. */
 export interface WatchlistMessage {
-  type: 'watchlist';
+  type: "watchlist";
   symbols: string[];
   rows: WatchlistRow[];
   note: string | null;
 }
 
+/** Why an order button is dead. Mirrors `OrderPlan.blocked` in the backend. */
+export type BlockedReason =
+  "no_quote" | "no_position" | "too_small" | "over_cap";
+
+/** One position, as IBKR reports it — never as our own fills compute it. */
+export interface PositionRow {
+  symbol: string;
+  shares: number;
+  avg_cost: number;
+  unrealized: number;
+}
+
+/** One order this client placed. */
+export interface OrderRow {
+  order_id: number;
+  symbol: string;
+  side: "BUY" | "SELL";
+  shares: number;
+  limit: number;
+  status: string;
+  filled: number;
+  avg_fill: number;
+  message: string | null;
+  at: number;
+}
+
+/**
+ * Whether this terminal can trade, and on what terms.
+ *
+ * The button amounts come from here rather than being hard-coded, so changing
+ * them is a settings change on one side. `paper` is read from the TWS port;
+ * `read_only` latches once TWS has rejected an order for its own read-only
+ * checkbox, which is not knowable until the first order is tried.
+ */
+export interface TradingState {
+  enabled: boolean;
+  connected: boolean;
+  account: string;
+  paper: boolean;
+  read_only: boolean;
+  buy_dollars: number[];
+  sell_fractions: number[];
+  offset_cents: number;
+  offset_bps: number;
+  max_order_dollars: number;
+  tif: string;
+  positions_known: boolean;
+  note: string | null;
+}
+
+/** The whole account picture, every time — like the watchlist, and for the
+ *  same reason: no window may disagree about what is actually held. */
+export interface TradingMessage {
+  type: "trading";
+  state: TradingState;
+  positions: PositionRow[];
+  orders: OrderRow[];
+}
+
+/** One order's state, on every status change and every fill. */
+export interface OrderMessage {
+  type: "order";
+  order: OrderRow;
+}
+
 export interface ErrorMessage {
-  type: 'error';
+  type: "error";
   code: string;
   message: string;
 }
 
 export interface PongMessage {
-  type: 'pong';
+  type: "pong";
 }
 
 export type ServerMessage =
@@ -467,6 +687,7 @@ export type ServerMessage =
   | BarMessage
   | StatusMessage
   | QuoteMessage
+  | TapeMessage
   | InfoMessage
   | ApiUsageMessage
   | ScannerMessage
@@ -474,25 +695,27 @@ export type ServerMessage =
   | WatchlistMessage
   | NewsMessage
   | FilingMessage
+  | TradingMessage
+  | OrderMessage
   | ErrorMessage
   | PongMessage;
 
 // ── client → server ────────────────────────────────────────────────────
 
 /** A numeric filter: set it, omit it, or send "clear" to switch it off. */
-export type Clearable = number | 'clear';
+export type Clearable = number | "clear";
 
 export type ClientCommand =
   | {
-      action: 'subscribe';
+      action: "subscribe";
       symbol: string;
       timeframe: Timeframe;
       /** Extra timeframes on the same symbol, for the mini charts. */
       extra_timeframes?: Timeframe[];
     }
-  | { action: 'unsubscribe' }
+  | { action: "unsubscribe" }
   | {
-      action: 'scanner.configure';
+      action: "scanner.configure";
       scanner_id: ScannerTierId;
       scan_code?: string;
       above_price?: Clearable;
@@ -502,31 +725,39 @@ export type ClientCommand =
       market_cap_below?: Clearable;
       change_perc_above?: Clearable;
     }
-  | { action: 'scanner.stop'; scanner_id: ScannerTierId }
+  | { action: "scanner.stop"; scanner_id: ScannerTierId }
   | {
       /** Which indicators are on, for one timeframe. The server keeps the deltas. */
-      action: 'indicators.visibility';
+      action: "indicators.visibility";
       timeframe: Timeframe;
       visible: Record<string, boolean>;
     }
-  | { action: 'watchlist.add'; symbol: string }
-  | { action: 'watchlist.remove'; symbol: string }
-  | { action: 'ping' };
+  | { action: "watchlist.add"; symbol: string }
+  | { action: "watchlist.remove"; symbol: string }
+  /* Order entry sends what was *clicked* and never a share count: the
+     backend recomputes the quantity from its own freshest quote and IBKR's
+     own position, so a tab that has been asleep cannot put a stale size on
+     the wire. The backend's command models forbid extra fields, so a share
+     count could not be smuggled in even by a hand-written client. */
+  | { action: "trade.buy"; symbol: string; dollars: number }
+  | { action: "trade.sell"; symbol: string; fraction: number }
+  | { action: "trade.cancel_all" }
+  | { action: "ping" };
 
 // ── REST payloads ──────────────────────────────────────────────────────
 
 export interface IndicatorSpec {
   id: string;
   type:
-    | 'ema'
-    | 'sma'
-    | 'vwap'
-    | 'macd'
-    | 'premarket'
-    | 'session_bound'
-    | 'session_level'
-    | 'daily_level'
-    | 'volume';
+    | "ema"
+    | "sma"
+    | "vwap"
+    | "macd"
+    | "premarket"
+    | "session_bound"
+    | "session_level"
+    | "daily_level"
+    | "volume";
   label: string;
   color: string;
   color_dark: string;
@@ -563,7 +794,7 @@ export interface SessionInfo {
   indicators: Record<string, Record<string, boolean>>;
 }
 
-export type FinancialPeriodKind = 'annual' | 'quarterly';
+export type FinancialPeriodKind = "annual" | "quarterly";
 
 export interface FinancialPeriod {
   /** "FY2025" or "FY2026 Q1" — a convention. */
@@ -698,7 +929,7 @@ export interface WatchlistResponse {
   note: string | null;
 }
 
-export type InsiderIntent = 'buy' | 'sell' | 'compensation' | 'other';
+export type InsiderIntent = "buy" | "sell" | "compensation" | "other";
 
 export interface InsiderTrade {
   filed: string;

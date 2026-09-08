@@ -21,6 +21,40 @@ test.describe('backend', () => {
     expect(body.ibkr_connected).toBe(false);
   });
 
+  test('answers the news summary with a reason rather than an error', async ({ request }) => {
+    // The reading spawns a `claude` process that reaches Anthropic, so it is
+    // off in this backend the same way the news socket and EDGAR are. What
+    // this proves is that "off" is a served state and not a 500: the panel
+    // has to be able to print the reason, and a route that raises when the
+    // feature is disabled would take the whole news tab down with it.
+    const response = await request.get('http://127.0.0.1:8100/api/news/AAPL/brief');
+    expect(response.ok()).toBe(true);
+
+    const body = await response.json();
+    expect(body.symbol).toBe('AAPL');
+    expect(body.available).toBe(false);
+    expect(body.status).toBe('off');
+    expect(body.brief).toBeNull();
+    expect(body.note).toContain('switched off');
+  });
+
+  test('answers the setup judgement with a reason rather than an error', async ({ request }) => {
+    // Same rule as the news summary, one process further out: it spawns a
+    // `claude` process that reaches Anthropic, so it is off here. What this
+    // proves is that "off" is a served state rather than a 500 — a route
+    // that raised when the feature is disabled would take the AI tab down
+    // with it instead of printing the reason.
+    const response = await request.get('http://127.0.0.1:8100/api/setup/AAPL');
+    expect(response.ok()).toBe(true);
+
+    const body = await response.json();
+    expect(body.symbol).toBe('AAPL');
+    expect(body.available).toBe(false);
+    expect(body.status).toBe('off');
+    expect(body.judgement).toBeNull();
+    expect(body.note).toContain('switched off');
+  });
+
   test('serves the full indicator configuration', async ({ request }) => {
     const response = await request.get('http://127.0.0.1:8100/api/indicators');
     const specs = await response.json();
@@ -59,21 +93,37 @@ test.describe('end to end', () => {
     expect(state.pointCounts.vwap).toBeGreaterThan(50);
   });
 
-  test('serves the mini charts their own timeframes', async ({ terminal }) => {
+  test('serves the mini chart its own timeframe', async ({ terminal }) => {
     // The real proof that the extra-timeframe subscription works: one socket,
-    // one symbol, three resampled charts with server-computed EMAs on each.
+    // one symbol, two independently resampled charts with server-computed
+    // EMAs on each. The main chart is on 1m here, so the mini is moved to 5m
+    // — otherwise both would be the same series and the comparison would
+    // prove only that one snapshot arrived twice.
+    await terminal.waitForMiniCharts();
+    const minute = (await terminal.miniChartState('1m'))!;
+    expect(minute.timeframe).toBe('1m');
+    expect(minute.pointCounts.ema9).toBeGreaterThan(10);
+    expect(minute.pointCounts.ema20).toBeGreaterThan(10);
+
+    await terminal.page.getByTestId('mini-tf-0').selectOption('5m');
     await terminal.waitForMiniCharts();
 
-    for (const timeframe of ['1m', '5m'] as const) {
-      const mini = (await terminal.miniChartState(timeframe))!;
-      expect(mini.timeframe).toBe(timeframe);
-      expect(mini.pointCounts.ema9).toBeGreaterThan(10);
-      expect(mini.pointCounts.ema20).toBeGreaterThan(10);
-    }
-
-    const minute = (await terminal.miniChartState('1m'))!;
     const fiveMinute = (await terminal.miniChartState('5m'))!;
+    expect(fiveMinute.pointCounts.ema9).toBeGreaterThan(10);
     expect(fiveMinute.barCount).toBeLessThan(minute.barCount);
+    // …and the main chart kept the timeframe it was on throughout.
+    expect((await terminal.chartState()).timeframe).toBe('1m');
+  });
+
+  test('mounts the tape against the real protocol', async ({ terminal }) => {
+    // The fixture Alpaca serves REST history and no trade stream, so nothing
+    // ever prints here — which is exactly the case worth checking end to end.
+    // The real server sends a `tape` frame on every subscribe, empty buffer
+    // included, and the window has to say it is waiting rather than sit there
+    // as an unexplained blank box.
+    await expect(terminal.tape).toBeVisible();
+    await expect(terminal.page.getByTestId('tape-empty')).toContainText('Waiting');
+    expect((await terminal.state()).tapeCount).toBe(0);
   });
 
   test('computes key levels from daily history', async ({ terminal }) => {

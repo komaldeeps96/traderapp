@@ -13,6 +13,8 @@ import {
   formatLevel,
   formatMoney,
   formatMultiple,
+  formatAge,
+  formatNewsDay,
   formatNewsTime,
   formatPercent,
   formatPrice,
@@ -310,6 +312,58 @@ describe('formatNewsTime', () => {
     // 03:30 UTC on the 29th is still the evening of the 28th in New York.
     const when = Date.UTC(2026, 7, 29, 3, 30, 0) / 1000;
     expect(formatNewsTime(when, today)).toBe('23:30');
+  });
+});
+
+describe('formatAge', () => {
+  it('picks the largest unit that fits', () => {
+    expect(formatAge(12)).toBe('12s');
+    expect(formatAge(245)).toBe('4m');
+    expect(formatAge(7_200)).toBe('2h');
+    expect(formatAge(3 * 86_400)).toBe('3d');
+  });
+
+  it('does not render an old reading as a stopwatch', () => {
+    // Through `formatElapsed` an eight-day-old reading renders as
+    // "11520:00", which is not a duration anybody reads.
+    expect(formatAge(8 * 86_400)).toBe('8d');
+  });
+
+  it('has a dash for nothing rather than a zero', () => {
+    expect(formatAge(null)).toBe('—');
+    expect(formatAge(Number.NaN)).toBe('—');
+    // A clock skew must not read as "just now" either.
+    expect(formatAge(-5)).toBe('—');
+  });
+});
+
+describe('formatNewsDay', () => {
+  // 2026-09-07 12:00 UTC = 08:00 New York, a Monday morning.
+  const now = Date.UTC(2026, 8, 7, 12, 0, 0);
+
+  it('says Today for the current New York date', () => {
+    expect(formatNewsDay('2026-09-07', now)).toBe('Today');
+  });
+
+  it('names the weekday for anything else', () => {
+    // The case this exists for: a chart open on a Sunday is reading Friday,
+    // and a panel headed "Today" would be lying about it.
+    expect(formatNewsDay('2026-09-04', now)).toBe('Fri, Sep 4');
+  });
+
+  it('reads the date as a calendar day, not an instant', () => {
+    // `new Date('2026-09-07')` is midnight UTC, which rendered in New York is
+    // the 6th. Getting this wrong shifts every label back a day.
+    expect(formatNewsDay('2026-09-04', now)).not.toContain('Sep 3');
+  });
+
+  it('uses the New York date, not the viewer\'s', () => {
+    // 02:00 UTC on the 8th is still the evening of the 7th in New York.
+    expect(formatNewsDay('2026-09-07', Date.UTC(2026, 8, 8, 2, 0, 0))).toBe('Today');
+  });
+
+  it('returns a malformed date unchanged rather than rendering nonsense', () => {
+    expect(formatNewsDay('not-a-date', now)).toBe('not-a-date');
   });
 });
 

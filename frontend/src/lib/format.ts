@@ -182,6 +182,74 @@ export function formatNewsTime(epochSeconds: number, now: number = Date.now()): 
   return sameDay ? newsTimeFormat.format(when) : newsDayFormat.format(when);
 }
 
+const briefDayFormat = new Intl.DateTimeFormat('en-US', {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+});
+const nyDayParts = new Intl.DateTimeFormat('en-CA', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  timeZone: NY_TIMEZONE,
+});
+
+/**
+ * How long ago something was read: "12s", "4m", "2h", "3d".
+ *
+ * Distinct from `formatElapsed`, which is a stopwatch — mm:ss — and right for
+ * the minutes after a halt reopen. This is an *age*, and an age can be any
+ * size: an eight-day-old reading through a stopwatch renders as "11520:00",
+ * which is not a duration anybody reads. One unit, always the largest that
+ * fits, because the only question here is "is this current".
+ */
+export function formatAge(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '—';
+  if (seconds < 60) return `${Math.floor(seconds)}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86_400)}d`;
+}
+
+/**
+ * When a brief's window opened: "Fri 16:00".
+ *
+ * Always shown beside the session, because the two are different facts and
+ * the pair is the whole claim: "for Monday, since Friday's close" is what a
+ * chart open on a Sunday is actually reading.
+ */
+export function formatWindowStart(epoch: number): string {
+  return windowStartFormat.format(new Date(epoch * 1000));
+}
+
+const windowStartFormat = new Intl.DateTimeFormat('en-US', {
+  weekday: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  timeZone: NY_TIMEZONE,
+});
+
+/**
+ * The session a brief covers: "Today", or "Fri, Sep 5".
+ *
+ * The input is a calendar date, not an instant, and the two must not be
+ * confused: `new Date('2026-09-07')` is midnight UTC, which formatted in New
+ * York is the 6th. The parts are therefore read out of the string and rebuilt
+ * as a local date, which has no timezone to be wrong about.
+ *
+ * "Today" is worth the branch because it is the common case and the one the
+ * panel most needs to be unambiguous about — on a Sunday the label reads
+ * "Fri, Sep 5" and there is no doubt what was read.
+ */
+export function formatNewsDay(iso: string, now: number = Date.now()): string {
+  const [year, month, day] = iso.split('-').map(Number);
+  if (!year || !month || !day) return iso;
+  // en-CA renders as YYYY-MM-DD, which is the shape being compared against.
+  if (nyDayParts.format(new Date(now)) === iso) return 'Today';
+  return briefDayFormat.format(new Date(year, month - 1, day));
+}
+
 /**
  * A price that may be nonsense.
  *

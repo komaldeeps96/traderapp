@@ -6,27 +6,32 @@
  * update once a second re-renders a handful of numbers rather than a chart.
  */
 
-import { create } from 'zustand';
+import { create } from "zustand";
 
-import { sendCommand } from '@/lib/commands';
-import { clampDockWidth, type DockTabId } from '@/lib/dock';
-import type { MainTabId } from '@/lib/mainTabs';
-import type { ScannerTabId } from '@/lib/scannerTabs';
+import { sendCommand } from "@/lib/commands";
+import { clampDockWidth, type DockTabId } from "@/lib/dock";
+import type { MainTabId } from "@/lib/mainTabs";
+import type { ScannerTabId } from "@/lib/scannerTabs";
 import {
   loadDockTab,
   loadMainTab,
   loadScannerTab,
   loadDockWidth,
   loadMiniTimeframes,
+  loadNewsAi,
+  loadTapeFilters,
   loadVisibility,
   saveDockTab,
   saveMainTab,
   saveScannerTab,
   saveDockWidth,
   saveMiniTimeframes,
+  saveNewsAi,
+  saveTapeFilters,
   visibilityOverrides,
   type Theme,
-} from '@/lib/storage';
+} from "@/lib/storage";
+import { mergePrints, type TapeFilters } from "@/lib/tape";
 import type {
   ApiUsageMessage,
   DataSource,
@@ -35,15 +40,20 @@ import type {
   IndicatorSpec,
   InfoMessage,
   MarketRegime,
+  OrderRow,
+  PositionRow,
   QuoteMessage,
   ScannerConfig,
   ScannerRow,
   ScannerTierId,
+  TapeMessage,
+  TapePrint,
   Timeframe,
+  TradingState,
   WatchlistRow,
   WireBar,
-} from '@/types/protocol';
-import { SCANNER_TIER_IDS, SCANNER_TIER_LABELS } from '@/types/protocol';
+} from "@/types/protocol";
+import { SCANNER_TIER_IDS, SCANNER_TIER_LABELS } from "@/types/protocol";
 
 export interface ScannerTierState {
   label: string;
@@ -55,12 +65,17 @@ export interface ScannerTierState {
 function emptyScanners(): Record<ScannerTierId, ScannerTierState> {
   const scanners = {} as Record<ScannerTierId, ScannerTierState>;
   for (const id of SCANNER_TIER_IDS) {
-    scanners[id] = { label: SCANNER_TIER_LABELS[id], rows: [], config: null, running: false };
+    scanners[id] = {
+      label: SCANNER_TIER_LABELS[id],
+      rows: [],
+      config: null,
+      running: false,
+    };
   }
   return scanners;
 }
 
-export type ChartStatus = 'idle' | 'loading' | 'ready' | 'error';
+export type ChartStatus = "idle" | "loading" | "ready" | "error";
 
 export interface Readout {
   bar: WireBar;
@@ -96,6 +111,12 @@ interface TerminalState {
   quote: QuoteMessage | null;
   info: InfoMessage | null;
 
+  // time and sales — every print on the open symbol, newest first, and how
+  // the window is filtered. The prints are the one high-rate list this store
+  // holds; nothing else re-renders off them.
+  tape: TapePrint[];
+  tapeFilters: TapeFilters;
+
   // upstream request budgets
   apiUsage: ApiUsageMessage | null;
 
@@ -129,8 +150,12 @@ interface TerminalState {
   // reaches it whether or not the tab is currently mounted.
   news: Headline[];
   newsSymbol: string;
-  newsStatus: 'idle' | 'loading' | 'ready' | 'error';
+  newsStatus: "idle" | "loading" | "ready" | "error";
   newsProviders: Array<{ code: string; name: string }>;
+  /** Whether the panel's top half asks Claude to read the day. A user
+   *  preference, not a server one — with it off nothing is requested and no
+   *  process is spawned. */
+  newsAi: boolean;
 
   /** Live pushes that arrived while a tab was not the open one, per tab.
    *  Cleared when that tab is selected. */
@@ -140,6 +165,15 @@ interface TerminalState {
 
   scannerNote: string | null;
   scanCodes: Array<{ code: string; label: string }>;
+
+  // order entry — the strip under the chart. Positions and working orders are
+  // IBKR's own numbers, broadcast whole on every change like the watchlist, so
+  // no window can disagree about what is actually held.
+  trading: TradingState | null;
+  positions: PositionRow[];
+  workingOrders: OrderRow[];
+  /** The last order this terminal placed, for the strip's acknowledgement. */
+  lastOrder: OrderRow | null;
 
   // market regime
   regimeRunning: boolean;
@@ -159,14 +193,21 @@ interface TerminalState {
   }) => void;
   setSpecs: (specs: IndicatorSpec[]) => void;
   requestChart: (symbol: string, timeframe: Timeframe) => void;
-  chartReady: (payload: { symbol: string; timeframe: Timeframe; barCount: number; live: Readout | null }) => void;
+  chartReady: (payload: {
+    symbol: string;
+    timeframe: Timeframe;
+    barCount: number;
+    live: Readout | null;
+  }) => void;
   setLive: (live: Readout, barCount: number) => void;
   setHovered: (hovered: Readout | null) => void;
   setError: (message: string) => void;
   toggleIndicator: (id: string) => void;
   setAllIndicators: (ids: string[], visible: boolean) => void;
   applyVisibility: (visibility: Record<string, boolean>) => void;
-  setIndicatorOverrides: (overrides: Record<string, Record<string, boolean>>) => void;
+  setIndicatorOverrides: (
+    overrides: Record<string, Record<string, boolean>>,
+  ) => void;
   setMiniTimeframe: (slot: number, timeframe: Timeframe) => void;
   setDockTab: (tab: DockTabId) => void;
   setMainTab: (tab: MainTabId) => void;
@@ -177,12 +218,18 @@ interface TerminalState {
     headlines: Headline[],
     providers: Array<{ code: string; name: string }>,
   ) => void;
-  setNewsStatus: (status: 'idle' | 'loading' | 'ready' | 'error') => void;
+  setNewsStatus: (status: "idle" | "loading" | "ready" | "error") => void;
+  setNewsAi: (enabled: boolean) => void;
   addHeadline: (symbol: string, headline: Headline) => void;
   addFiling: (symbol: string, filing: FilingRow) => void;
   setScanner: (
     scannerId: ScannerTierId,
-    payload: { label: string; rows: ScannerRow[]; config: ScannerConfig; running: boolean },
+    payload: {
+      label: string;
+      rows: ScannerRow[];
+      config: ScannerConfig;
+      running: boolean;
+    },
   ) => void;
   setWatchlist: (payload: {
     symbols: string[];
@@ -196,6 +243,17 @@ interface TerminalState {
     scanCodes: Array<{ code: string; label: string }>;
   }) => void;
   setQuote: (quote: QuoteMessage) => void;
+  applyTape: (message: TapeMessage) => void;
+  setTapeFilters: (patch: Partial<TapeFilters>) => void;
+  setTrading: (payload: {
+    state: TradingState;
+    positions: PositionRow[];
+    orders: OrderRow[];
+  }) => void;
+  setOrder: (order: OrderRow) => void;
+  buy: (symbol: string, dollars: number) => void;
+  sell: (symbol: string, fraction: number) => void;
+  cancelAllOrders: () => void;
   setInfo: (info: InfoMessage) => void;
   setApiUsage: (usage: ApiUsageMessage) => void;
   setRegime: (payload: {
@@ -208,15 +266,15 @@ interface TerminalState {
 
 export const useTerminalStore = create<TerminalState>((set, get) => ({
   connected: false,
-  source: 'none',
+  source: "none",
   delayed: false,
   ibkrConnected: false,
   alpacaAvailable: false,
   sourceNote: null,
 
-  symbol: '',
-  timeframe: '10s',
-  status: 'idle',
+  symbol: "",
+  timeframe: "10s",
+  status: "idle",
   error: null,
   barCount: 0,
   live: null,
@@ -226,6 +284,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   quote: null,
   info: null,
   apiUsage: null,
+
+  tape: [],
+  tapeFilters: loadTapeFilters(),
 
   specs: [],
   visibility: {},
@@ -242,36 +303,74 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   dockWidth: loadDockWidth(),
 
   news: [],
-  newsSymbol: '',
-  newsStatus: 'idle',
+  newsSymbol: "",
+  newsStatus: "idle",
   newsProviders: [],
+  newsAi: loadNewsAi(),
   dockAlerts: {},
   liveFilings: [],
   scannerNote: null,
   scanCodes: [],
 
+  trading: null,
+  positions: [],
+  workingOrders: [],
+  lastOrder: null,
+
   regimeRunning: false,
   regimeError: null,
   regime: null,
 
-  theme: 'dark',
+  theme: "dark",
 
   setConnected: (connected) => set({ connected }),
 
-  setSourceStatus: ({ source, delayed, ibkrConnected, alpacaAvailable, note }) =>
+  setTrading: ({ state, positions, orders }) =>
+    set({ trading: state, positions, workingOrders: orders }),
+
+  setOrder: (order) => set({ lastOrder: order }),
+
+  // Sent, never applied locally. What a button press means is decided on the
+  // server against the freshest quote and IBKR's own position — echoing an
+  // optimistic fill here would draw a position that does not exist. The
+  // `trading` broadcast that follows is what the strip renders.
+  buy: (symbol, dollars) =>
+    sendCommand({ action: "trade.buy", symbol, dollars }),
+  sell: (symbol, fraction) =>
+    sendCommand({ action: "trade.sell", symbol, fraction }),
+  cancelAllOrders: () => sendCommand({ action: "trade.cancel_all" }),
+
+  setSourceStatus: ({
+    source,
+    delayed,
+    ibkrConnected,
+    alpacaAvailable,
+    note,
+  }) =>
     set({ source, delayed, ibkrConnected, alpacaAvailable, sourceNote: note }),
 
   setIndicatorOverrides: (indicatorOverrides) => {
     const { specs, timeframe } = get();
     set({
       indicatorOverrides,
-      visibility: loadVisibility(specs, timeframe, indicatorOverrides[timeframe]),
+      visibility: loadVisibility(
+        specs,
+        timeframe,
+        indicatorOverrides[timeframe],
+      ),
     });
   },
 
   setSpecs: (specs) => {
     const { timeframe, indicatorOverrides } = get();
-    set({ specs, visibility: loadVisibility(specs, timeframe, indicatorOverrides[timeframe]) });
+    set({
+      specs,
+      visibility: loadVisibility(
+        specs,
+        timeframe,
+        indicatorOverrides[timeframe],
+      ),
+    });
   },
 
   requestChart: (symbol, timeframe) => {
@@ -281,7 +380,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set({
       symbol,
       timeframe,
-      status: 'loading',
+      status: "loading",
       error: null,
       hovered: null,
       // A stale readout under a new symbol reads as live data for the wrong
@@ -290,13 +389,22 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       barCount: 0,
       quote: changedSymbol ? null : state.quote,
       info: changedSymbol ? null : state.info,
+      // The previous company's prints must never sit under a new ticker: a
+      // tape row is a fact about one instrument and reads as live either way.
+      // The server sends a `reset` frame on subscribe too; this is what
+      // clears the window in the gap before it lands.
+      tape: changedSymbol ? [] : state.tape,
       // The previous company's headlines and filing alerts must not sit under
       // the new ticker while its own load.
       news: changedSymbol ? [] : state.news,
       liveFilings: changedSymbol ? [] : state.liveFilings,
       dockAlerts: changedSymbol ? {} : state.dockAlerts,
       visibility: changedTimeframe
-        ? loadVisibility(state.specs, timeframe, state.indicatorOverrides[timeframe])
+        ? loadVisibility(
+            state.specs,
+            timeframe,
+            state.indicatorOverrides[timeframe],
+          )
         : state.visibility,
     });
   },
@@ -307,7 +415,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       timeframe,
       barCount,
       live,
-      status: 'ready',
+      status: "ready",
       error: null,
       snapshotEpoch: state.snapshotEpoch + 1,
     })),
@@ -316,7 +424,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
   setHovered: (hovered) => set({ hovered }),
 
-  setError: (message) => set({ status: 'error', error: message }),
+  setError: (message) => set({ status: "error", error: message }),
 
   toggleIndicator: (id) => {
     const { visibility } = get();
@@ -339,7 +447,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   applyVisibility: (next) => {
     const { specs, timeframe, indicatorOverrides } = get();
     const overrides = visibilityOverrides(specs, timeframe, next);
-    sendCommand({ action: 'indicators.visibility', timeframe, visible: next });
+    sendCommand({ action: "indicators.visibility", timeframe, visible: next });
     set({
       visibility: next,
       indicatorOverrides: { ...indicatorOverrides, [timeframe]: overrides },
@@ -354,9 +462,15 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set({ miniTimeframes: next });
   },
 
-  setNews: (newsSymbol, news, newsProviders) => set({ newsSymbol, news, newsProviders }),
+  setNews: (newsSymbol, news, newsProviders) =>
+    set({ newsSymbol, news, newsProviders }),
 
   setNewsStatus: (newsStatus) => set({ newsStatus }),
+
+  setNewsAi: (newsAi) => {
+    saveNewsAi(newsAi);
+    set({ newsAi });
+  },
 
   addHeadline: (symbol, headline) => {
     // A headline for a symbol the user has navigated away from is dropped,
@@ -366,13 +480,14 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     // The server only pushes genuinely new stories — a bulletin that
     // collapsed into one already held never reaches here — but the id check
     // keeps a reconnect replay from doubling a row.
-    if (state.news.some((row) => row.article_id === headline.article_id)) return;
+    if (state.news.some((row) => row.article_id === headline.article_id))
+      return;
     // A roundup goes in the list but never lights the badge. It names a dozen
     // companies and this one is merely among them, so a badge for it is an
     // interruption about somebody else's stock — and a badge that is usually
     // wrong is a badge nobody looks at.
     const badge =
-      state.dockTab === 'news' || headline.roundup
+      state.dockTab === "news" || headline.roundup
         ? state.dockAlerts
         : { ...state.dockAlerts, news: (state.dockAlerts.news ?? 0) + 1 };
     set({ news: [headline, ...state.news], dockAlerts: badge });
@@ -381,13 +496,17 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   addFiling: (symbol, filing) => {
     const state = get();
     if (symbol !== state.symbol) return;
-    if (state.liveFilings.some((row) => row.accession === filing.accession)) return;
+    if (state.liveFilings.some((row) => row.accession === filing.accession))
+      return;
     set({
       liveFilings: [filing, ...state.liveFilings],
       dockAlerts:
-        state.dockTab === 'filings'
+        state.dockTab === "filings"
           ? state.dockAlerts
-          : { ...state.dockAlerts, filings: (state.dockAlerts.filings ?? 0) + 1 },
+          : {
+              ...state.dockAlerts,
+              filings: (state.dockAlerts.filings ?? 0) + 1,
+            },
     });
   },
 
@@ -404,7 +523,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   setDockTab: (dockTab) => {
     saveDockTab(dockTab);
     // Opening a tab is what marks its alerts read.
-    set((state) => ({ dockTab, dockAlerts: { ...state.dockAlerts, [dockTab]: 0 } }));
+    set((state) => ({
+      dockTab,
+      dockAlerts: { ...state.dockAlerts, [dockTab]: 0 },
+    }));
   },
 
   setDockWidth: (width) => {
@@ -443,16 +565,35 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   // would show a name that a failed write never actually added.
   addToWatchlist: (symbol) => {
     const wanted = symbol.trim().toUpperCase();
-    if (wanted) sendCommand({ action: 'watchlist.add', symbol: wanted });
+    if (wanted) sendCommand({ action: "watchlist.add", symbol: wanted });
   },
 
   removeFromWatchlist: (symbol) => {
-    sendCommand({ action: 'watchlist.remove', symbol: symbol.trim().toUpperCase() });
+    sendCommand({
+      action: "watchlist.remove",
+      symbol: symbol.trim().toUpperCase(),
+    });
   },
 
-  setScannerTiers: ({ note, scanCodes }) => set({ scannerNote: note, scanCodes }),
+  setScannerTiers: ({ note, scanCodes }) =>
+    set({ scannerNote: note, scanCodes }),
 
   setQuote: (quote) => set({ quote }),
+
+  // Prints for a symbol the user has navigated away from are dropped, exactly
+  // as a stale snapshot is. `mergePrints` owns the dedupe and the cap.
+  applyTape: ({ symbol, prints, reset }) => {
+    const state = get();
+    if (symbol !== state.symbol) return;
+    const merged = mergePrints(state.tape, prints, reset);
+    if (merged !== state.tape) set({ tape: merged });
+  },
+
+  setTapeFilters: (patch) => {
+    const tapeFilters = { ...get().tapeFilters, ...patch };
+    saveTapeFilters(tapeFilters);
+    set({ tapeFilters });
+  },
 
   setInfo: (info) => set({ info }),
 

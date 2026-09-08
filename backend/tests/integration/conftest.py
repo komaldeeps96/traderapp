@@ -21,9 +21,12 @@ from app.core.settings import (
     AlpacaSettings,
     EdgarSettings,
     IBKRSettings,
+    NewsAISettings,
     RegimeSettings,
     ScannerSettings,
     Settings,
+    SetupAISettings,
+    TradingSettings,
 )
 from app.main import create_app
 from app.providers.alpaca import AlpacaProvider
@@ -42,6 +45,16 @@ def settings(tmp_path) -> Settings:
     ``news_stream`` is off for the same reason and needs saying out loud: it
     is a *websocket*, so respx does not intercept it and a live one would dial
     Alpaca for real from a unit run. The REST news path is stubbed instead.
+
+    ``trading`` is off, and is written here rather than left to the default
+    for the same reason: it is a raw socket to TWS on this machine, respx
+    cannot see it, and the thing on the other end of it places real orders
+    against a real account. A default is a thing that can be changed by
+    someone who does not read this file. See docs/order-entry.md.
+
+    ``news_ai`` and ``setup_ai`` are off for the third variant of the same
+    reason: both spawn a ``claude`` process that reaches Anthropic, which
+    respx cannot see either. They are tested against a fake binary instead.
     """
     return Settings(
         alpaca=AlpacaSettings(
@@ -54,6 +67,9 @@ def settings(tmp_path) -> Settings:
         scanner=ScannerSettings(enabled=False),
         regime=RegimeSettings(enabled=False),
         edgar=EdgarSettings(enabled=False),
+        trading=TradingSettings(enabled=False),
+        news_ai=NewsAISettings(enabled=False),
+        setup_ai=SetupAISettings(enabled=False),
         state_file=tmp_path / "state.yaml",
         indicators_file=CONFIG_DIR / "indicators.yaml",
         log_level="WARNING",
@@ -222,13 +238,20 @@ def stub_watchlist_quotes(client):
 
 @pytest.fixture
 def ws(client):
-    """A connected client that has consumed the seven opening frames."""
+    """A connected client that has consumed the eight opening frames.
+
+    The count is deliberately exact rather than "drain whatever arrives": a
+    frame added to the handshake and not added here leaves a stale one at the
+    head of the queue, where the next ``receive_until`` finds it and asserts
+    against the wrong message. Keep this in step with ``api/ws.py``.
+    """
     with client.websocket_connect("/ws") as socket:
         socket.receive_json()  # status
         for _ in range(4):
             socket.receive_json()  # scanner, one per market-cap tier
         socket.receive_json()  # regime
         socket.receive_json()  # api budget
+        socket.receive_json()  # trading
         yield socket
 
 

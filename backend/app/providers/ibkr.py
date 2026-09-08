@@ -671,7 +671,8 @@ class IBKRProvider(MarketDataProvider):
             # it costs one set intersection and it is the same rule the
             # Alpaca stream runs, so a failover cannot change the meaning of
             # a bar. IBKR packs conditions as one string of single characters.
-            kind = classify_conditions(getattr(tick, "specialConditions", "") or "")
+            special = str(getattr(tick, "specialConditions", "") or "").strip()
+            kind = classify_conditions(special)
             if kind is TradeKind.SKIP:
                 continue
             # Past-limit and unreported are IBKR-specific flags with no SIP
@@ -685,7 +686,18 @@ class IBKRProvider(MarketDataProvider):
             self._schedule(
                 self._emit_trade(
                     symbol,
-                    Trade(time=epoch, price=price, size=size, price_forming=price_forming),
+                    Trade(
+                        time=epoch,
+                        price=price,
+                        size=size,
+                        price_forming=price_forming,
+                        # IBKR names the venue ("NASDAQ", "ARCA", "FINRA")
+                        # where Alpaca sends one CTA character. Neither is
+                        # translated; the tape shows what the source said.
+                        exchange=str(getattr(tick, "exchange", "") or ""),
+                        # One string of single characters, unlike Alpaca's list.
+                        conditions=tuple(special) if special else (),
+                    ),
                 )
             )
         prints.clear()

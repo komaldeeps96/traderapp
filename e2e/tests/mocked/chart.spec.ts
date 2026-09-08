@@ -395,16 +395,14 @@ test.describe('bar countdown', () => {
     await expect.poll(async () => (await terminal.chartState()).countdown).toBeNull();
   });
 
-  test('each mini chart counts its own timeframe', async ({ terminal }) => {
+  test('the mini chart counts its own timeframe', async ({ terminal }) => {
     await terminal.waitForChart();
     await terminal.waitForMiniCharts();
 
-    // The main chart is on 10s and reads "9s"; the minis are on minutes and
-    // read "m:ss". One shared clock could not produce both.
+    // The main chart is on 10s and reads "9s"; the mini is on the minute and
+    // reads "m:ss". One shared clock could not produce both.
     expect((await terminal.chartState()).countdown!.text).toMatch(/^\d{1,2}s$/);
-    for (const timeframe of ['1m', '5m'] as const) {
-      const mini = await terminal.miniChartState(timeframe);
-      expect(mini!.countdown!.text).toMatch(/^\d:\d{2}$/);
-    }
+    const mini = await terminal.miniChartState('1m');
+    expect(mini!.countdown!.text).toMatch(/^\d:\d{2}$/);
   });
 });

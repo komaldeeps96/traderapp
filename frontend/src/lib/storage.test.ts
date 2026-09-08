@@ -6,11 +6,13 @@ import {
   defaultVisibility,
   loadDockTab,
   loadDockWidth,
+  loadNewsAi,
   loadTheme,
   loadVisibility,
   loadZoom,
   saveDockTab,
   saveDockWidth,
+  saveNewsAi,
   saveTheme,
   takeLegacyVisibility,
   visibilityOverrides,
@@ -256,6 +258,32 @@ describe('dock persistence', () => {
     });
     expect(() => saveDockWidth(400)).not.toThrow();
     expect(() => saveDockTab('news')).not.toThrow();
+    spy.mockRestore();
+  });
+});
+
+describe('the AI news summary switch', () => {
+  it('defaults on — it is the point of the panel', () => {
+    expect(loadNewsAi()).toBe(true);
+  });
+
+  it('round-trips off', () => {
+    saveNewsAi(false);
+    expect(loadNewsAi()).toBe(false);
+    saveNewsAi(true);
+    expect(loadNewsAi()).toBe(true);
+  });
+
+  it('treats a corrupt value as on rather than silently disabling the panel', () => {
+    localStorage.setItem('traderapp.newsAi', 'maybe');
+    expect(loadNewsAi()).toBe(true);
+  });
+
+  it('survives storage being unavailable', () => {
+    const spy = vi.spyOn(globalThis.localStorage, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    expect(loadNewsAi()).toBe(true);
     spy.mockRestore();
   });
 });

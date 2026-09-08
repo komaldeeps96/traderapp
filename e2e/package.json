@@ -10,6 +10,7 @@
     "test:headed": "playwright test --headed",
     "test:mocked": "playwright test --project=chromium",
     "test:fullstack": "playwright test --project=fullstack",
+    "screenshots": "TRADERAPP_CAPTURE=1 playwright test --project=screenshots",
     "report": "playwright show-report",
     "install-browsers": "playwright install --with-deps chromium firefox webkit",
     "typecheck": "tsc --noEmit"

@@ -17,7 +17,10 @@ from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from ..domain.protocol import (
+    BuyCommand,
+    CancelAllCommand,
     ConfigureScannerCommand,
+    SellCommand,
     SetIndicatorVisibilityCommand,
     StopScannerCommand,
     SubscribeCommand,
@@ -48,6 +51,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         connection.send(container.scanner_payload(scanner_id))
     connection.send(container.regime_payload())
     connection.send(container.api_payload())
+    # Whether this terminal can trade at all, what is held, and what is
+    # working. Sent even with trading off, so the strip can say so rather
+    # than render as a live panel that silently does nothing.
+    connection.send(container.trading_payload())
     # Sent last, and only if there is one: the fetch reaches TradingView, and
     # nothing above it should wait on the network.
     if container.watchlist.symbols():
@@ -100,6 +107,38 @@ async def _dispatch(container: AppContainer, connection: ClientConnection, raw: 
 
     elif action in ("watchlist.add", "watchlist.remove"):
         await _edit_watchlist(container, command)
+
+    elif action in ("trade.buy", "trade.sell", "trade.cancel_all"):
+        await _trade(container, connection, command)
+
+
+async def _trade(
+    container: AppContainer,
+    connection: ClientConnection,
+    command: BuyCommand | SellCommand | CancelAllCommand,
+) -> None:
+    """Place or cancel, then tell everyone what the account looks like.
+
+    The command carries a dollar amount or a fraction and never a share
+    count — ``_Command`` forbids extra fields, so a client cannot even smuggle
+    one in. The sizing happens in TradingService against the freshest quote
+    and IBKR's own position.
+
+    A refusal comes back as an ``error`` on the asking connection *and* leaves
+    a note on the broadcast state, because during a move nobody is reading a
+    log and an order that silently did not go is the failure the whole panel
+    exists to remove.
+    """
+    if command.action == "trade.buy":
+        result = await container.trading.buy(command.symbol, command.dollars)
+    elif command.action == "trade.sell":
+        result = await container.trading.sell(command.symbol, command.fraction)
+    else:
+        result = await container.trading.cancel_all()
+
+    if not result.get("ok"):
+        connection.send(error_message("trade", str(result.get("message") or "Order refused.")))
+    container.hub.broadcast(container.trading_payload())
 
 
 async def _edit_watchlist(
@@ -179,6 +218,11 @@ async def _subscribe(
     quote = container.quotes.get(symbol)
     if quote is not None:
         connection.send(quote_message(symbol, quote))
+    # And whatever tape this symbol has already printed, as a replacement for
+    # whatever the window was showing. Sent unconditionally, empty buffer
+    # included: that empty frame is what clears the previous symbol's prints
+    # out of a window the user is looking at.
+    connection.send(container.tape_payload(symbol))
     await container.state.save(symbol, timeframe.value)
 
 

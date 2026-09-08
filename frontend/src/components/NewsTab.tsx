@@ -6,9 +6,10 @@ import { useTerminalStore } from '@/store/useTerminalStore';
 import type { Catalyst, Headline } from '@/types/protocol';
 
 import { DockBody, DockEmpty } from './DockPanel';
+import { NewsBriefPanel } from './NewsBrief';
 
 /**
- * The news feed, read in place.
+ * The news feed, read in place — with the day's reading above it.
  *
  * IBKR is entitled to eight feeds here — Briefing.com and Dow Jones — with
  * thirty days of history, live headlines on generic tick 292 and full article
@@ -25,6 +26,13 @@ import { DockBody, DockEmpty } from './DockPanel';
  * the backfill produced, deduplicated as a whole — Dow Jones sends the same
  * story as a starred bulletin seconds before the fuller press release, and
  * appending would show it twice.
+ *
+ * The panel is split. The top half is one day, read and scored out of ten by
+ * Claude against Ross Cameron's catalyst rubric (`NewsBrief`), so the list
+ * below can be skimmed rather than opened row by row; the bottom half is the
+ * feed itself, unchanged, because a summary is a thing you check and the rows
+ * are what you check it against. The split is why the summary reads one day
+ * and the list keeps thirty: they are answering different questions.
  */
 const CATALYST_CLASS: Record<Catalyst, string> = {
   supply: 'text-down font-semibold',
@@ -51,32 +59,38 @@ export function NewsTab() {
   useEffect(() => setOpen(null), [symbol]);
 
   if (!symbol) return empty('Load a symbol to see its news.');
-  if (status === 'loading' && headlines.length === 0) return empty(`Loading ${symbol} news…`);
-  if (status === 'error') return empty(`News is unavailable for ${symbol}.`);
-  if (headlines.length === 0) {
-    return empty(
-      providers.length === 0
-        ? 'No news feed is reachable. Check the Alpaca keys, or start TWS.'
-        : `No headlines for ${symbol} in the last 30 days.`,
-    );
-  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="dock-news">
+      {/* Above the feed, and above the "no headlines" line too: with the feed
+          empty the reading is the one thing that can still say why. */}
+      <NewsBriefPanel symbol={symbol} />
       <Feeds providers={providers} />
-      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
-        {headlines.map((headline) => (
-          <Row
-            key={headline.article_id}
-            headline={headline}
-            active={open?.article_id === headline.article_id}
-            onOpen={() => setOpen((current) => (current === headline ? null : headline))}
-          />
-        ))}
-      </div>
+      {headlines.length === 0 ? (
+        <DockEmpty message={emptyMessage(symbol, status, providers.length)} />
+      ) : (
+        <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+          {headlines.map((headline) => (
+            <Row
+              key={headline.article_id}
+              headline={headline}
+              active={open?.article_id === headline.article_id}
+              onOpen={() => setOpen((current) => (current === headline ? null : headline))}
+            />
+          ))}
+        </div>
+      )}
       {open && <Reader symbol={symbol} headline={open} onClose={() => setOpen(null)} />}
     </div>
   );
+}
+
+/** Why the list below is empty, in the order the reasons rule each other out. */
+function emptyMessage(symbol: string, status: string, providerCount: number): string {
+  if (status === 'loading') return `Loading ${symbol} news…`;
+  if (status === 'error') return `News is unavailable for ${symbol}.`;
+  if (providerCount === 0) return 'No news feed is reachable. Check the Alpaca keys, or start TWS.';
+  return `No headlines for ${symbol} in the last 30 days.`;
 }
 
 /**

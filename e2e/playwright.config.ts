@@ -86,6 +86,14 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
     },
     {
+      // The README's images. Skipped unless TRADERAPP_CAPTURE is set, because
+      // this one writes into docs/ rather than into test-results/ and a plain
+      // `playwright test` must not leave the working tree dirty.
+      name: 'screenshots',
+      testDir: './tests/screenshots',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+    },
+    {
       name: 'fullstack',
       testDir: './tests/fullstack',
       // One backend, one persisted session, one set of connected clients —
@@ -151,6 +159,13 @@ export default defineConfig({
         // filings panels reach data.sec.gov, and nothing in a test run may
         // leave the machine. The mocked suite serves those routes itself.
         TRADERAPP_EDGAR__ENABLED: 'false',
+        // And both AI panels, which spawn a `claude` process that reaches
+        // Anthropic — the same rule, one process further out. The mocked
+        // suite serves their routes itself; a fullstack run gets the
+        // "switched off in settings" line, which is a real state of the
+        // panels and worth rendering.
+        TRADERAPP_NEWS_AI__ENABLED: 'false',
+        TRADERAPP_SETUP_AI__ENABLED: 'false',
         TRADERAPP_STATE_FILE: '/tmp/traderapp-e2e-state.yaml',
         TRADERAPP_LOG_LEVEL: 'WARNING',
       },

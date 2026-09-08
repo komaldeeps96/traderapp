@@ -236,6 +236,32 @@ class TestHandleFrame:
         )
         assert events.trades[0][1].price_forming is True
 
+    async def test_a_trade_carries_its_venue_and_conditions(self):
+        """Neither reaches a bar; both are the time-and-sales window's columns."""
+        provider = make_provider()
+        events = Recorder(provider)
+
+        await provider._handle_frame(
+            json.dumps(
+                [{"T": "t", "S": "AAPL", "p": 12.0, "s": 100, "x": "D", "c": ["@", "T"],
+                  "t": "2024-03-05T12:30:00Z"}]
+            )
+        )
+        trade = events.trades[0][1]
+        assert trade.exchange == "D"
+        assert trade.conditions == ("@", "T")
+
+    async def test_a_trade_without_a_venue_carries_neither(self):
+        provider = make_provider()
+        events = Recorder(provider)
+
+        await provider._handle_frame(
+            json.dumps([{"T": "t", "S": "AAPL", "p": 12.0, "s": 100, "t": "2024-03-05T12:30:00Z"}])
+        )
+        trade = events.trades[0][1]
+        assert trade.exchange == ""
+        assert trade.conditions == ()
+
     async def test_trade_timestamp_survives_nanoseconds(self):
         provider = make_provider()
         events = Recorder(provider)

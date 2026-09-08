@@ -365,6 +365,49 @@ async def news(symbol: str) -> dict:
     }
 
 
+@router.get("/news/{symbol}/brief")
+async def news_brief(symbol: str, refresh: bool = False) -> dict:
+    """One day's headlines, read and scored out of ten.
+
+    Awaited rather than kicked off and pushed: a reading takes five to
+    fifteen seconds and the panel above the feed shows a spinner for exactly
+    that long, which is honest about what is happening. A second client
+    asking mid-reading joins the same process rather than starting another.
+
+    Never raises for an ordinary absence. "No CLI installed", "nothing
+    published today" and "the reader timed out" are all states the panel
+    prints in one line; a 500 here would show as a broken terminal instead.
+
+    ``refresh`` overrides the cooldown, for the panel's own refresh button.
+    """
+    container = _container()
+    resolved = _symbol(symbol)
+    await container.news.prefetch(resolved)
+    payload = await container.news_ai.brief(resolved, force=refresh)
+    return {"symbol": resolved, **payload}
+
+
+@router.get("/setup/{symbol}")
+async def setup_judgement(symbol: str, refresh: bool = False) -> dict:
+    """The whole screen, judged out of ten against Cameron's framework.
+
+    Assembled on the server from the info strip, the indicator series, the
+    quote, the regime and the news reading — not posted by the browser. The
+    frontend has every one of these numbers on screen and it would be less
+    code to let it send them, but then the thing being judged is whatever the
+    client says it is.
+
+    Awaited rather than pushed: a judgement takes fifteen to forty seconds
+    and the panel shows that for exactly that long. It does not refresh
+    itself — a chart left open would otherwise spend a cent a minute saying
+    much the same thing — so ``refresh`` is how a new one is asked for.
+    """
+    container = _container()
+    resolved = _symbol(symbol)
+    payload = await container.setup_ai.judge(resolved, force=refresh)
+    return {"symbol": resolved, **payload}
+
+
 @router.get("/news/{symbol}/article")
 async def news_article(symbol: str, provider: str, article_id: str) -> dict:
     """One article body, as plain-text paragraphs.

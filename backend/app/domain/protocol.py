@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 from .bars import Bar
 from .quotes import Quote
 from .sessions import is_extended_hours
+from .tape import Print
 from .timeframes import Timeframe
 
 # Long enough for real tickers (BRK.B, GOOGL) without being an open field.
@@ -174,6 +175,31 @@ class WatchlistRemoveCommand(_Command):
     symbol: WatchSymbol
 
 
+# Order entry. The client sends what was *clicked* — a dollar amount or a
+# fraction of the position — and never a share count. The backend recomputes
+# the quantity from its own freshest quote and IBKR's own position at the
+# instant of the order, so a tab that has been asleep for a minute cannot put
+# a stale size on the wire. See services/trading.py.
+#
+# Bounds here are shape only; the real ceiling is trading.max_order_dollars,
+# checked server-side where a client cannot reach it.
+class BuyCommand(_Command):
+    action: Literal["trade.buy"]
+    symbol: str = Field(pattern=SYMBOL_PATTERN)
+    dollars: float = Field(gt=0, le=1_000_000)
+
+
+class SellCommand(_Command):
+    action: Literal["trade.sell"]
+    symbol: str = Field(pattern=SYMBOL_PATTERN)
+    # (0, 1]: long only, and never more of a position than there is.
+    fraction: float = Field(gt=0, le=1)
+
+
+class CancelAllCommand(_Command):
+    action: Literal["trade.cancel_all"]
+
+
 class PingCommand(_Command):
     action: Literal["ping"]
 
@@ -186,6 +212,9 @@ ClientCommand = Annotated[
     | SetIndicatorVisibilityCommand
     | WatchlistAddCommand
     | WatchlistRemoveCommand
+    | BuyCommand
+    | SellCommand
+    | CancelAllCommand
     | PingCommand,
     Field(discriminator="action"),
 ]
@@ -253,6 +282,35 @@ QuoteMessage = TypedDict(
 )
 
 
+class WirePrint(TypedDict, total=False):
+    """One row of the tape. Short keys: this is the chattiest message here."""
+
+    q: int  # per-symbol sequence, strictly increasing
+    t: int  # epoch MILLISECONDS — the one place on this wire that is not seconds
+    p: float
+    s: float
+    a: str  # aggressor side; see domain/tape.Aggressor
+    x: str  # market centre, omitted when the source gave none
+    c: list[str]  # sale conditions, omitted when there are none
+    f: int  # present and 0 only when the print is not price-forming
+
+
+class TapeMessage(TypedDict):
+    """New prints for one symbol.
+
+    ``reset`` marks the opening backlog sent at subscribe time: the client
+    replaces its list rather than appending to it. Incremental batches overlap
+    that backlog by design — the broadcaster's cursor is shared by every
+    client and cannot rewind for a late joiner — so the client drops anything
+    at or below the sequence it already holds.
+    """
+
+    type: Literal["tape"]
+    symbol: str
+    reset: bool
+    prints: list[WirePrint]
+
+
 class StatusMessage(TypedDict):
     type: Literal["status"]
     source: str
@@ -313,6 +371,28 @@ class WatchlistMessage(TypedDict):
     symbols: list[str]
     rows: list[dict]
     note: str | None
+
+
+class TradingMessage(TypedDict):
+    """The order-entry strip's own state: whether it can trade at all.
+
+    ``paper`` is read from the TWS port rather than asked of the user, and
+    ``read_only`` latches once TWS has rejected an order for its own
+    read-only setting — which is not knowable at connect time, because TWS
+    accepts the connection either way.
+    """
+
+    type: Literal["trading"]
+    state: dict
+    positions: list[dict]
+    orders: list[dict]
+
+
+class OrderMessage(TypedDict):
+    """One order's state, pushed on every status change and every fill."""
+
+    type: Literal["order"]
+    order: dict
 
 
 class ErrorMessage(TypedDict):
@@ -423,6 +503,15 @@ def quote_message(symbol: str, quote: Quote) -> QuoteMessage:
     return {"type": "quote", "symbol": symbol, **quote.to_wire()}  # type: ignore[typeddict-item]
 
 
+def tape_message(symbol: str, prints: list[Print], *, reset: bool = False) -> TapeMessage:
+    return {
+        "type": "tape",
+        "symbol": symbol,
+        "reset": reset,
+        "prints": [row.to_wire() for row in prints],  # type: ignore[misc]
+    }
+
+
 def api_usage_message(snapshot: dict) -> ApiUsageMessage:
     return {"type": "api", "alpaca": snapshot["alpaca"], "ibkr": snapshot["ibkr"]}
 
@@ -437,6 +526,14 @@ def news_message(symbol: str, headline: dict) -> NewsMessage:
 
 def filing_message(symbol: str, filing: dict) -> FilingMessage:
     return {"type": "filing", "symbol": symbol, "filing": filing}
+
+
+def trading_message(*, state: dict, positions: list[dict], orders: list[dict]) -> TradingMessage:
+    return {"type": "trading", "state": state, "positions": positions, "orders": orders}
+
+
+def order_message(order: dict) -> OrderMessage:
+    return {"type": "order", "order": order}
 
 
 def error_message(code: str, message: str) -> ErrorMessage:

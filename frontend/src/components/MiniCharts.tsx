@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 
 import { ChartEngine } from '@/chart/ChartEngine';
 import { getMiniEngine, setMiniEngine } from '@/chart/engineRef';
-import { MINI_TIMEFRAME_CHOICES, miniConfig } from '@/chart/mini';
+import { MINI_CHART_FLEX, MINI_TIMEFRAME_CHOICES, miniConfig } from '@/chart/mini';
 import type { Timeframe } from '@/types/protocol';
 import { hydrateMini } from '@/hooks/useTerminal';
 import { loadTheme } from '@/lib/storage';
@@ -11,18 +11,26 @@ import { useTerminalStore } from '@/store/useTerminalStore';
 import { ChartButton } from './ChartButton';
 
 /**
- * The column of context charts — the dock's first tab.
+ * The context chart — the top half of the dock's first tab.
  *
- * 1-minute above 5-minute, both on whatever symbol the main chart is showing.
- * The main chart usually sits on the 10-second tape, which is the wrong
- * distance to judge a trend from; these keep the other two clocks in view
- * without costing a timeframe switch.
+ * One minute by default, on whatever symbol the main chart is showing. The
+ * main chart usually sits on the 10-second tape, which is the wrong distance
+ * to judge a trend from; this keeps the other clock in view without costing a
+ * timeframe switch. The picker takes it to any timeframe, so someone who
+ * would rather read 5m here simply sets it.
  *
- * They are read-only in every sense: no crosshair callback, so hovering one
- * cannot disturb the main chart's OHLCV readout, and no toolbar of their own.
+ * There were two of these, and the second slot is now the time-and-sales
+ * window below (`TapePanel`). The plural survives in the component and in the
+ * store's `miniTimeframes` because the slot machinery — per-slot engines,
+ * per-slot subscriptions, per-slot saved timeframes — is what makes `Dock`
+ * and `useTerminal` indifferent to how many there are. `MINI_SLOT_COUNT` is
+ * the one number that decides.
+ *
+ * It is read-only in every sense: no crosshair callback, so hovering it
+ * cannot disturb the main chart's OHLCV readout, and no toolbar of its own.
  *
  * The rail, its width and the breakpoint below which none of this is built
- * belong to `Dock`; this renders only the charts inside it.
+ * belong to `Dock`; this renders only the chart inside it.
  */
 export function MiniCharts({
   onTimeframeChange,
@@ -33,7 +41,9 @@ export function MiniCharts({
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col"
+      className="flex min-h-0 flex-col"
+      // The tape below takes the larger share; see MINI_CHART_FLEX.
+      style={{ flexGrow: MINI_CHART_FLEX, flexShrink: 1, flexBasis: 0 }}
       aria-label="Context charts"
       data-testid="mini-charts"
     >

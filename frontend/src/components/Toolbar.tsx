@@ -45,6 +45,7 @@ export function Toolbar({ onSubscribe, onTimeframe, onToggleTheme }: ToolbarProp
         <Regime />
         <SessionClock />
         <SourceBadge />
+        <NewsAiToggle />
         <button
           type="button"
           onClick={onToggleTheme}
@@ -56,6 +57,47 @@ export function Toolbar({ onSubscribe, onTimeframe, onToggleTheme }: ToolbarProp
         </button>
       </div>
     </header>
+  );
+}
+
+/**
+ * Whether the news panel reads the day for you.
+ *
+ * On, the dock's news tab carries a summary of today's headlines above the
+ * feed, scored out of ten against Ross Cameron's catalyst rubric by the
+ * `claude` CLI on this machine. Off, nothing is requested and no process is
+ * spawned — which is the point of having a switch at all: a reading costs
+ * about a cent and a dozen seconds, and there are sessions where the feed is
+ * four halt notices and reading them is not worth either.
+ *
+ * It lives here rather than inside the panel because the panel is three
+ * clicks away behind a dock tab, and a switch you cannot find while the thing
+ * it controls is running is not a switch.
+ */
+function NewsAiToggle() {
+  const enabled = useTerminalStore((state) => state.newsAi);
+  const setEnabled = useTerminalStore((state) => state.setNewsAi);
+
+  return (
+    <button
+      type="button"
+      onClick={() => setEnabled(!enabled)}
+      aria-pressed={enabled}
+      aria-label={enabled ? 'Turn off the AI news summary' : 'Turn on the AI news summary'}
+      title={
+        enabled
+          ? "AI news summary is on — the news tab reads the day's headlines and scores them out of ten"
+          : 'AI news summary is off — the news tab shows the feed only'
+      }
+      data-testid="news-ai-toggle"
+      className={`rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${
+        enabled
+          ? 'border-accent/50 bg-accent/15 text-accent-text'
+          : 'border-line text-ink-3 hover:text-ink-2'
+      }`}
+    >
+      AI
+    </button>
   );
 }
 

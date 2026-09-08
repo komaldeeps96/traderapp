@@ -49,7 +49,7 @@ test.describe('dock', () => {
 
     await terminal.waitForMiniCharts();
     expect((await terminal.miniChartState('1m'))!.timeframe).toBe('1m');
-    expect((await terminal.miniChartState('5m'))!.timeframe).toBe('5m');
+    await expect(terminal.tape).toBeVisible();
   });
 
   test('the main chart keeps its data through a tab switch', async ({ terminal }) => {

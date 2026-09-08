@@ -12,17 +12,24 @@ import asyncio
 import contextlib
 import logging
 
-from ..domain.protocol import api_usage_message, quote_message
+from ..domain.protocol import api_usage_message, quote_message, tape_message
 from ..domain.timeframes import Timeframe
 from .api_budget import ApiBudget
 from .hub import SubscriptionHub
 from .market_data import MarketDataService
 from .quotes import QuoteService
 from .symbol_info import SymbolInfoService
+from .tape import TapeService
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_INTERVAL = 1.0
+
+# Most prints one tick may carry per symbol. A halt resuming can put several
+# hundred on the tape in a second; past this the oldest are dropped rather
+# than queued, because a tape is read from the top and the newest rows are
+# the ones the reader is looking at. The client's own list is bounded too.
+MAX_PRINTS_PER_TICK = 250
 
 
 class ChartBroadcaster:
@@ -33,6 +40,7 @@ class ChartBroadcaster:
         quotes: QuoteService | None = None,
         symbol_info: SymbolInfoService | None = None,
         api_budget: ApiBudget | None = None,
+        tape: TapeService | None = None,
         interval: float = DEFAULT_INTERVAL,
     ):
         self._hub = hub
@@ -40,11 +48,13 @@ class ChartBroadcaster:
         self._quotes = quotes
         self._info = symbol_info
         self._api_budget = api_budget
+        self._tape = tape
         self._interval = interval
         self._task: asyncio.Task | None = None
         self._sent: dict[tuple[str, Timeframe], int] = {}
         self._sent_quotes: dict[str, int] = {}
         self._sent_info: dict[str, int] = {}
+        self._sent_tape: dict[str, int] = {}
         self._sent_api: dict | None = None
 
     async def start(self) -> None:
@@ -92,6 +102,7 @@ class ChartBroadcaster:
 
         symbols = {symbol for symbol, _ in pairs}
         sent += self._tick_quotes(symbols)
+        sent += self._tick_tape(symbols)
         sent += self._tick_info(symbols)
         sent += self._tick_api()
 
@@ -132,6 +143,42 @@ class ChartBroadcaster:
 
         for symbol in [s for s in self._sent_quotes if s not in symbols]:
             self._sent_quotes.pop(symbol, None)
+        return sent
+
+    def _tick_tape(self, symbols: set[str]) -> int:
+        """Prints that landed since the last tick, per symbol.
+
+        The cursor is per symbol and shared by every client on it, so a client
+        that subscribed between two ticks is sent rows it already has in its
+        opening backlog. That overlap is the cheap half of the trade: the
+        client drops anything at or below the sequence it holds, and the
+        alternative is a cursor per connection.
+        """
+        if self._tape is None:
+            return 0
+        sent = 0
+        for symbol in symbols:
+            revision = self._tape.revision(symbol)
+            cursor = self._sent_tape.get(symbol, 0)
+            if revision in (0, cursor):
+                continue
+            # A sequence that went backwards means the service evicted this
+            # symbol's buffer and started it again. Nothing after the gap
+            # joins onto what the client holds, so the batch is a replacement
+            # rather than an extension.
+            restarted = revision < cursor
+            prints = self._tape.recent(symbol) if restarted else self._tape.since(symbol, cursor)
+            self._sent_tape[symbol] = revision
+            if not prints:
+                continue
+            self._hub.send_to_symbol(
+                symbol,
+                tape_message(symbol, prints[-MAX_PRINTS_PER_TICK:], reset=restarted),
+            )
+            sent += 1
+
+        for symbol in [s for s in self._sent_tape if s not in symbols]:
+            self._sent_tape.pop(symbol, None)
         return sent
 
     def _tick_info(self, symbols: set[str]) -> int:

@@ -89,6 +89,112 @@ class IBKRSettings(BaseModel):
     max_reconnect_delay_seconds: float = Field(default=30.0, gt=0)
 
 
+class TradingSettings(BaseModel):
+    """Order entry through IBKR — the one part of this app that spends money.
+
+    A second TWS connection, on its own client id, because the data client is
+    ``readonly=True`` and runs four scanner subscriptions, tick-by-tick
+    streams and pacing-limited history through a reconnect loop. Order flow
+    does not belong on it, and IBKR allows 32 concurrent API clients.
+
+    ``enabled`` is False here and False in every test settings object, the
+    same way ``alpaca.news_stream`` is: with it off the broker never connects
+    and nothing can reach ``placeOrder``.
+
+    One thing this file cannot control: TWS's own **Read-Only API** checkbox
+    (Global Configuration → API → Settings). That is what actually enforces
+    read-only — ``ib_async``'s ``readonly`` argument only skips the client's
+    own open-order fetch — so with the box ticked every order is rejected
+    whatever is set here. See docs/order-entry.md.
+    """
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    # The same TWS the data client uses. 7496 live, 7497 paper, 4001/4002 the
+    # gateway equivalents; ``is_paper`` reads the port so the panel can say
+    # which one it is rather than the user having to remember.
+    port: int = 7496
+    # The data client is 1.
+    client_id: int = 2
+    # Blank means the single managed account, which is the usual case.
+    account: str = ""
+    connect_timeout_seconds: float = Field(default=6.0, gt=0)
+    max_reconnect_delay_seconds: float = Field(default=30.0, gt=0)
+
+    # How far through the book a marketable limit is priced. The offset is a
+    # *cap*, not a price: a limit fills at the best available price, so five
+    # cents through the offer still fills at the offer when there is size
+    # there, and the slack is only spent when the book moves between the
+    # click and the arrival.
+    #
+    # Two parts, larger wins. Five cents is 12 bps on a $40 name and 12.5% on
+    # a $0.40 one, so a flat figure is the wrong shape at one end or the
+    # other. At 15 bps the two cross at $33.33.
+    offset_cents: float = Field(default=5.0, gt=0)
+    offset_bps: float = Field(default=15.0, ge=0)
+
+    # The buy buttons, in dollars, and the sell buttons as fractions of the
+    # position. Order is display order, left to right.
+    buy_dollars: list[float] = Field(default_factory=lambda: [10.0, 25.0, 50.0])
+    sell_fractions: list[float] = Field(default_factory=lambda: [0.25, 0.5, 1.0])
+
+    # DAY over IOC deliberately. At these sizes a marketable limit essentially
+    # always fills, so the difference is a tail either way — but DAY's failure
+    # is a resting order that shows in the working count and can be cancelled,
+    # while IOC's is a sell that silently cancelled and left a position the
+    # trader believes is closed.
+    tif: Literal["DAY", "IOC", "GTC"] = "DAY"
+
+    # Not optional for this workflow. Small-cap momentum runs pre-market, and
+    # without this a limit order simply sits unfilled until 09:30. It is also
+    # why these are limit orders: TWS refuses market orders outside RTH.
+    outside_rth: bool = True
+
+    # A hard server-side ceiling on one order's notional, checked before
+    # anything reaches TWS. Sixty is a hair above the largest button, so no
+    # arithmetic fault anywhere in the stack can produce an order larger than
+    # the one that was clicked. Raising the buttons means raising this, on
+    # purpose, in the same file.
+    max_order_dollars: float = Field(default=60.0, gt=0)
+
+    @property
+    def is_paper(self) -> bool:
+        """True for the paper ports. 7496/4001 are the live ones."""
+        return self.port in (7497, 4002)
+
+    @field_validator("buy_dollars")
+    @classmethod
+    def _positive_dollars(cls, value: list[float]) -> list[float]:
+        if not value or any(amount <= 0 for amount in value):
+            raise ValueError("buy_dollars must be a non-empty list of positive amounts")
+        return value
+
+    @field_validator("sell_fractions")
+    @classmethod
+    def _valid_fractions(cls, value: list[float]) -> list[float]:
+        if not value or any(not 0 < fraction <= 1 for fraction in value):
+            raise ValueError("sell_fractions must be a non-empty list within (0, 1]")
+        return value
+
+
+class TapeSettings(BaseModel):
+    """Time and sales — the print-by-print window beside the chart.
+
+    Nothing here reaches a bar or an indicator; the tape is a separate reader
+    on the same trade stream (app/services/tape.py). Cost is a ring buffer per
+    symbol and one extra WebSocket message per second per watched symbol, so
+    there is no switch to turn it off — a tape that is not there is a window
+    showing nothing, which is worse than one showing a slow name printing
+    twice a minute.
+    """
+
+    # Rows held per symbol, server side. The client keeps its own, smaller
+    # list; this is the depth a fresh subscribe is handed.
+    buffer: int = Field(default=600, ge=50, le=5_000)
+    # Symbols keeping a tape at once, evicted least-recently-printed.
+    max_symbols: int = Field(default=16, ge=1, le=64)
+
+
 class HistorySettings(BaseModel):
     """How much history to load for each base timeframe."""
 
@@ -151,6 +257,67 @@ class RegimeSettings(BaseModel):
 # The stock types IBKR's scanner knows about, from its own scanner-parameters
 # document (the STKTYPE filter's combo values).
 STOCK_TYPES = frozenset({"CORP", "ADR", "ETF", "ETN", "REIT", "CEF", "ETMF"})
+
+
+class NewsAISettings(BaseModel):
+    """The news panel's summary line — Claude Code, read as a child process.
+
+    The reader is the ``claude`` CLI already installed and authenticated on
+    this machine, run in print mode with no tools and no session. See
+    ``services/news_ai.py`` for why that rather than the API directly.
+
+    ``enabled`` is on: the panel is the feature, and with the CLI absent it
+    says so in one line rather than failing. It is off in every test settings
+    object for the same reason ``alpaca.news_stream`` is — this spawns a
+    process that reaches Anthropic, and no test may leave the machine.
+    """
+
+    enabled: bool = True
+    # Resolved on PATH, then in the usual install directories. A value
+    # carrying a separator is taken as a path and used as given.
+    command: str = "claude"
+    # Sonnet reads a press release as well as anything and costs about a
+    # cent a day per symbol. An alias ('sonnet', 'opus') or a full model id.
+    model: str = "sonnet"
+    # A reading is one API turn behind a process launch. Measured at 5-12s;
+    # this is the ceiling before the panel gives up and says so.
+    timeout_seconds: float = Field(default=90.0, gt=0)
+    # A hard per-reading ceiling handed to the CLI. One costs ~$0.01, so this
+    # only ever bites on something that has gone wrong.
+    max_budget_usd: float = Field(default=0.25, gt=0)
+    # How long a brief stands before new headlines are allowed to start
+    # another reading. A busy pre-market delivers a headline a minute and
+    # each one would otherwise launch a process; the panel marks the brief
+    # stale in the meantime and the refresh button overrides this.
+    min_interval_seconds: float = Field(default=120.0, ge=0)
+
+
+class SetupAISettings(BaseModel):
+    """The AI tab — the whole screen judged against Ross Cameron's framework.
+
+    Same reader as the news summary and the same flags (``services/
+    claude_cli.py``); what differs is the prompt and that this one is asked
+    for rather than following a feed. A setup is a moving target, so a
+    judgement cannot be cached against its inputs — it is dated instead, and
+    the panel says when the tape has moved out from under it.
+
+    Off in every test settings object, for the reason the news reader is:
+    it spawns a process that reaches Anthropic.
+    """
+
+    enabled: bool = True
+    command: str = "claude"
+    # The same reader as the news panel, and it has to stay the same: the
+    # setup judge takes the news reader's score as an input, and a mixed pair
+    # is two different readers arguing about one screen.
+    model: str = "sonnet"
+    # The prompt is much larger than the news one — five pillars, a level
+    # ladder, the tape and the news score — and the answer is a considered
+    # judgement rather than a summary. Measured at 60-120s against Sonnet,
+    # so the ceiling is well clear of the slow end: a reading that times out
+    # at 119 seconds has spent the money and thrown away the answer.
+    timeout_seconds: float = Field(default=240.0, gt=0)
+    max_budget_usd: float = Field(default=0.35, gt=0)
 
 
 class ScannerSettings(BaseModel):
@@ -291,6 +458,10 @@ class Settings(BaseSettings):
     scanner: ScannerSettings = Field(default_factory=ScannerSettings)
     regime: RegimeSettings = Field(default_factory=RegimeSettings)
     edgar: EdgarSettings = Field(default_factory=EdgarSettings)
+    trading: TradingSettings = Field(default_factory=TradingSettings)
+    tape: TapeSettings = Field(default_factory=TapeSettings)
+    news_ai: NewsAISettings = Field(default_factory=NewsAISettings)
+    setup_ai: SetupAISettings = Field(default_factory=SetupAISettings)
 
     indicators_file: Path = CONFIG_DIR / "indicators.yaml"
     state_file: Path = CONFIG_DIR / "state.yaml"

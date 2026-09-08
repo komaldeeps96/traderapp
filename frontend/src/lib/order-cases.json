@@ -1,0 +1,60 @@
+{
+  "_": [
+    "The one case table for order arithmetic. Read by backend/tests/unit/",
+    "test_orders.py and by frontend/src/lib/orders.test.ts, so the two",
+    "implementations cannot drift: the whole point of duplicating the",
+    "arithmetic is that the button preview needs no round trip, and the whole",
+    "risk of duplicating it is that one side quietly stops agreeing.",
+    "Add a case here, not to one suite."
+  ],
+  "offset": { "cents": 5, "bps": 15 },
+  "limits": [
+    { "why": "ordinary $4 name, cents floor rules", "bid": 4.25, "ask": 4.27, "buy": 4.32, "sell": 4.2 },
+    { "why": "sub-dollar: the finer Rule 612 tick applies", "bid": 0.4, "ask": 0.405, "buy": 0.455, "sell": 0.35 },
+    { "why": "float trap: 0.98-0.05 is 0.9299999999999999 in binary", "bid": 0.98, "ask": 0.99, "buy": 1.04, "sell": 0.93 },
+    { "why": "a buy priced up through $1 takes the penny tick", "bid": 0.97, "ask": 0.99, "buy": 1.04, "sell": 0.92 },
+    { "why": "a sell priced down through $1 takes the fine tick", "bid": 1.02, "ask": 1.03, "buy": 1.08, "sell": 0.97 },
+    { "why": "just under the 33.33 crossover: cents still win", "bid": 33.32, "ask": 33.33, "buy": 33.38, "sell": 33.27 },
+    { "why": "just over it: basis points take the offset past 5c", "bid": 33.34, "ask": 33.35, "buy": 33.41, "sell": 33.28 },
+    { "why": "$41: 15bps is 6.2c, and the ceil lands off the raw tick", "bid": 41.05, "ask": 41.1, "buy": 41.17, "sell": 40.98 },
+    { "why": "expensive name, offset is wholly proportionate", "bid": 412.0, "ask": 412.1, "buy": 412.72, "sell": 411.38 },
+    { "why": "two-cent stock: the sell clamps to one tick, not below zero", "bid": 0.02, "ask": 0.025, "buy": 0.075, "sell": 0.0001 },
+    { "why": "ask already exactly on a tick is not nudged a penny up", "bid": 9.99, "ask": 10.0, "buy": 10.05, "sell": 9.94 }
+  ],
+  "buy_shares": [
+    { "dollars": 10, "ask": 0.8, "shares": 12 },
+    { "dollars": 25, "ask": 0.8, "shares": 31 },
+    { "dollars": 50, "ask": 0.8, "shares": 62 },
+    { "dollars": 10, "ask": 3.3, "shares": 3 },
+    { "dollars": 25, "ask": 3.3, "shares": 7 },
+    { "dollars": 50, "ask": 3.3, "shares": 15 },
+    { "dollars": 10, "ask": 4.27, "shares": 2 },
+    { "dollars": 25, "ask": 4.27, "shares": 5 },
+    { "dollars": 50, "ask": 4.27, "shares": 11 },
+    { "why": "$10 is dead above $10 a share — zero is an ordinary answer", "dollars": 10, "ask": 12.4, "shares": 0 },
+    { "dollars": 25, "ask": 12.4, "shares": 2 },
+    { "dollars": 50, "ask": 12.4, "shares": 4 },
+    { "why": "only the largest button survives a $41 name", "dollars": 10, "ask": 41.1, "shares": 0 },
+    { "dollars": 25, "ask": 41.1, "shares": 0 },
+    { "dollars": 50, "ask": 41.1, "shares": 1 },
+    { "why": "exact division must not come out one share short", "dollars": 10, "ask": 2.5, "shares": 4 },
+    { "why": "the classic binary-division trap", "dollars": 0.3, "ask": 0.1, "shares": 3 },
+    { "dollars": 50, "ask": 0.5, "shares": 100 },
+    { "why": "no quote", "dollars": 25, "ask": 0, "shares": 0 }
+  ],
+  "sell_shares": [
+    { "position": 14, "fraction": 0.25, "shares": 3 },
+    { "position": 14, "fraction": 0.5, "shares": 7 },
+    { "why": "ALL is the position exactly, never a proportion of it", "position": 14, "fraction": 1.0, "shares": 14 },
+    { "why": "25% of three shares is nothing — the button disables", "position": 3, "fraction": 0.25, "shares": 0 },
+    { "position": 3, "fraction": 0.5, "shares": 1 },
+    { "position": 3, "fraction": 1.0, "shares": 3 },
+    { "position": 1, "fraction": 0.5, "shares": 0 },
+    { "position": 1, "fraction": 1.0, "shares": 1 },
+    { "why": "flat: every sell button is dead", "position": 0, "fraction": 1.0, "shares": 0 },
+    { "why": "long only — a short position sells nothing, it does not cover", "position": -5, "fraction": 1.0, "shares": 0 },
+    { "position": 100, "fraction": 0.25, "shares": 25 },
+    { "position": 101, "fraction": 0.5, "shares": 50 },
+    { "position": 1000, "fraction": 1.0, "shares": 1000 }
+  ]
+}

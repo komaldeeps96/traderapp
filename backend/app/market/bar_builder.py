@@ -22,6 +22,12 @@ class Trade:
     # Late, average-price and similar prints carry real volume but must not
     # move open/high/low/close — see market/conditions.py.
     price_forming: bool = True
+    # Neither of these reaches a bar. They ride along for the time-and-sales
+    # window, which is the one consumer that wants the print rather than the
+    # period it lands in — see domain/tape.py. Defaulted so every existing
+    # construction site, and every test, keeps working unchanged.
+    exchange: str = ""
+    conditions: tuple[str, ...] = ()
 
 
 class BarBuilder:

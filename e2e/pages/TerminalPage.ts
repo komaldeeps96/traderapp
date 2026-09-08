@@ -61,6 +61,9 @@ export interface TerminalState {
   delayed: boolean;
   barCount: number;
   visibility: Record<string, boolean>;
+  miniTimeframes: string[];
+  /** Prints held for the open symbol, before any filtering. */
+  tapeCount: number;
 }
 
 export class TerminalPage {
@@ -137,21 +140,36 @@ export class TerminalPage {
     return this.page.getByTestId('chart-controls');
   }
 
-  /** The 1m/5m context charts. Absent below the dock's breakpoint. */
+  /** The context chart in the dock. Absent below its breakpoint. */
   get miniCharts(): Locator {
     return this.page.getByTestId('mini-charts');
   }
 
-  /** The right-hand rail that holds them, and the other three tabs. */
+  /** Time and sales, under the context chart in the dock's first tab. */
+  get tape(): Locator {
+    return this.page.getByTestId('tape');
+  }
+
+  /** Every rendered print, newest first. */
+  tapeRows(): Locator {
+    return this.page.locator('[data-testid^="tape-row-"]');
+  }
+
+  /** One print, by the sequence number the wire gave it. */
+  tapeRow(seq: number): Locator {
+    return this.page.getByTestId(`tape-row-${seq}`);
+  }
+
+  /** The right-hand rail that holds them, and the other four tabs. */
   get dock(): Locator {
     return this.page.getByTestId('dock');
   }
 
-  dockTab(id: 'charts' | 'fundamentals' | 'news' | 'filings'): Locator {
+  dockTab(id: 'charts' | 'ai' | 'fundamentals' | 'news' | 'filings'): Locator {
     return this.page.getByTestId(`dock-tab-${id}`);
   }
 
-  dockPanel(id: 'fundamentals' | 'news' | 'filings'): Locator {
+  dockPanel(id: 'ai' | 'fundamentals' | 'news' | 'filings'): Locator {
     return this.page.getByTestId(`dock-${id}`);
   }
 
@@ -159,7 +177,7 @@ export class TerminalPage {
     return this.page.getByTestId(`mini-chart-${timeframe}`);
   }
 
-  miniReset(timeframe: '1m' | '5m'): Locator {
+  miniReset(timeframe: string): Locator {
     return this.page.getByTestId(`mini-reset-${timeframe}`);
   }
 
@@ -281,12 +299,24 @@ export class TerminalPage {
     );
   }
 
+  /**
+   * Wait until every mini slot has drawn something.
+   *
+   * Asked of the store's own `miniTimeframes` rather than a hardcoded list, so
+   * a spec that retimes a slot — or a build that changes how many slots there
+   * are — waits for the charts that actually exist.
+   */
   async waitForMiniCharts(): Promise<void> {
     await this.page.waitForFunction(
-      () =>
-        (['1m', '5m'] as const).every(
-          (tf) => ((window.__traderapp?.miniChart(tf) as { barCount?: number } | null)?.barCount ?? 0) > 0,
-        ),
+      () => {
+        const hooks = window.__traderapp;
+        const timeframes = (hooks?.state() as { miniTimeframes?: string[] } | undefined)
+          ?.miniTimeframes;
+        if (!hooks || !timeframes?.length) return false;
+        return timeframes.every(
+          (tf) => ((hooks.miniChart(tf) as { barCount?: number } | null)?.barCount ?? 0) > 0,
+        );
+      },
       undefined,
       { timeout: 15_000 },
     );

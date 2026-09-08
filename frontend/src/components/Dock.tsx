@@ -6,18 +6,27 @@ import { DOCK_TAB_IDS, DOCK_TAB_LABELS, DOCK_TAB_TITLES, clampDockWidth } from '
 import type { Timeframe } from '@/types/protocol';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
+import { AiTab } from './AiTab';
 import { FilingsTab } from './FilingsTab';
 import { FundamentalsTab } from './FundamentalsTab';
 import { MiniCharts } from './MiniCharts';
 import { NewsTab, useNewsFeed } from './NewsTab';
+import { TapePanel } from './TapePanel';
 
 /**
  * The rail to the right of the chart.
  *
- * It used to be the mini-chart column and nothing else. The context charts
- * are still its first tab and still what it opens on, because that is what is
- * wanted by default; the other three are the pre-trade check — what the
- * company is, what it has said, and what it has filed.
+ * It used to be the mini-chart column and nothing else. Its first tab is
+ * still what it opens on, because that is what is wanted by default. Three
+ * of the others are the pre-trade check — what the company is, what it has
+ * said, and what it has filed — and the second, AI, is the only one that
+ * answers rather than reports: it weighs the other four against the strip
+ * and the ladder and says what the combination is.
+ *
+ * That first tab now holds one context chart over the time-and-sales window
+ * rather than two charts. A 5-minute candle is a summary of what the tape
+ * already said, and on a small-cap runner the tape says it first — so the
+ * second chart was paying rail width to repeat the first one more slowly.
  *
  * Three things keep this from destabilising a dense layout.
  *
@@ -119,7 +128,18 @@ export function Dock({
         aria-labelledby={`dock-tab-${tab}`}
         className="flex min-h-0 flex-1 flex-col"
       >
-        {tab === 'charts' && <MiniCharts onTimeframeChange={onMiniTimeframeChange} />}
+        {tab === 'charts' && (
+          <>
+            <MiniCharts onTimeframeChange={onMiniTimeframeChange} />
+            {/* Mounted with the chart, not lazily: the tape is a live buffer
+                that fills whether or not it is on screen, and a window that
+                starts empty every time the tab is opened is not a tape. */}
+            <TapePanel />
+          </>
+        )}
+        {/* Mounted only when open: a judgement costs a cent and a minute,
+            so it must not be asked for by a tab nobody is looking at. */}
+        {tab === 'ai' && <AiTab />}
         {tab === 'fundamentals' && <FundamentalsTab />}
         {tab === 'news' && <NewsTab />}
         {tab === 'filings' && <FilingsTab />}

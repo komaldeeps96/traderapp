@@ -67,6 +67,7 @@ class TestSubscribe:
         series = receive_until(ws, "snapshot")["series"]
         assert "prev_day_close" in series
         assert "high_52w" in series
+        assert "ytd_high" in series
 
     def test_series_points_are_time_value_pairs(self, ws):
         ws.send_json({"action": "subscribe", "symbol": "AAPL"})
@@ -484,3 +485,63 @@ class TestWatchlist:
     def test_a_symbol_that_is_not_one_is_refused(self, ws):
         ws.send_json({"action": "watchlist.add", "symbol": ""})
         assert receive_until(ws, "error")["code"] == "bad_command"
+
+
+class TestTape:
+    """Time and sales over the wire.
+
+    The live half — prints arriving between broadcast ticks — is covered in
+    ``tests/unit/test_tape.py`` against the broadcaster directly. What only an
+    end-to-end socket can show is the opening frame: that a subscribe hands
+    over whatever the symbol has already printed, and that switching symbols
+    replaces it rather than leaving the last company's tape on screen.
+    """
+
+    @staticmethod
+    def _seed(symbol: str, prints: list[tuple[float, float]]) -> None:
+        import asyncio
+
+        from app.domain.quotes import Quote
+        from app.market.bar_builder import Trade
+        from app.services.container import get_container
+
+        container = get_container()
+
+        async def run() -> None:
+            await container.quotes.handle_quote(
+                symbol, Quote(bid=2.50, ask=2.52, bid_size=100, ask_size=100, time=1_700_000_000.0)
+            )
+            for price, size in prints:
+                await container.tape.handle_trade(
+                    symbol,
+                    Trade(time=1_700_000_000.5, price=price, size=size, exchange="Q"),
+                )
+
+        asyncio.run(run())
+
+    def test_subscribe_opens_the_window_with_what_already_printed(self, ws):
+        self._seed("AAPL", [(2.52, 300), (2.50, 100)])
+        ws.send_json({"action": "subscribe", "symbol": "AAPL"})
+
+        message = receive_until(ws, "tape")
+        assert message["symbol"] == "AAPL"
+        assert message["reset"] is True
+        assert [row["a"] for row in message["prints"]] == ["ask", "bid"]
+        assert [row["q"] for row in message["prints"]] == [1, 2]
+
+    def test_a_symbol_with_no_tape_still_gets_the_frame(self, ws):
+        """The empty frame is what clears the previous company's prints."""
+        ws.send_json({"action": "subscribe", "symbol": "AAPL"})
+        message = receive_until(ws, "tape")
+        assert message["reset"] is True
+        assert message["prints"] == []
+
+    def test_switching_symbols_replaces_the_tape(self, ws):
+        self._seed("AAPL", [(2.52, 300)])
+        ws.send_json({"action": "subscribe", "symbol": "AAPL"})
+        assert len(receive_until(ws, "tape", symbol="AAPL")["prints"]) == 1
+
+        ws.send_json({"action": "subscribe", "symbol": "TSLA"})
+        message = receive_until(ws, "tape", symbol="TSLA", limit=20)
+        assert message["reset"] is True
+        assert message["prints"] == []

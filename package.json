@@ -19,6 +19,7 @@
     "test:e2e": "npm run test --workspace e2e",
     "test:e2e:ci": "npm run test:ci --workspace e2e",
     "test:e2e:ui": "npm run test:ui --workspace e2e",
+    "screenshots": "npm run screenshots --workspace e2e",
     "test": "npm run test:unit && npm run test:e2e"
   },
   "devDependencies": {

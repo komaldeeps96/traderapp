@@ -141,6 +141,55 @@ body {
   animation: scanner-row-hot 1.1s ease-in-out infinite;
 }
 
+/* Time and sales.
+ *
+ * Four tints, the direct-access convention: green for a print the buyer took
+ * at the offer, a deeper green when they paid through it, and the mirror in
+ * red. Nothing for a print that took neither side.
+ *
+ * The tint is the whole message, so the text on top of it stays at
+ * `--color-ink` — full contrast, both themes — rather than being coloured as
+ * well. At 10px, colour-on-colour costs legibility to repeat something the
+ * row has already said.
+ *
+ * Percentages are not shared across the two themes: `--color-up` is a bright
+ * #3fb950 on the dark ground and a dark #1a7f37 on white, so equal mixes land
+ * at very different weights.
+ *
+ * The light strong step is 30% and was 38%, which is a contrast floor rather
+ * than a preference. At 38% the red mixes to #edabb0, and the time cell —
+ * `--color-ink-2`, 10px — sits at 4.17:1 on it. The green passed at 4.61:1,
+ * which is exactly the kind of margin that fails on the next palette tweak,
+ * so both moved. 30% puts them at 5.3:1 and 5.2:1 and still reads as clearly
+ * stronger than the 16% plain step. The dark theme's text is white on these,
+ * so it has room the light theme does not.
+ */
+.tape-ask {
+  background-color: color-mix(in srgb, var(--color-up) 16%, transparent);
+}
+.tape-above {
+  background-color: color-mix(in srgb, var(--color-up) 30%, transparent);
+}
+.tape-bid {
+  background-color: color-mix(in srgb, var(--color-down) 16%, transparent);
+}
+.tape-below {
+  background-color: color-mix(in srgb, var(--color-down) 30%, transparent);
+}
+
+[data-theme='dark'] .tape-ask {
+  background-color: color-mix(in srgb, var(--color-up) 20%, transparent);
+}
+[data-theme='dark'] .tape-above {
+  background-color: color-mix(in srgb, var(--color-up) 45%, transparent);
+}
+[data-theme='dark'] .tape-bid {
+  background-color: color-mix(in srgb, var(--color-down) 20%, transparent);
+}
+[data-theme='dark'] .tape-below {
+  background-color: color-mix(in srgb, var(--color-down) 45%, transparent);
+}
+
 /* The library's attribution logo; the chart is embedded, not white-labelled
    for redistribution. */
 #tv-attr-logo {

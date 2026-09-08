@@ -539,11 +539,16 @@ def _parse_trade(symbol: str, raw: dict) -> Trade | None:
     if kind is TradeKind.SKIP:
         return None
     stamp = raw.get("t")
+    conditions = raw.get("c")
     return Trade(
         time=parse_rfc3339(stamp).timestamp() if stamp else 0.0,
         price=float(raw["p"]),
         size=float(raw.get("s", 0)),
         price_forming=kind is TradeKind.PRICE_FORMING,
+        # Alpaca's CTA/UTP market-centre character, carried through as it
+        # comes. The tape shows it; nothing maps it.
+        exchange=str(raw.get("x") or ""),
+        conditions=tuple(str(code) for code in conditions) if conditions else (),
     )
 
 

@@ -83,16 +83,16 @@ next, and never have two `playwright test` invocations alive at once.
     cd e2e     && npx tsc --noEmit -p . && npx eslint .
 
     # Browser tests — one project per invocation
-    cd e2e && npx playwright test --project=chromium    # ~1.7 min, 354 tests
-    cd e2e && npx playwright test --project=visual      # ~7 s,      5 tests
-    cd e2e && npx playwright test --project=fullstack   # ~18 s,    23 tests
-    cd e2e && npx playwright test --project=firefox     # ~2.1 min, 354 tests
-    cd e2e && npx playwright test --project=webkit      # ~2.7 min, 354 tests
-    cd e2e && npx playwright test --project=mobile      # ~8 s,      8 tests
+    cd e2e && npx playwright test --project=chromium    # ~1.7 min, 410 tests
+    cd e2e && npx playwright test --project=visual      # ~8 s,      5 tests
+    cd e2e && npx playwright test --project=fullstack   # ~19 s,    26 tests
+    cd e2e && npx playwright test --project=firefox     # ~2.5 min, 410 tests
+    cd e2e && npx playwright test --project=webkit      # ~3.1 min, 410 tests
+    cd e2e && npx playwright test --project=mobile      # ~9 s,      8 tests
 
-A full sequential pass is about seven minutes and holds memory above 80%.
-All six browser projects pass clean this way: 354 / 5 / 23 / 354 / 354 / 8,
-alongside 1321 backend and 357 frontend unit tests.
+A full sequential pass is about eight minutes and holds memory above 70%.
+All six browser projects pass clean this way: 410 / 5 / 26 / 410 / 410 / 8,
+alongside 1721 backend and 462 frontend unit tests.
 
 ### Rules that keep it upright
 
@@ -135,7 +135,7 @@ If you see `Target page, context or browser has been closed`, `Test timeout
 ... while setting up "backend"`, or `page.goto` timing out in a fixture —
 with **no failed assertion anywhere** — the browser died. Re-run the spec
 alone on a quiet machine before touching a line of source. All three engines
-pass 251/251 when run sequentially.
+pass 410/410 when run sequentially.
 
 ## Layout
 
@@ -155,9 +155,47 @@ The **middle** is tabbed too — Chart, Financials, Metrics, Insiders, Peers —
 and the chart is **hidden with `visibility`, never unmounted**. A
 `display:none` container is zero-height and lightweight-charts cannot size a
 pane inside one; unmounting would lose the viewport. See
-`docs/terminal-expansion.md`.
+`docs/terminal-expansion.md`. The **order strip** sits across the bottom of
+this column, *outside* the tab panel, so a position stays on screen while a
+balance sheet is being read.
 
-The **right** dock is unchanged: context charts, fundamentals, news, filings.
+The **right** dock has five tabs — Charts, AI, Fund, News, Filings — and the
+first one is now **one** 1-minute context chart over the **time and sales**
+window, where two charts used to stack. A 5-minute candle is a summary of
+what the tape already said, and on a small-cap runner the tape says it first.
+`MINI_SLOT_COUNT` in `chart/mini.ts` is the one number that decides how many
+charts there are; the slot machinery still supports more.
+
+## The tape shows what the bars are built from, and no more
+
+`docs/time-and-sales.md` is the design. Three things about it are easy to
+break by accident:
+
+**Nobody's feed publishes the aggressor.** Neither SIP carries a side field,
+and neither does IBKR's tick-by-tick. Every green row is `domain/tape.py`
+comparing the print against the newest quote to have arrived. The tolerance
+is 1e-9 — representation error and nothing wider, because a print one cent
+through the offer is a sweep and has to read as one.
+
+**Odd lots never reach the tape**, because it reads the same stream the bars
+do and `TICK_TYPE = "Last"` omits them — a measured decision recorded in
+`providers/ibkr.py`, worth 26.6% of volume. So this window shows round lots
+and up while a Lightspeed tape beside it shows more rows. Changing that means
+changing what every volume figure on the screen means; do not do it as a side
+effect of a tape change.
+
+**The freeze tracks what it is holding, not the last symbol it saw.** A
+symbol switch clears the store's tape a beat before the new company's buffer
+arrives, so a paused window has one render where the tape is legitimately
+empty. Re-arming on that render latches the empty list for as long as the
+pause lasts — a lit pause button over a blank window, which reads as a dead
+feed. `TapePanel`'s `frozenOn` ref is null until the new symbol has actually
+printed, and `tape.spec.ts` pins it with a delayed snapshot.
+
+**Late reports and average-price prints are shown, not dropped.** They are
+real volume at a price that is not a market price now, so they carry a dot
+and a filter rather than vanishing. A tape that quietly drops prints cannot
+be trusted for what it does show.
 
 ### Two traps this codebase has already paid for
 
@@ -246,6 +284,90 @@ The market-wide rate is about one headline a minute, so an end-to-end check
 against live news needs patience or a wide net: forty-five of the most
 covered US names produced nothing in four minutes, which was the feed being
 quiet and not a bug.
+
+### Two panels ask Claude to read something
+
+`docs/ai-architecture.md` is the layer — the shared runner, the sandbox, the
+caching, the measurement harness and what it has found. `docs/news-summary.md`
+and `docs/setup-judgement.md` are the two panel designs, and
+`.claude/skills/ai-panel/SKILL.md` is the procedure for changing a prompt.
+What follows is only what a careless edit breaks.
+
+**The news window is a session, not a calendar day.** This was wrong here first
+and is the single easiest thing to break again: a press release at 16:05 is not
+today's news, it is *tomorrow's gap*. Keyed on the New York date it lands under
+yesterday, so a chart opened at 08:00 on a name that announced an FDA clearance
+at 16:10 the night before summarised whatever trivia had printed since
+midnight. The window runs from the previous close to now.
+
+**The setup judge is not a checklist, and that is the whole point.** The five
+pillars are weighed jointly: a stock at $19 with a 19M float up exactly 10% on
+RVOL 5.1 clears all five, marginally, and is a *worse* trade than one
+exceptional on three that openly fails a fourth. The strip above the chart is
+already the conjunctive filter. If that sentence ever leaves `setup_prompt.py`
+the panel becomes a slower copy of the strip —
+`test_the_rubric_holds_the_joint_evaluation_rule` is what stops that.
+
+**The score is catalyst quality, not a trade signal.** The news reader sees
+headlines and bodies and nothing else. A 2 means *this news is not a reason to
+be long*, never *do not trade this*. A test asserts the sentence is still there.
+
+**The flags are the sandbox.** `--tools ""`, `--safe-mode`,
+`--strict-mcp-config`, `--permission-prompts none`, `cwd` at `$HOME`. Not
+`--bare`: that one demands `ANTHROPIC_API_KEY` and never reads the OAuth this
+machine actually has. `test_the_reader_runs_with_no_tools_and_no_project_config`
+asserts the argv flag by flag, because this is the sort of thing a later edit
+tidies away.
+
+**Both are off in every test** — `news_ai.enabled=False`, `setup_ai.enabled=False`
+in the integration settings and `TRADERAPP_*__ENABLED=false` in
+`playwright.config.ts`, beside `news_stream` and `trading` and for the same
+reason: respx cannot see a subprocess any more than it can see a websocket. The
+service is tested against a shell script in `tmp_path` that reads stdin and
+prints an envelope. When that fake sleeps, **redirect its stdout** — a child
+holding the pipe keeps the transport alive past the test and surfaces as an
+unraisable "Event loop is closed".
+
+**Both panels stay on the same model, and it stays an alias.** `sonnet`, not a
+pinned id: the judge consumes the news reader's score, so a mixed pair is two
+readers arguing about one screen, and a pin is a panel that stops improving.
+
+**Point-in-time float exists and is in the backtesting repo**, which I claimed
+it was not, off a directory listing rather than a check —
+`03_reference/build_insider_float.py`. Consume it **only through `pit_float()`**:
+amendment resolution, owner-group carry-forward, role-aware staleness and split
+restatement all live in that function, and its own README says a hand join
+silently re-derives at least one of them wrong. `pit_market_cap()` is its twin.
+
+## Order entry spends real money
+
+`docs/order-entry.md` is the design; the rules that matter from here:
+
+- **`trading.enabled` is False**, in settings and written out explicitly in
+  the integration settings beside `news_stream`. It is a raw socket to TWS on
+  this machine, respx cannot see it, and the thing on the other end places
+  real orders against a **live** account, on `port: 7496` — the live TWS
+  port, not the paper one. Never flip it to run a test.
+- **The client never sends a share count.** It sends the dollar amount or the
+  fraction; `services/trading.py` recomputes the quantity from the freshest
+  quote and IBKR's own position. The command models forbid extra fields, so a
+  quantity cannot be smuggled past that even by a hand-written client.
+- **The arithmetic exists twice** — `domain/orders.py` and `lib/orders.ts` —
+  and is integer micro-dollars in both, because that is what makes them agree
+  bit for bit. In floats, `0.98 - 0.05` is 0.9299999999999999 and the tick
+  snap turned that into a limit of **0.9299**. Both are asserted against one
+  table, `frontend/src/lib/order-cases.json`. Add a case there, not to a suite.
+- **`is_available` means connected *and* set up.** `ib_async` marks the socket
+  connected partway through `connectAsync`; for ~300ms the account has not
+  resolved and no handler is attached, so an order would go out with nothing
+  listening for its fills and the strip would draw FLAT on a long account.
+  `socket_connected` is the raw state and only the connect loop wants it.
+- **Read-only is a TWS checkbox, not a code flag.** `ib_async`'s `readonly=`
+  only skips the client's own open-order fetch. Global Configuration → API →
+  Settings → "Read-Only API" is what actually rejects orders, and it cannot be
+  detected until the first one is tried.
+- **The strip renders nothing with trading off**, so it changes no visual
+  baseline. That absence is asserted, not assumed.
 
 ## Visual baselines
 

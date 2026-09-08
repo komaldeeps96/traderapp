@@ -10,20 +10,12 @@ The point of it is the things a hosted charting service will not do: a native
 float rotation next to the tape, and two scanners wired straight into your own
 workflow.
 
-```
-┌──────────────────┬─────────────────────────────────────────────────┐
-│ TRADE-RATE SCAN  │ AAPL  10S 1M 5M 15M 1H 1D 1W  ↑50%:5  09:31 RTH │
-│  sym price chg   ├─────────────────────────────────────────────────┤
-│  vol float mcap  │ AAPL 303.45 +1.2%  B 303.36×7 A 303.45×12  9¢    │
-│  t/1m $/1m       │ VOL 3.2M RVOL 0.06x FLOAT 14.5B ROT 0.0x MCAP…   │
-│ KEY LEVELS       ├─────────────────────────────────────────────────┤
-│  52W High        │                                                 │
-│  PM High         │              10s candles + overlays             │
-│  ▸ LAST 303.45   │                                                 │
-│  PM Low          ├─────────────────────────────────────────────────┤
-│ INDICATORS       │              volume · MACD (1m)                 │
-└──────────────────┴─────────────────────────────────────────────────┘
-```
+![The terminal](docs/screenshots/terminal.png)
+
+<sub>Every image in this README is captured by `npm run screenshots`, from the
+same seeded fixtures and frozen clock the visual regression suite uses — so
+they are regenerated against the current code rather than going quietly stale.
+There is a light theme too: [`docs/screenshots/terminal-light.png`](docs/screenshots/terminal-light.png).</sub>
 
 The left rail is the IBKR trade-rate scanner — *is anything moving right
 now?* — with the key-level ladder and the indicator chips for whatever is
@@ -39,6 +31,52 @@ bands during regular hours.
 
 Sub-panes are config-driven: volume everywhere, MACD 12/26/9 on the 1-minute
 only — where its crossovers mean something.
+
+Across the bottom of that column, outside the tab panel so it survives Chart →
+Financials → Metrics, is the **order strip**: three buy buttons in dollars,
+three sell buttons in percent of the position, each showing the share count it
+would send. It is off by default, because the account behind it is a live one.
+
+Down the right is the dock: a 1-minute context chart over a **time and sales**
+window, then fundamentals, news and SEC filings behind their own tabs. The
+tape is tinted the way a direct-access platform tints it — green at the offer
+and a stronger green through it, red at the bid and stronger below — with a
+size floor, a block threshold, same-price aggregation and a freeze. Nobody's
+feed publishes which side took a print, so that verdict is the server's,
+formed against the standing quote; [`docs/time-and-sales.md`](docs/time-and-sales.md)
+explains how, and what the tape does not carry.
+
+<img src="docs/screenshots/tape.png" width="420" alt="The context chart over the time and sales window">
+
+The dock's second tab is **AI**: the whole screen judged out of ten against
+Ross Cameron's five pillars — price, percent change, relative volume, float
+and catalyst — weighed *jointly* rather than counted, which is the one thing
+the strip above the chart cannot do. It names the factor carrying or killing
+the setup, lists the hard gates that actually fired, and says what would
+change the read. It is asked for rather than automatic, and it marks itself
+stale when the tape moves 2% past the price it was read at.
+[`docs/setup-judgement.md`](docs/setup-judgement.md) is the design.
+
+<img src="docs/screenshots/ai-tab.png" width="420" alt="The AI tab: a setup scored 6 out of 10, grade B, with a veto above the prose">
+
+The news tab is split. Below is the feed — thirty days from IBKR's entitled
+wires and Alpaca's Benzinga, deduplicated across both. Above it is one trading
+session of that feed — from the previous close to now, because a 16:05 press
+release is what the next morning gaps on — read by the `claude` CLI on this
+machine and scored out of ten against Ross Cameron's catalyst rubric: cost of production first, then the
+credibility checks, then the dilution structures. It is the read a substring
+classifier cannot make — an FDA clearance with a registered direct bolted to
+it scores a 2 rather than tinting green — and the score is *catalyst quality*,
+not a trade signal: it sees no float, no gap and no regime. A switch on the
+toolbar turns it off, and off means nothing is requested and no process is
+spawned. [`docs/news-summary.md`](docs/news-summary.md) is the design.
+
+<img src="docs/screenshots/news-brief.png" width="420" alt="The news tab: an FDA clearance priced into a registered direct an hour later, scored 2 out of 10">
+
+The screenshot is the case the panel exists for: an FDA clearance at 08:30,
+then a $12M registered direct at 09:30 with immediately exercisable warrants.
+The clearance is real and it is being sold into — a **2**, on a headline any
+keyword classifier would tint green.
 
 ## Quick start
 
@@ -275,6 +313,42 @@ Price precision follows magnitude — four decimals under $1, three under $10,
 two above. At $0.37 a cent is nearly 3%, so two decimals would round a level
 and the price standing on it onto the same number.
 
+## Order entry
+
+Off by default — `trading.enabled: false` — and worth reading before switching
+on: the port it dials is `7496`, which is **live** TWS, and the orders it
+places are real. Long only, six buttons.
+
+- **Marketable limits, never market orders.** Buy at `ask + offset`, sell at
+  `bid − offset`, where the offset is `max(5¢, 15 bps)` — a floor that stays
+  proportionate on a $40 name and usable on a $0.40 one. The offset is a cap
+  rather than a price: a limit fills at the best available price, and the slack
+  is only spent if the book moves between the click and the arrival.
+- **The client never sends a share count.** `trade.buy` carries a dollar
+  amount and `trade.sell` a fraction; the command models forbid extra fields,
+  so a quantity cannot be smuggled past that even by a hand-written client. The
+  backend recomputes shares from its own freshest quote and IBKR's own position
+  at the instant the order goes out, so a client asleep for thirty seconds
+  cannot send a stale size. The button previews the same number locally, and
+  the ack carries what actually happened.
+- **A second IBKR connection**, `client_id: 2`, beside the read-only data
+  client. A history storm cannot disturb order state, and trading being off
+  cannot disturb market data.
+- **Read-only is a TWS checkbox, not a code flag.** `ib_async`'s `readonly=`
+  only skips the client's own open-order fetch. Global Configuration → API →
+  Settings → "Read-Only API" is what actually rejects orders, and it cannot be
+  detected until the first one is tried.
+
+<img src="docs/screenshots/order-strip.png" width="700" alt="The order strip: a 14-share position, three buy buttons in dollars and three sell buttons in percent">
+
+The arithmetic exists twice — `backend/app/domain/orders.py` and
+`frontend/src/lib/orders.ts` — and is integer micro-dollars in both, because
+that is what makes them agree bit for bit: in floats `0.98 - 0.05` is
+`0.9299999999999999`, and the tick snap turned that into a limit of `0.9299`.
+Both are asserted against one shared table,
+[`frontend/src/lib/order-cases.json`](frontend/src/lib/order-cases.json).
+[`docs/order-entry.md`](docs/order-entry.md) is the design.
+
 ## Adding an indicator
 
 Most indicators are a YAML edit, no code:
@@ -307,17 +381,22 @@ its own — no dataframes, no clock, no globals.
 ```
 backend/app/
   core/        settings, logging, time
-  domain/      bars, timeframes, sessions, wire protocol
+  domain/      bars, timeframes, sessions, wire protocol, tape, orders,
+               and the two AI rubrics — prompts are modules, not strings
   indicators/  pure maths, key levels, YAML specs, engine
   market/      bar builder, resampling, in-memory store
-  providers/   alpaca, ibkr, and the router that fails over
-  services/    subscriptions, market data, scanner, broadcaster
+  providers/   alpaca, ibkr, the router that fails over, and the broker
+  services/    subscriptions, market data, scanner, broadcaster, tape,
+               trading, and the Claude reader the two AI panels share
   api/         REST + WebSocket
 frontend/src/
   chart/       lightweight-charts engine wrapper (bars never enter React)
   store/       zustand state and derived selectors
   components/  the terminal UI
-e2e/           Playwright: mocked-wire and full-stack suites
+  lib/         formatting, storage, and the order arithmetic mirrored
+               from the backend against a shared table of cases
+e2e/           Playwright: mocked-wire, full-stack, visual and capture suites
+docs/          the designs — one file per feature that earned one
 ```
 
 A few decisions worth knowing:
@@ -342,6 +421,35 @@ second, and only when that symbol's data actually changed.
 **Indicators are computed server-side** and sent as series, so the browser
 never recomputes an EMA and every client agrees on the numbers.
 
+**The AI panels are a subprocess, sandboxed, and never asked unprompted.** Both
+spawn the `claude` CLI already on the machine rather than calling an API — no
+second key, no SDK to pin — with `--tools ""` so a press release cannot reach
+the filesystem however it is worded, `--safe-mode` so this project's own
+instructions stay out of a scoring prompt, and a JSON schema so the answer is a
+validated object rather than prose to be parsed. The prompts are Python
+modules with tests pinning the sentences that carry the behaviour, the server
+assembles the snapshot so the browser never poses its own question, and a
+replay harness scores both against two years of real movers.
+[`docs/ai-architecture.md`](docs/ai-architecture.md) is the layer.
+
+### The design notes
+
+Each of these is one feature's reasoning: what was measured, what was rejected,
+and which decisions look arbitrary but are not. They are written to be read
+before changing the thing they describe.
+
+| | |
+| --- | --- |
+| [`ai-architecture.md`](docs/ai-architecture.md) | The AI layer — the sandbox, the caching, and how both panels are measured |
+| [`setup-judgement.md`](docs/setup-judgement.md) | The AI tab: why a model rather than a scoring function |
+| [`news-summary.md`](docs/news-summary.md) | Scoring one session of headlines for catalyst quality |
+| [`order-entry.md`](docs/order-entry.md) | Six buttons, and everything checked before they were built |
+| [`time-and-sales.md`](docs/time-and-sales.md) | The tape, and what it deliberately does not carry |
+| [`market-data-providers.md`](docs/market-data-providers.md) | Two feeds, one router, and what each is actually good for |
+| [`momentum-reads.md`](docs/momentum-reads.md) | The reads the terminal is built around, and which are done |
+| [`dilution-desk.md`](docs/dilution-desk.md) | The fundamentals, news and filings dock |
+| [`terminal-expansion.md`](docs/terminal-expansion.md) | How the three-column layout came to be |
+
 ## Testing
 
 Everything is automated and needs no credentials, no running TWS, and no open
@@ -363,6 +471,9 @@ npm run test:e2e
 
 # Everything, including the linters
 make check
+
+# Regenerate the images in this file
+npm run screenshots
 ```
 
 Counts are deliberately not quoted here — they go stale on the commit after
@@ -434,6 +545,8 @@ which wins over the file. Nested keys use a double underscore:
 TRADERAPP_ALPACA__KEY_ID=...
 TRADERAPP_ALPACA__FEED=delayed_sip
 TRADERAPP_IBKR__ENABLED=false
+TRADERAPP_NEWS_AI__ENABLED=false
+TRADERAPP_SETUP_AI__ENABLED=false
 TRADERAPP_LOG_LEVEL=DEBUG
 ```
 
@@ -442,7 +555,6 @@ volatile state.
 
 ## Notes
 
-- `legacy/` holds the pre-rewrite code for reference and is gitignored. Delete
-  it when you no longer want it.
 - Requires Python 3.11+ and Node 20+.
-- Data is for charting. Nothing here places orders.
+- Order entry is off by default and dials **live** TWS when switched on.
+  Read [`docs/order-entry.md`](docs/order-entry.md) before enabling it.

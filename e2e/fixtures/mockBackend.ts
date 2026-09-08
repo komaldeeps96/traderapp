@@ -19,6 +19,7 @@ import {
   TIMEFRAMES,
   makeApiUsage,
   makeArticle,
+  makeBrief,
   makeFilings,
   makeFinancials,
   makeFundamentals,
@@ -32,14 +33,20 @@ import {
   makeWatchlistRow,
   makeInfo,
   makeNews,
+  makeSetup,
+  makeOrder,
   makeQuote,
   makeScannerMessage,
   makeScannerRows,
   makeRegimeMessage,
   makeSnapshot,
   makeStatus,
+  makeTape,
+  makeTapePrints,
+  makeTradingMessage,
   type ScannerTierId,
   type SnapshotOptions,
+  type TapePrintFixture,
 } from './data';
 
 export interface MockBackendOptions {
@@ -64,6 +71,13 @@ export interface MockBackendOptions {
   manyLevels?: boolean;
   /** Symbols already on the server's watchlist when the page loads. */
   watchlist?: string[];
+  /**
+   * The tape a subscribe opens with. Defaults to one row of every verdict;
+   * pass `[]` for a name that has not printed.
+   */
+  tape?: TapePrintFixture[];
+  /** Arm the order-entry strip. Off by default, as the real server is. */
+  trading?: Record<string, unknown>;
 }
 
 export interface MockBackend {
@@ -82,6 +96,10 @@ export interface MockBackend {
   pushInfo: (overrides?: Partial<Record<string, unknown>>) => Promise<void>;
   pushApiUsage: (overrides?: { alpaca?: number; ibkr?: number }) => Promise<void>;
   pushError: (code: string, message: string) => Promise<void>;
+  /** Push prints as the broadcaster does — appended, not a replacement. */
+  pushTape: (prints: TapePrintFixture[]) => Promise<void>;
+  pushTrading: (overrides?: Record<string, unknown>) => Promise<void>;
+  pushOrder: (overrides?: Record<string, unknown>) => Promise<void>;
   /** Drop the socket to exercise reconnection. */
   dropConnection: () => Promise<void>;
   lastSnapshot: () => ReturnType<typeof makeSnapshot> | null;
@@ -165,6 +183,7 @@ export async function installMockBackend(
   // which is what lets a spec assert that the panel renders what came back
   // rather than what it optimistically drew.
   let watchlist: string[] = [...(options.watchlist ?? [])];
+  const tape = options.tape ?? makeTapePrints();
 
   await page.route('**/api/watchlist', (route) => {
     void route.fulfill({
@@ -178,10 +197,12 @@ export async function installMockBackend(
   await json(page, '**/api/ownership/**', makeOwnership());
   await json(page, '**/api/peers/**', makePeers());
   await json(page, '**/api/filings/**', makeFilings());
-  // Order matters: the article route is registered first so the broader news
-  // pattern does not swallow it.
+  // Order matters: the article and brief routes are registered first so the
+  // broader news pattern does not swallow them.
   await json(page, '**/api/news/*/article*', makeArticle());
+  await json(page, '**/api/news/*/brief*', makeBrief());
   await json(page, '**/api/news/*', makeNews());
+  await json(page, '**/api/setup/*', makeSetup());
   await json(page, '**/api/scanner/tiers', {
     scan_codes: SCAN_CODES,
     tiers: SCANNER_TIERS,
@@ -193,13 +214,16 @@ export async function installMockBackend(
     socket = ws;
 
     // The real server opens with status, one scanner frame per market-cap
-    // tier, regime, then api — seven frames in all.
+    // tier, regime, api, then the trading state — eight frames in all.
     ws.send(JSON.stringify(makeStatus({ source, delayed })));
     for (const tier of SCANNER_TIERS) {
       ws.send(JSON.stringify(makeScannerMessage(tier.id, [], scannerAvailable)));
     }
     ws.send(JSON.stringify(makeRegimeMessage()));
     ws.send(JSON.stringify(makeApiUsage()));
+    // Sent whether or not trading is armed: with it off the strip has to
+    // learn that, rather than rendering as a panel that silently does nothing.
+    ws.send(JSON.stringify(makeTradingMessage(options.trading ?? {})));
     // Sent only when there is one, exactly as the server does — an empty list
     // costs a fresh connection no frame at all.
     if (watchlist.length > 0) ws.send(JSON.stringify(makeWatchlistMessage(watchlist)));
@@ -265,6 +289,11 @@ export async function installMockBackend(
                 makeQuote(symbol, { bid: close - 0.02, ask: close + 0.02, t: payload.generated_at }),
               ),
             );
+            // Then the tape it has already printed, as a replacement — the
+            // real server sends this frame on every subscribe, empty buffer
+            // included, because that empty frame is what clears the previous
+            // symbol's prints out of the window.
+            ws.send(JSON.stringify(makeTape(symbol, tape)));
             ws.send(JSON.stringify(makeInfo(symbol, infoOverrides)));
           };
 
@@ -350,6 +379,12 @@ export async function installMockBackend(
     pushApiUsage: (overrides = {}) => send(makeApiUsage(overrides)),
 
     pushError: (code, message) => send({ type: 'error', code, message }),
+
+    pushTape: (prints) => send(makeTape(snapshot?.symbol ?? 'AAPL', prints, false)),
+
+    pushTrading: (overrides = {}) => send(makeTradingMessage({ ...options.trading, ...overrides })),
+
+    pushOrder: (overrides = {}) => send(makeOrder(overrides)),
 
     async dropConnection() {
       await waitForSocket();

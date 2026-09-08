@@ -1,5 +1,5 @@
 import { expect, test } from '../../fixtures/test';
-import { makeHeadline, makeNews, makeNewsMessage } from '../../fixtures/data';
+import { makeBrief, makeHeadline, makeNews, makeNewsMessage } from '../../fixtures/data';
 
 /**
  * The news tab.
@@ -279,5 +279,167 @@ test.describe('a live headline off the Benzinga socket', () => {
     );
 
     await expect(terminal.dockTab('news')).toContainText('1');
+  });
+});
+
+
+/**
+ * The panel's top half: one day, read and scored.
+ *
+ * The reading itself happens on the server, in a `claude` process; what a
+ * browser test can hold is the contract around it. Three things earn one.
+ *
+ * That the score reaches the DOM as a number *and* a band, because the whole
+ * argument for the panel is the case the substring classifier cannot make —
+ * an FDA clearance with an offering bolted to it is a 2, not an upside row.
+ *
+ * That the risks are rendered apart from the summary, because a trader
+ * mid-run must not have to read a paragraph to find the offering in it.
+ *
+ * And that the toolbar switch actually stops the request, rather than merely
+ * hiding a panel whose process has already been paid for.
+ */
+test.describe('the AI news summary', () => {
+  test('scores the day above the feed', async ({ terminal }) => {
+    await terminal.waitForChart();
+    await terminal.dockTab('news').click();
+
+    const score = terminal.page.getByTestId('news-brief-score');
+    await expect(score).toHaveText(/2/);
+    await expect(score).toHaveAttribute('data-verdict', 'weak');
+    await expect(terminal.page.getByTestId('news-brief-summary')).toContainText(
+      'registered direct',
+    );
+  });
+
+  test('a low score on real good news is the point, not a bug', async ({ terminal }) => {
+    // FDA clearance and a raise on the same morning. The substring classifier
+    // in the list below tags the clearance "upside"; the reading says the
+    // clearance is being sold into.
+    await terminal.waitForChart();
+    await terminal.dockTab('news').click();
+
+    await expect(terminal.page.getByTestId('news-brief-bullets')).toContainText(
+      'FDA 510(k) clearance',
+    );
+    await expect(terminal.page.getByTestId('news-brief-risks')).toContainText(
+      'sold straight into the run',
+    );
+  });
+
+  test('names the session and the window it read, not just "today"', async ({ terminal }) => {
+    // Two different facts, and the pair is the whole claim: a chart open on
+    // a Sunday is reading "for Monday, since Friday's close". A summary that
+    // will not say which cannot be checked against the rows below it.
+    await terminal.waitForChart();
+    await terminal.dockTab('news').click();
+
+    const window = terminal.page.getByTestId('news-brief-window');
+    await expect(window).toContainText('Mar 5');
+    await expect(window).toContainText('since');
+    await expect(window).toContainText('3 headlines');
+  });
+
+  test('says why there is nothing rather than showing an empty box', async ({
+    terminal,
+    page,
+  }) => {
+    await page.route('**/api/news/*/brief*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          symbol: 'AAPL',
+          status: 'no-cli',
+          available: false,
+          brief: null,
+          note: "The 'claude' CLI was not found on this machine.",
+        }),
+      }),
+    );
+    await terminal.goto();
+    await terminal.waitForChart();
+    await terminal.dockTab('news').click();
+
+    await expect(terminal.page.getByTestId('news-brief-note')).toContainText('was not found');
+    // And the feed below is untouched by it.
+    await expect(terminal.page.getByTestId('news-row')).toHaveCount(6);
+  });
+
+  test('the toolbar switch stops the request, not just the panel', async ({ terminal, page }) => {
+    // A reading costs about a cent and a dozen seconds. A switch that hid the
+    // panel while still paying for it would be worse than no switch.
+    const asked: string[] = [];
+    await page.route('**/api/news/*/brief*', (route) => {
+      asked.push(route.request().url());
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(makeBrief()),
+      });
+    });
+    await terminal.goto();
+    await terminal.waitForChart();
+    await terminal.dockTab('news').click();
+    await expect(terminal.page.getByTestId('news-brief-score')).toBeVisible();
+
+    const before = asked.length;
+    await terminal.page.getByTestId('news-ai-toggle').click();
+
+    await expect(terminal.page.getByTestId('news-brief')).toHaveCount(0);
+    // The feed itself is untouched — the switch is about the reading.
+    await expect(terminal.page.getByTestId('news-row')).toHaveCount(6);
+    await terminal.page.waitForTimeout(300);
+    expect(asked.length).toBe(before);
+  });
+
+  test('the switch is remembered across a reload', async ({ terminal }) => {
+    await terminal.waitForChart();
+    const toggle = terminal.page.getByTestId('news-ai-toggle');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+    await toggle.click();
+    await terminal.goto();
+    await terminal.waitForChart();
+
+    await expect(terminal.page.getByTestId('news-ai-toggle')).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+
+  test('refreshing asks for a fresh reading rather than the cached one', async ({
+    terminal,
+    page,
+  }) => {
+    const asked: string[] = [];
+    await page.route('**/api/news/*/brief*', (route) => {
+      asked.push(route.request().url());
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(makeBrief()),
+      });
+    });
+    await terminal.goto();
+    await terminal.waitForChart();
+    await terminal.dockTab('news').click();
+    await expect(terminal.page.getByTestId('news-brief-score')).toBeVisible();
+
+    await terminal.page.getByTestId('news-brief-refresh').click();
+
+    await expect
+      .poll(() => asked.some((url) => url.includes('refresh=true')))
+      .toBe(true);
+  });
+
+  test('a reading that fails leaves the feed readable', async ({ terminal, page }) => {
+    await page.route('**/api/news/*/brief*', (route) => route.fulfill({ status: 500, body: '' }));
+    await terminal.goto();
+    await terminal.waitForChart();
+    await terminal.dockTab('news').click();
+
+    await expect(terminal.page.getByTestId('news-brief-note')).toBeVisible();
+    await expect(terminal.page.getByTestId('news-row')).toHaveCount(6);
   });
 });

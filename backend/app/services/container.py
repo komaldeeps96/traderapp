@@ -17,9 +17,12 @@ from ..domain.protocol import (
     api_usage_message,
     filing_message,
     news_message,
+    order_message,
     regime_message,
     scanner_message,
     status_message,
+    tape_message,
+    trading_message,
     watchlist_message,
 )
 from ..domain.scanner import SCANNER_TIERS
@@ -30,6 +33,7 @@ from ..providers.alpaca import AlpacaProvider
 from ..providers.alpaca_news import AlpacaNewsStream
 from ..providers.edgar import EdgarProvider
 from ..providers.ibkr import IBKRProvider
+from ..providers.ibkr_broker import IBKRBroker
 from ..providers.router import FeedRouter
 from ..providers.yahoo import YahooFloatProvider
 from ..services.api_budget import ApiBudget
@@ -41,14 +45,18 @@ from ..services.halts import HaltTracker
 from ..services.hub import SubscriptionHub
 from ..services.market_data import MarketDataService
 from ..services.news import NewsService
+from ..services.news_ai import NewsAIService
 from ..services.ownership import OwnershipService
 from ..services.peers import PeerService
 from ..services.quotes import QuoteService
 from ..services.regime import RegimeService
 from ..services.scanner import ScannerService
+from ..services.setup_ai import SetupAIService
 from ..services.state import StateStore
 from ..services.swing import SwingService
 from ..services.symbol_info import SymbolInfoService
+from ..services.tape import TapeService
+from ..services.trading import TradingService
 from ..services.tv import TVDataService
 from ..services.watchlist import WatchlistService
 
@@ -71,6 +79,28 @@ class AppContainer:
         self.market_data = MarketDataService(self.router, self.store, self.engine)
         self.quotes = QuoteService()
         self.router.on_quote(self.quotes.handle_quote)
+        # Time and sales. A second reader on the same trade stream, sharing
+        # the quote service because the aggressor side is inferred from the
+        # standing book and nothing publishes it — see domain/tape.py.
+        # Registered after MarketDataService.start's handler and independently
+        # of it: the tape wants the print, not the period it lands in, so it
+        # fills from the first trade rather than waiting on history.
+        self.tape = TapeService(
+            self.quotes,
+            buffer=self.settings.tape.buffer,
+            max_symbols=self.settings.tape.max_symbols,
+        )
+        self.router.on_trade(self.tape.handle_trade)
+        # Order entry, on its own TWS connection and its own client id — see
+        # providers/ibkr_broker.py for why it is not the data client. Off
+        # unless settings.trading.enabled says otherwise, which it does not by
+        # default and does not in any test.
+        self.broker = IBKRBroker(self.settings.trading)
+        self.trading = TradingService(self.broker, self.quotes, self.settings.trading)
+        self.broker.on_position(self._broadcast_trading)
+        self.broker.on_status_change(self._broadcast_trading)
+        self.broker.on_order(self._on_order)
+
         self.tv = TVDataService()
         self.halts = HaltTracker()
         self.router.on_halt(self._on_halt)
@@ -119,7 +149,12 @@ class AppContainer:
 
         self.hub = SubscriptionHub(self.router, self.market_data)
         self.broadcaster = ChartBroadcaster(
-            self.hub, self.market_data, self.quotes, self.symbol_info, self.api_budget
+            self.hub,
+            self.market_data,
+            self.quotes,
+            self.symbol_info,
+            self.api_budget,
+            self.tape,
         )
         # One ScannerService per market-cap tier, sharing this one IBKR
         # connection. Each carries its own IBKR subscription, filters and
@@ -155,9 +190,23 @@ class AppContainer:
             self.state, quotes_enabled=self.settings.regime.enabled
         )
 
+        self._wire_readers()
+
         self.regime.on_update(self._broadcast_regime)
         self.router.on_status_change(self._on_source_change)
         self.market_data.on_backfill(self._on_backfill)
+
+    def _wire_readers(self) -> None:
+        """The two panels that ask Claude to read something.
+
+        Both consume services built above rather than sources of their own.
+        The news reader reads the news cache; the setup judge reads nearly
+        everything — the info strip, the indicator series, the quote, the
+        regime and the news reader's own score — which is why it is handed
+        the container rather than six constructor arguments.
+        """
+        self.news_ai = NewsAIService(self.settings.news_ai, self.news)
+        self.setup_ai = SetupAIService(self.settings.setup_ai, container=self)
 
     # ── lifecycle ──────────────────────────────────────────────────────
 
@@ -170,6 +219,7 @@ class AppContainer:
         await self.regime.start()
         await self.filing_watch.start()
         await self.alpaca_news.start()
+        await self.broker.start()
         logger.info(
             "Ready — data source: %s%s",
             self.router.active_source.value,
@@ -183,6 +233,7 @@ class AppContainer:
         await self.regime.stop()
         await self.filing_watch.stop()
         await self.alpaca_news.stop()
+        await self.broker.stop()
         await self.router.stop()
         await self.yahoo.close()
         if self.edgar is not None:
@@ -220,8 +271,24 @@ class AppContainer:
             note=self.watchlist.note,
         )
 
+    def trading_payload(self) -> dict:
+        return trading_message(
+            state=self.trading.state(),
+            positions=self.trading.positions(),
+            orders=self.trading.working_orders(),
+        )
+
     def api_payload(self) -> dict:
         return api_usage_message(self.api_budget.snapshot())
+
+    def tape_payload(self, symbol: str) -> dict:
+        """The whole buffer, as a replacement.
+
+        Sent on subscribe so a symbol switch opens with the prints that
+        already happened rather than with an empty window that fills at
+        whatever rate the name happens to trade.
+        """
+        return tape_message(symbol, self.tape.recent(symbol), reset=True)
 
     def regime_payload(self) -> dict:
         state = self.regime.state
@@ -233,6 +300,23 @@ class AppContainer:
 
     async def _broadcast_scanner(self, scanner_id: str, _state) -> None:
         self.hub.broadcast(self.scanner_payload(scanner_id))
+
+    async def _broadcast_trading(self) -> None:
+        """Positions, working orders and connection state, to every client.
+
+        The whole picture every time, like the watchlist: an account holds a
+        handful of names, so a diff costs more to reason about than the list
+        costs to send — and no window can drift out of step about what is
+        actually held.
+        """
+        self.hub.broadcast(self.trading_payload())
+
+    async def _on_order(self, order: dict) -> None:
+        """One order changed. The order itself goes out for the strip's
+        acknowledgement, and the whole picture follows because a fill moves a
+        position and empties a working-order slot."""
+        self.hub.broadcast(order_message(order))
+        self.hub.broadcast(self.trading_payload())
 
     async def _broadcast_regime(self, _state) -> None:
         self.hub.broadcast(self.regime_payload())

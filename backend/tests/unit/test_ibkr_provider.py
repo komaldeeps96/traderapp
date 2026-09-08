@@ -563,6 +563,23 @@ class TestTickConditions:
         (trade,) = await self._emit(on_loop, self._tick("@T", **{flag: True}))
         assert trade.price_forming is False
 
+    async def test_the_condition_string_is_split_for_the_tape(self, on_loop):
+        """One character per condition, matching the list Alpaca sends."""
+        (trade,) = await self._emit(on_loop, self._tick("@TZ"))
+        assert trade.conditions == ("@", "T", "Z")
+
+    async def test_no_conditions_means_an_empty_tuple(self, on_loop):
+        (trade,) = await self._emit(on_loop, self._tick(""))
+        assert trade.conditions == ()
+
+    async def test_the_venue_rides_along_as_ibkr_names_it(self, on_loop):
+        """IBKR names the exchange where Alpaca sends one character. The tape
+        shows what the source said; nothing translates either."""
+        tick = self._tick("@T")
+        tick.exchange = "NASDAQ"
+        (trade,) = await self._emit(on_loop, tick)
+        assert trade.exchange == "NASDAQ"
+
 
 # ── scanner ────────────────────────────────────────────────────────────
 

@@ -75,7 +75,7 @@ function line(
 /**
  * The levels that stack above a faded runner.
  *
- * The real config carries 28 key levels; the slice below carries eight, which
+ * The real config carries 29 key levels; the slice below carries eight, which
  * is enough for most assertions but never puts more than a band or two over
  * the last price. These exist so the "price buried under overhead supply"
  * case — the one that makes the panel unreadable — can be reproduced.
@@ -557,6 +557,49 @@ export function makeQuote(symbol = 'AAPL', overrides: Partial<Record<string, num
   };
 }
 
+type Aggressor = 'above' | 'ask' | 'mid' | 'bid' | 'below' | 'unk';
+
+export interface TapePrintFixture {
+  q: number;
+  t: number;
+  p: number;
+  s: number;
+  a: Aggressor;
+  x?: string;
+  c?: string[];
+  f?: number;
+}
+
+/**
+ * A tape with one row of every kind.
+ *
+ * Deliberately not a plausible-looking stream: the specs assert on which tint
+ * each verdict draws and on what the filters keep, so every side, a block, a
+ * small print and an irregular one all have to be in there. Oldest first, as
+ * the wire sends them.
+ */
+export function makeTapePrints(overrides: Partial<TapePrintFixture>[] = []): TapePrintFixture[] {
+  const base = SESSION_START * 1000 + 240 * 10_000;
+  const rows: TapePrintFixture[] = [
+    { q: 1, t: base, p: 10.06, s: 100, a: 'ask', x: 'Q' },
+    { q: 2, t: base + 200, p: 10.08, s: 2_500, a: 'above', x: 'K' },
+    { q: 3, t: base + 400, p: 10.04, s: 300, a: 'mid', x: 'D' },
+    { q: 4, t: base + 600, p: 10.02, s: 100, a: 'bid', x: 'Q' },
+    { q: 5, t: base + 800, p: 10.0, s: 5_000, a: 'below', x: 'P' },
+    // A late report: real volume at a price that is not the market now.
+    { q: 6, t: base + 1_000, p: 9.5, s: 400, a: 'below', c: ['Z'], f: 0 },
+  ];
+  return rows.map((row, index) => ({ ...row, ...(overrides[index] ?? {}) }));
+}
+
+export function makeTape(
+  symbol = 'AAPL',
+  prints: TapePrintFixture[] = makeTapePrints(),
+  reset = true,
+) {
+  return { type: 'tape' as const, symbol, reset, prints };
+}
+
 export function makeInfo(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
   return {
     type: 'info' as const,
@@ -786,6 +829,86 @@ export function makeArticle(overrides: Partial<Record<string, unknown>> = {}) {
       'The full text of this SEC filing can be retrieved at: https://www.sec.gov/Archives/edgar/data/1752828/',
     ],
     ...overrides,
+  };
+}
+
+/**
+ * One day, read and scored — the shape `/api/news/{symbol}/brief` answers with.
+ *
+ * Deliberately the awkward case rather than a clean one: a real FDA clearance
+ * with an offering bolted to it, which is what the rubric exists to catch and
+ * what a substring classifier cannot. The score is low *because* the good
+ * news is there, which is the whole argument for the panel.
+ */
+export function makeBrief(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    symbol,
+    status: 'ready',
+    available: true,
+    brief: {
+      symbol,
+      session: '2024-03-05',
+      // 16:00 the previous session through mid-morning: the window that
+      // catches an after-hours release, which is the point of it.
+      covers_from: SESSION_START - 20 * 3600,
+      covers_to: SESSION_START + 300 * 10,
+      score: 2,
+      verdict: 'weak' as const,
+      summary:
+        'FDA cleared the Hemopurifier for advanced solid tumors at 08:30, then an hour later the company priced a $12.0M registered direct with immediately exercisable warrants. The clearance is real; it is being sold into.',
+      bullets: [
+        'FDA 510(k) clearance for Hemopurifier in advanced solid tumors',
+        '$12.0M registered direct: 6M shares at $2.00 plus $2.00 warrants',
+      ],
+      risks: [
+        'Registered direct priced at-the-market — shares sold straight into the run',
+        'Warrants exercisable immediately at $2.00 create instant overhang',
+      ],
+      headline_count: 3,
+      generated_at: SESSION_START + 300 * 10,
+      model: 'sonnet',
+      ...overrides,
+    },
+  };
+}
+
+/**
+ * The setup, judged — the shape `/api/setup/{symbol}` answers with.
+ *
+ * A B rather than an A on purpose: the interesting case for a panel is the
+ * one carrying a real veto beside real strength, because that is the
+ * configuration a checklist gets wrong and the reason the tab exists.
+ */
+export function makeSetup(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    symbol,
+    status: 'ready',
+    available: true,
+    judgement: {
+      symbol,
+      score: 6,
+      grade: 'B' as const,
+      headline: 'Good tape on a 2.1M float — but easy to borrow',
+      judgement:
+        'WRVOL 61x on a corroborated 2.10M float is carrying this, and +72% ranks it top-three of the seven names up 50% today. The float is easy to borrow, which on a claimed 2M float usually means the float is not 2M — shorts will press the first pullback. Quarter size at most, and only above VWAP at 3.11.',
+      pillars: [
+        { name: 'price', state: 'ok', note: '$3.42' },
+        { name: 'change', state: 'strong', note: '+72.7%' },
+        { name: 'rvol', state: 'strong', note: 'WRVOL 61x' },
+        { name: 'float', state: 'weak', note: '2.10M but ETB' },
+        { name: 'catalyst', state: 'strong', note: '8/10 placement' },
+      ],
+      vetoes: ['Easy to borrow on a claimed 2.1M float'],
+      watch: ['VWAP 3.11 is the fail line', 'PM High 3.55 is 3.8% overhead — no 2:1 beneath it'],
+      price: 3.42,
+      // Now, not the fixture clock: this is the one field the panel renders
+      // as an age, and a 2024 timestamp against a real clock reads as
+      // "1319581 ago" rather than as anything a reader would recognise.
+      generated_at: Math.floor(Date.now() / 1000) - 45,
+      model: 'sonnet',
+      stale: false,
+      ...overrides,
+    },
   };
 }
 
@@ -1062,6 +1185,74 @@ export function makeWatchlistMessage(symbols: string[], note: string | null = nu
     symbols,
     rows: symbols.map(makeWatchlistRow),
     note,
+  };
+}
+
+/**
+ * The order-entry strip's state.
+ *
+ * Off by default, exactly as the real server is: `trading.enabled` is False in
+ * settings and in every backend test, so the terminal's default appearance —
+ * and every visual baseline — has no strip at all. A spec that wants one arms
+ * it deliberately.
+ */
+export function makeTradingMessage(overrides: Record<string, unknown> = {}) {
+  const {
+    positions = [],
+    orders = [],
+    ...state
+  } = overrides as {
+    positions?: unknown[];
+    orders?: unknown[];
+    [key: string]: unknown;
+  };
+  return {
+    type: 'trading' as const,
+    state: {
+      enabled: false,
+      connected: false,
+      account: '',
+      paper: false,
+      read_only: false,
+      buy_dollars: [10, 25, 50],
+      sell_fractions: [0.25, 0.5, 1.0],
+      offset_cents: 5,
+      offset_bps: 15,
+      max_order_dollars: 60,
+      tif: 'DAY',
+      positions_known: true,
+      note: null,
+      ...state,
+    },
+    positions,
+    orders,
+  };
+}
+
+export function makePosition(
+  symbol = 'AAPL',
+  shares = 14,
+  overrides: Record<string, unknown> = {},
+) {
+  return { symbol, shares, avg_cost: 9.87, unrealized: 1.84, ...overrides };
+}
+
+export function makeOrder(overrides: Record<string, unknown> = {}) {
+  return {
+    type: 'order' as const,
+    order: {
+      order_id: 1,
+      symbol: 'AAPL',
+      side: 'BUY',
+      shares: 2,
+      limit: 10.11,
+      status: 'Filled',
+      filled: 2,
+      avg_fill: 10.06,
+      message: null,
+      at: SESSION_START,
+      ...overrides,
+    },
   };
 }
 

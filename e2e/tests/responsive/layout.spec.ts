@@ -38,13 +38,15 @@ test.describe('tablet layout', () => {
     expect(box!.height).toBeGreaterThan(200);
   });
 
-  test('drops the mini charts rather than squeezing the main one', async ({ terminal }) => {
-    // A tablet does not have the width for three charts. They are left out of
-    // the tree entirely, not hidden with CSS — a chart engine built inside a
-    // display:none container has no height to give its panes.
+  test('drops the dock rather than squeezing the main chart', async ({ terminal }) => {
+    // A tablet does not have the width for a second chart beside the first.
+    // The whole rail is left out of the tree, not hidden with CSS — a chart
+    // engine built inside a display:none container has no height to give its
+    // panes — and the tape goes with it, because it lives in that rail.
     await terminal.waitForChart();
     await expect(terminal.miniCharts).toHaveCount(0);
     expect(await terminal.miniChartState('1m')).toBeNull();
+    await expect(terminal.tape).toHaveCount(0);
   });
 
   test('keeps the toolbar controls reachable', async ({ terminal }) => {

@@ -7,12 +7,12 @@
  * one.
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from "react";
 
-import type { ChartEngine } from '@/chart/ChartEngine';
-import { getEngine, getMiniEngine, miniEngineEntries } from '@/chart/engineRef';
-import { sendCommand, setCommandSink } from '@/lib/commands';
-import { api } from '@/lib/http';
+import type { ChartEngine } from "@/chart/ChartEngine";
+import { getEngine, getMiniEngine, miniEngineEntries } from "@/chart/engineRef";
+import { sendCommand, setCommandSink } from "@/lib/commands";
+import { api } from "@/lib/http";
 import {
   applyTheme,
   loadTheme,
@@ -21,10 +21,10 @@ import {
   takeLegacyVisibility,
   visibilityOverrides,
   type Theme,
-} from '@/lib/storage';
-import { createWsClient, type WsClient } from '@/lib/wsClient';
-import { ATH_LEVEL_ID, plottableAth } from '@/store/selectors';
-import { useTerminalStore } from '@/store/useTerminalStore';
+} from "@/lib/storage";
+import { createWsClient, type WsClient } from "@/lib/wsClient";
+import { ATH_LEVEL_ID, plottableAth } from "@/store/selectors";
+import { useTerminalStore } from "@/store/useTerminalStore";
 import type {
   BarMessage,
   ClientCommand,
@@ -33,11 +33,11 @@ import type {
   ServerMessage,
   SnapshotMessage,
   Timeframe,
-} from '@/types/protocol';
+} from "@/types/protocol";
 
 type ScannerOverrides = Omit<
-  Extract<ClientCommand, { action: 'scanner.configure' }>,
-  'action' | 'scanner_id'
+  Extract<ClientCommand, { action: "scanner.configure" }>,
+  "action" | "scanner_id"
 >;
 
 /**
@@ -53,13 +53,19 @@ function migrateLegacyVisibility(
   fromServer: Record<string, Record<string, boolean>>,
 ): Record<string, Record<string, boolean>> {
   const merged = { ...fromServer };
-  for (const [timeframe, visibility] of Object.entries(takeLegacyVisibility())) {
+  for (const [timeframe, visibility] of Object.entries(
+    takeLegacyVisibility(),
+  )) {
     if (timeframe in merged) continue;
-    const overrides = visibilityOverrides(specs, timeframe as Timeframe, visibility);
+    const overrides = visibilityOverrides(
+      specs,
+      timeframe as Timeframe,
+      visibility,
+    );
     if (!Object.keys(overrides).length) continue;
     merged[timeframe] = overrides;
     sendCommand({
-      action: 'indicators.visibility',
+      action: "indicators.visibility",
       timeframe: timeframe as Timeframe,
       visible: loadVisibility(specs, timeframe as Timeframe, overrides),
     });
@@ -117,16 +123,20 @@ export function useTerminal() {
     for (const id of ids) applyLevelVisibility(id, visible);
   }, []);
 
-  const configureScanner = useCallback((scannerId: ScannerTierId, overrides: ScannerOverrides) => {
-    clientRef.current?.configureScanner(scannerId, overrides);
-  }, []);
+  const configureScanner = useCallback(
+    (scannerId: ScannerTierId, overrides: ScannerOverrides) => {
+      clientRef.current?.configureScanner(scannerId, overrides);
+    },
+    [],
+  );
 
   // The charts are not repainted here. Each one subscribes to the store's
   // theme and repaints itself, which is the only route the minis have — doing
   // it here as well would leave the main chart's palette wired in two places
   // and the others in one.
   const toggleTheme = useCallback(() => {
-    const next: Theme = useTerminalStore.getState().theme === 'dark' ? 'light' : 'dark';
+    const next: Theme =
+      useTerminalStore.getState().theme === "dark" ? "light" : "dark";
     applyTheme(next);
     saveTheme(next);
     useTerminalStore.getState().setTheme(next);
@@ -153,7 +163,9 @@ export function useTerminal() {
         ]);
         useTerminalStore
           .getState()
-          .setIndicatorOverrides(migrateLegacyVisibility(specs, session.indicators ?? {}));
+          .setIndicatorOverrides(
+            migrateLegacyVisibility(specs, session.indicators ?? {}),
+          );
         useTerminalStore.getState().setSpecs(specs);
         useTerminalStore.getState().setScannerTiers({
           note: scanner.note,
@@ -165,7 +177,9 @@ export function useTerminal() {
         if (!controller.signal.aborted) {
           useTerminalStore
             .getState()
-            .setError('Could not reach the backend. Is it running on port 8000?');
+            .setError(
+              "Could not reach the backend. Is it running on port 8000?",
+            );
         }
       }
     })();
@@ -209,7 +223,7 @@ export function handleMessage(message: ServerMessage): void {
   const store = useTerminalStore.getState();
 
   switch (message.type) {
-    case 'status':
+    case "status":
       store.setSourceStatus({
         source: message.source,
         delayed: message.delayed,
@@ -219,15 +233,15 @@ export function handleMessage(message: ServerMessage): void {
       });
       break;
 
-    case 'news':
+    case "news":
       store.addHeadline(message.symbol, message.headline);
       break;
 
-    case 'filing':
+    case "filing":
       store.addFiling(message.symbol, message.filing);
       break;
 
-    case 'snapshot': {
+    case "snapshot": {
       // The minis are fed first and independently: the same 1-minute snapshot
       // legitimately belongs to both when the main chart is also on 1m.
       applyMiniSnapshot(message);
@@ -244,7 +258,7 @@ export function handleMessage(message: ServerMessage): void {
         // The first snapshot for a request frames the view; a repeat on the
         // same chart is a background backfill and must not move the viewport
         // under the user.
-        resetView: store.status !== 'ready',
+        resetView: store.status !== "ready",
       });
 
       const last = engine.lastBar();
@@ -264,14 +278,14 @@ export function handleMessage(message: ServerMessage): void {
       break;
     }
 
-    case 'bar': {
+    case "bar": {
       applyMiniBar(message);
       if (!isCurrent(message.symbol, message.timeframe)) return;
       // Between a symbol switch and its snapshot the chart is cleared; a
       // live bar racing ahead of the snapshot would update() empty series,
       // which corrupts the pane's paint state and blanks the chart until
       // the next clear. The snapshot carries this bar anyway.
-      if (store.status !== 'ready') return;
+      if (store.status !== "ready") return;
       const engine = getEngine();
       if (!engine) return;
 
@@ -288,12 +302,18 @@ export function handleMessage(message: ServerMessage): void {
       break;
     }
 
-    case 'quote':
+    case "quote":
       // Quotes are per-symbol; one for a chart the user has left is stale.
       if (message.symbol === store.symbol) store.setQuote(message);
       break;
 
-    case 'info':
+    case "tape":
+      // The symbol check and the dedupe both live in the store, because the
+      // batches deliberately overlap — see `lib/tape.mergePrints`.
+      store.applyTape(message);
+      break;
+
+    case "info":
       if (message.symbol === store.symbol) {
         store.setInfo(message);
         // A high ten times off-screen is a price line nobody will ever see;
@@ -301,15 +321,18 @@ export function handleMessage(message: ServerMessage): void {
         // ladder and off the chart. See FAR_LEVEL_PERCENT. An eye closed in
         // the key levels panel keeps it off too — info repeats on every
         // volume tick, and without this the line would come straight back.
-        applyLevelVisibility(ATH_LEVEL_ID, store.visibility[ATH_LEVEL_ID] ?? true);
+        applyLevelVisibility(
+          ATH_LEVEL_ID,
+          store.visibility[ATH_LEVEL_ID] ?? true,
+        );
       }
       break;
 
-    case 'api':
+    case "api":
       store.setApiUsage(message);
       break;
 
-    case 'scanner':
+    case "scanner":
       store.setScanner(message.scanner_id, {
         label: message.label,
         rows: message.rows,
@@ -318,7 +341,7 @@ export function handleMessage(message: ServerMessage): void {
       });
       break;
 
-    case 'watchlist':
+    case "watchlist":
       store.setWatchlist({
         symbols: message.symbols,
         rows: message.rows,
@@ -326,7 +349,19 @@ export function handleMessage(message: ServerMessage): void {
       });
       break;
 
-    case 'regime':
+    case "trading":
+      store.setTrading({
+        state: message.state,
+        positions: message.positions,
+        orders: message.orders,
+      });
+      break;
+
+    case "order":
+      store.setOrder(message.order);
+      break;
+
+    case "regime":
       store.setRegime({
         regime: message.regime,
         running: message.running,
@@ -334,11 +369,11 @@ export function handleMessage(message: ServerMessage): void {
       });
       break;
 
-    case 'error':
+    case "error":
       store.setError(message.message);
       break;
 
-    case 'pong':
+    case "pong":
       break;
   }
 }
@@ -359,7 +394,12 @@ function applyLevelVisibility(id: string, visible: boolean): void {
   }
   const state = useTerminalStore.getState();
   engine.setAllTimeHigh(
-    visible ? plottableAth(state.info?.all_time_high ?? null, state.live?.bar.c ?? null) : null,
+    visible
+      ? plottableAth(
+          state.info?.all_time_high ?? null,
+          state.live?.bar.c ?? null,
+        )
+      : null,
   );
 }
 
@@ -410,7 +450,8 @@ function applyMiniSnapshot(message: SnapshotMessage): void {
   if (message.symbol === useTerminalStore.getState().symbol) {
     lastMiniSnapshots.set(miniKey(message.symbol, message.timeframe), message);
   }
-  for (const engine of minisFor(message.symbol, message.timeframe)) applyToMini(engine, message);
+  for (const engine of minisFor(message.symbol, message.timeframe))
+    applyToMini(engine, message);
 }
 
 function miniKey(symbol: string, timeframe: string): string {

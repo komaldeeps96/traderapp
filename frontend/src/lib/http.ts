@@ -10,7 +10,9 @@ import type {
   MetricsResponse,
   OwnershipResponse,
   PeersResponse,
+  NewsBriefResponse,
   NewsResponse,
+  SetupResponse,
   IndicatorSpec,
   ScannerTiersResponse,
   SessionInfo,
@@ -101,6 +103,26 @@ export const api = {
     getJson<FilingsResponse>(`/api/filings/${encodeURIComponent(symbol)}`, signal),
   news: (symbol: string, signal?: AbortSignal) =>
     getJson<NewsResponse>(`/api/news/${encodeURIComponent(symbol)}`, signal),
+  /**
+   * The whole screen, judged. Slow on purpose — the server assembles the
+   * snapshot and runs a `claude` process against it — so callers pass a
+   * signal and the panel shows that it is thinking.
+   */
+  setup: (symbol: string, refresh: boolean, signal?: AbortSignal) =>
+    getJson<SetupResponse>(
+      `/api/setup/${encodeURIComponent(symbol)}${refresh ? '?refresh=true' : ''}`,
+      signal,
+    ),
+  /**
+   * One day of headlines, read and scored. Slow on purpose — the server runs
+   * a `claude` process and awaits it — so callers pass a signal and the panel
+   * shows that it is reading.
+   */
+  newsBrief: (symbol: string, refresh: boolean, signal?: AbortSignal) =>
+    getJson<NewsBriefResponse>(
+      `/api/news/${encodeURIComponent(symbol)}/brief${refresh ? '?refresh=true' : ''}`,
+      signal,
+    ),
   // Provider and id are query parameters: IBKR article ids carry a "$"
   // (DJ-N$1f364634), which is legal in a query string and a nuisance in a path.
   article: (symbol: string, provider: string, articleId: string, signal?: AbortSignal) =>

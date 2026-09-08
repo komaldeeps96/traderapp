@@ -63,5 +63,8 @@ coverage-e2e/
 frontend/dist-e2e
 tmp/
 
-# Local tool settings, per-machine by definition.
-.claude/
+# Claude Code's own directory. The skills under it are part of the repository —
+# they are how the terminal's AI panels are worked on, and a contributor (or
+# the CLI itself) should get them with a clone. Only the settings file is
+# per-machine: it records which tools this laptop has approved.
+.claude/settings.local.json

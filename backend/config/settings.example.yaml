@@ -138,3 +138,108 @@ edgar:
   # offering that lands mid-session. One request a minute against SEC's
   # ten-a-second allowance.
   filing_poll_seconds: 60
+
+# The news panel's top half: one day of headlines, read and scored out of ten
+# by the `claude` CLI already installed on this machine. The rubric is Ross
+# Cameron's treatment of catalysts — cost of production first, then the
+# credibility checks — so an FDA clearance with a registered direct bolted to
+# it scores a 2 rather than reading as upside. See docs/news-summary.md.
+#
+# The reader runs with `--tools ""`, `--safe-mode` and `--strict-mcp-config`:
+# no shell, no filesystem, no CLAUDE.md, no MCP servers. It gets text and
+# returns a scored object, which is the whole of what it is trusted with.
+news_ai:
+  # On. With the CLI missing the panel says so in one line rather than
+  # failing; the toolbar's AI switch is the per-session control.
+  enabled: true
+  # Resolved on PATH, then in ~/.local/bin and the Homebrew prefixes. A value
+  # with a "/" in it is taken as a path and used as given.
+  command: claude
+  # An alias ('sonnet', 'opus') or a full model id. `sonnet` resolves to the
+  # newest Sonnet — Sonnet 5 today — and reads a press release as well as
+  # anything for about a cent a reading. Both panels should carry the same
+  # value: the setup judge takes this one's score as an input.
+  model: sonnet
+  # Measured at 5-20s depending on how many article bodies came back. This is
+  # the ceiling before the panel gives up and prints why.
+  timeout_seconds: 90
+  # A hard per-reading ceiling handed to the CLI. Only bites on a runaway.
+  max_budget_usd: 0.25
+  # How long a reading stands before newly arrived headlines are allowed to
+  # start another. A busy pre-market delivers a headline a minute, and each
+  # one would otherwise launch a process; the panel marks the reading
+  # "behind" in the meantime, and its refresh button overrides this.
+  min_interval_seconds: 120
+
+# The dock's AI tab: the whole screen judged out of ten against Ross Cameron's
+# five pillars, weighed jointly rather than counted. Same reader and same
+# flags as the news summary above; what differs is the prompt, and that this
+# one is asked for rather than following a feed — a setup is a moving target,
+# so a judgement is dated instead of cached and the panel says when the tape
+# has moved past it. See docs/setup-judgement.md.
+setup_ai:
+  enabled: true
+  command: claude
+  # Must match news_ai.model — see the note there.
+  model: sonnet
+  # Measured at 60-120s: a much larger prompt than the news one — five
+  # pillars, a level ladder, the tape and the news score — and a considered
+  # judgement rather than a summary. The ceiling is well clear of the slow
+  # end, because a reading that times out has spent the money and thrown the
+  # answer away.
+  timeout_seconds: 240
+  max_budget_usd: 0.35
+
+trading:
+  # ORDER ENTRY. This is the one part of the app that spends money, and it is
+  # off unless this line says otherwise. See docs/order-entry.md.
+  #
+  # Before it can work at all, in TWS: Global Configuration -> API ->
+  # Settings -> untick "Read-Only API". That checkbox — not anything here —
+  # is what actually enforces read-only, so with it ticked every order comes
+  # back rejected however this file is set.
+  enabled: false
+  host: 127.0.0.1
+  # 7496 live TWS, 7497 paper TWS, 4001/4002 the gateway equivalents. The
+  # strip reads this to say LIVE or PAPER rather than asking you to remember.
+  port: 7496
+  # A second connection on its own client id: the market-data client is 1 and
+  # is read-only, and order flow does not belong on the socket that runs the
+  # scanners and the history.
+  client_id: 2
+  # Blank means the single managed account, which is the usual case.
+  account: ""
+
+  # How far through the book a marketable limit is priced — a *cap*, not a
+  # price. A limit fills at the best available price, so five cents through
+  # the offer still fills at the offer when there is size there; the slack is
+  # only spent when the book moves between the click and the arrival.
+  #
+  # Two parts, larger wins. Five cents is 12 bps on a $40 name and 12.5% on a
+  # $0.40 one, so a flat figure is the wrong shape at one end or the other.
+  # At 5c and 15bps the two cross at $33.33.
+  offset_cents: 5
+  offset_bps: 15
+
+  # The buy buttons in dollars, and the sell buttons as fractions of the
+  # position. Display order, left to right; 1.0 renders as ALL.
+  buy_dollars: [10, 25, 50]
+  sell_fractions: [0.25, 0.5, 1.0]
+
+  # DAY over IOC deliberately. At these sizes a marketable limit essentially
+  # always fills, so the difference is a tail either way — but DAY's failure
+  # is a resting order that shows in the working count and can be cancelled,
+  # while IOC's is a sell that silently cancelled and left a position you
+  # believe is closed.
+  tif: DAY
+  # Not optional for this workflow: small-cap momentum runs pre-market, and
+  # without this a limit order sits unfilled until 09:30. It is also why
+  # these are limits — TWS refuses market orders outside regular hours.
+  outside_rth: true
+
+  # A hard ceiling on one order's notional, checked server-side before
+  # anything reaches TWS and measured at the limit rather than at the ask, so
+  # it bounds the worst case. Sixty is a hair above the largest button, which
+  # means no arithmetic fault anywhere in the stack can produce an order
+  # larger than the one you clicked. Raising the buttons means raising this.
+  max_order_dollars: 60
