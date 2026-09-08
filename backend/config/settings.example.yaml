@@ -11,6 +11,13 @@ log_level: INFO
 default_symbol: AAPL
 # The terminal trades from the 10-second chart; it is the default everywhere.
 default_timeframe: 10s
+# Which origins the API answers cross-origin, so the terminal opens on a phone
+# or tablet over the home WiFi: the three RFC 1918 ranges, loopback and Bonjour
+# names, on the dev and preview ports only. Without it the WebSocket connects —
+# it is exempt from CORS — while every REST call fails, which reads as a
+# half-loaded terminal rather than as a configuration problem. Set it empty to
+# bind the terminal back to this laptop:
+#   cors_origin_regex: ''
 
 alpaca:
   key_id: ''

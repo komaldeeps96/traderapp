@@ -258,6 +258,29 @@ class Settings(BaseSettings):
             "http://127.0.0.1:4173",
         ]
     )
+    # The same two ports, reached from another device on the home WiFi. A
+    # phone loading the dev server at http://10.0.0.5:3000 sends that as its
+    # Origin, and the API it then calls on :8000 is a different origin, so
+    # without this every REST call fails while the WebSocket — exempt from
+    # CORS — keeps working, which reads as a half-loaded terminal rather than
+    # as a configuration problem.
+    #
+    # Held to the three RFC 1918 ranges, loopback, and Bonjour names, on the
+    # dev and preview ports only. A wildcard would be no use anyway: browsers
+    # reject "*" alongside allow_credentials. Set it empty to bind the
+    # terminal back to this laptop:
+    #
+    #     TRADERAPP_CORS_ORIGIN_REGEX= make backend
+    cors_origin_regex: str = (
+        r"^http://("
+        r"localhost"
+        r"|127\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+        r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+        r"|192\.168\.\d{1,3}\.\d{1,3}"
+        r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+        r"|[A-Za-z0-9-]+\.local"
+        r"):(3000|4173)$"
+    )
 
     default_symbol: str = "AAPL"
     default_timeframe: str = "10s"

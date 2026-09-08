@@ -46,6 +46,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=resolved.cors_origins,
+        # Private-network origins on the same two ports, so the terminal opens
+        # on a phone or tablet over the home WiFi. Empty means laptop-only.
+        allow_origin_regex=resolved.cors_origin_regex or None,
         allow_credentials=True,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],

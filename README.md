@@ -55,8 +55,37 @@ npm install
 npm run dev                                 # http://localhost:3000
 ```
 
+Or `make dev`, which runs both and prints the addresses.
+
 Without any credentials the app starts and reports that no data source is
 available. Alpaca's free tier is enough to get real charts.
+
+## On a phone or tablet
+
+Both servers bind `0.0.0.0`, so anything on the same WiFi opens the terminal
+at **`http://<this-mac's-ip>:3000`** — `ipconfig getifaddr en0` prints the
+address, and `make dev` echoes it. This is the *dev* server, so hot reload
+comes with it: Vite aims its HMR socket at whatever host served the page, and
+an edit on the laptop redraws the phone.
+
+Three things make that work, and each is easy to undo by accident:
+
+- `frontend/vite.config.ts` binds `0.0.0.0` rather than `127.0.0.1`, and
+  allows `.local` hosts — an IP literal is permitted unconditionally, a
+  Bonjour name is not, and the Bonjour name is what survives a DHCP lease.
+- `cors_origin_regex` in the backend settings admits the three RFC 1918
+  ranges, loopback and `*.local`, on ports 3000 and 4173. Without it the
+  phone shows a *half*-loaded terminal rather than an error, because the
+  WebSocket is exempt from CORS and connects while every REST call fails.
+- macOS asks once whether `node` may accept incoming connections. Answer yes;
+  the Python that serves the API is usually already allowed.
+
+`http://<ip>:8000` also works on its own — same origin, no CORS involved — but
+it serves whatever `make build` last wrote to `frontend/dist`, which is a
+snapshot rather than the code you are editing.
+
+To bind a run back to this laptop: `TRADERAPP_CORS_ORIGIN_REGEX= make backend`,
+and `npm run dev -- --host 127.0.0.1`.
 
 ## Market data
 
