@@ -1,12 +1,11 @@
 """TradingView reference data, via the ``tradingview-screener`` package.
 
-Two things IBKR will not give us without a fundamentals entitlement this
-account does not hold: per-symbol float and market cap, and the market-regime
-counts. Needs no credentials and no TWS, so it works evenings and weekends.
+Two things IBKR will not give us without a fundamentals entitlement: per-symbol
+float and market cap, and the market-regime counts. Needs no credentials and no
+TWS.
 
-The underlying package is synchronous ``requests``, so every call is pushed
-onto a worker thread; ``fetch`` is injectable so tests never touch the
-network.
+The underlying package is synchronous ``requests``, so every call is pushed onto
+a worker thread; ``fetch`` is injectable so tests never touch the network.
 """
 
 from __future__ import annotations
@@ -79,9 +78,8 @@ STATS_TTL_SECONDS = 300.0
 def _common_stock_terms() -> list:
     """Listed US common stock only.
 
-    TradingView's ``america`` market includes OTC pink sheets, which are
-    never tradeable in this workflow and would otherwise flood both the
-    screen and the regime counts.
+    TradingView's ``america`` market includes OTC pink sheets, which would
+    otherwise flood both the screen and the regime counts.
     """
     return [
         col("is_primary") == True,  # noqa: E712 — builds the API expression
@@ -213,13 +211,9 @@ class TVDataService:
     async def _stats_row(self, symbol: str) -> list | None:
         """Find one symbol's row, the reliable way and then the other way.
 
-        Matching on ``name`` equality is exact and cheap, and it silently
-        misses newly listed symbols: measured on DFSC (DEFSEC Technologies,
-        NASDAQ common), equality returned nothing and so did a lookup by its
-        own reported ticker ``NASDAQ:DFSC`` — while a substring search
-        returned the row with ``name`` exactly ``"DFSC"``. TradingView's
-        symbol index lags its scan set, and a fresh listing is precisely the
-        kind of name this scanner surfaces.
+        Matching on ``name`` equality is exact and cheap, and silently misses
+        newly listed symbols: TradingView's symbol index lags its scan set, and
+        a fresh listing is exactly what this scanner surfaces.
 
         ``like`` is a substring match — searching "FGI" also returns MFGI and
         FGII — so the exact name has to be picked back out here.

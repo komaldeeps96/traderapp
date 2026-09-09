@@ -4,13 +4,11 @@ import type { ReactNode } from 'react';
  * Shared chrome for the dock's data tabs.
  *
  * Fundamentals, news and filings are the same shape — a scrolling body of
- * labelled rows — and every one of them can be empty for the same two
- * reasons: no symbol loaded, or the source had nothing to say. Saying that in
- * one place stops three tabs drifting into three different ways of saying
- * "nothing yet".
+ * labelled rows — and each can be empty for the same two reasons: no symbol
+ * loaded, or the source had nothing to say. Saying that once stops three tabs
+ * drifting into three ways of saying "nothing yet".
  *
- * Kept out of `Dock.tsx` so the tabs can import this without importing the
- * dock that renders them.
+ * Kept out of `Dock.tsx` so the tabs can import it without importing the dock.
  */
 export function DockBody({ children, testId }: { children: ReactNode; testId: string }) {
   return (
@@ -38,12 +36,9 @@ export function DockGroup({ label, hint }: { label: string; hint?: string }) {
 }
 
 /**
- * One labelled row.
- *
- * `as_of` is not decoration: every EDGAR figure is quarterly and can be many
- * months old, so the date it was reported for rides beside the number rather
- * than being available on request. `tone` colours the value only — the label
- * stays quiet so a column of rows still scans as a column.
+ * One labelled row. `as_of` is not decoration: every EDGAR figure is quarterly
+ * and can be months old, so the date rides beside the number. `tone` colours
+ * the value only, so a column of rows still scans as a column.
  */
 export function DockRow({
   label,

@@ -1,14 +1,11 @@
 """How fast a name is climbing the scanner.
 
-Rank *level* says what is busiest right now; rank *velocity* says what is
-becoming busy, and it moves first. A name that jumps four or five places is
-being discovered — the leaderboard reacts before the alert fires, so the
-delta is a leading read on the same event.
+Rank *level* says what is busiest now; rank *velocity* says what is becoming
+busy, and it moves first — a name jumping four or five places is being
+discovered.
 
-Positions come from our own trade-rate ordering rather than IBKR's scan
-rank. IBKR reranks roughly twice a minute and its rank disagrees with the
-order we display, so a delta on it would describe a list nobody is looking
-at.
+Positions come from our own trade-rate ordering rather than IBKR's scan rank,
+which reranks twice a minute and disagrees with the order we display.
 """
 
 from __future__ import annotations
@@ -47,8 +44,8 @@ class RankTracker:
         """Forget everything.
 
         Called when the filters change: positions under the old scan are not
-        comparable with positions under the new one, and carrying them over
-        would report a jump that never happened.
+        comparable with the new ones, and carrying them over would report a jump
+        that never happened.
         """
         self._history.clear()
 

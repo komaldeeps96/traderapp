@@ -34,13 +34,10 @@ Standing decisions from the brief:
 
 ## Phase 1 — every indicator on every timeframe
 
-The daily chart used to carry four indicators and no key levels at all: the
-200-day average was missing from the timeframe it is named after. The cause
-was in `config/indicators.yaml`, where the `timeframes` map of each daily
-level listed intraday timeframes only — and key *presence* in that map is
-what decides whether the backend computes an indicator.
+Key *presence* in `config/indicators.yaml`'s per-indicator `timeframes` map is
+what decides whether the backend computes an indicator at all.
 
-Rewritten around four anchor sets:
+Organised around four anchor sets:
 
 | anchor | timeframes | default visible |
 |--------|-----------|-----------------|

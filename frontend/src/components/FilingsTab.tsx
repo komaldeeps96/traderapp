@@ -10,14 +10,12 @@ import { DockBody, DockEmpty } from './DockPanel';
  * The SEC filing trail, read for what each form means to a trade.
  *
  * A small cap's filings *are* its dilution history: S-1 and S-3 register
- * shares, EFFECT makes the shelf live, 424B5 is the takedown, and 8-K item
- * 3.02 sells stock with no registration at all. Those lead. The periodic and
- * ownership rows are kept but folded away — a Form 4 is worth a row, never a
- * position at the top of one.
+ * shares, EFFECT makes the shelf live, 424B5 is the takedown, 8-K item 3.02
+ * sells stock with no registration. Those lead; periodic and ownership rows are
+ * kept but folded away.
  *
- * Filing links are the one place in this terminal where a new browser tab is
- * the right answer: reading a full S-1 is not a job for a 400px rail, and the
- * document lives on sec.gov where it can be trusted.
+ * Filing links open a new browser tab, the one place in this terminal where
+ * that is right: a full S-1 is not a job for a 400px rail.
  */
 const KIND_CLASS: Record<FilingKind, string> = {
   dilution: 'text-down font-semibold',
@@ -31,12 +29,10 @@ const KIND_CLASS: Record<FilingKind, string> = {
 const LEADING: FilingKind[] = ['dilution', 'distress'];
 
 /**
- * How many leading rows open on screen.
- *
- * A serial diluter's trail is not short — Celularity's runs to 131 offering
- * and distress filings going back to 2019 — and rendering all of it opens the
- * panel somewhere in 2021. The recent ones are the trade; the rest are the
- * pattern, and the pattern is already stated as a count on the button.
+ * How many leading rows open on screen. A serial diluter's trail can run to
+ * over a hundred filings, and rendering all of it opens the panel years back.
+ * The recent ones are the trade; the rest are a pattern the button already
+ * states as a count.
  */
 const LEADING_SHOWN = 18;
 

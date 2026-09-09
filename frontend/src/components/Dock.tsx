@@ -6,7 +6,6 @@ import { DOCK_TAB_IDS, DOCK_TAB_LABELS, DOCK_TAB_TITLES, clampDockWidth } from '
 import type { Timeframe } from '@/types/protocol';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
-import { AiTab } from './AiTab';
 import { FilingsTab } from './FilingsTab';
 import { FundamentalsTab } from './FundamentalsTab';
 import { MiniCharts } from './MiniCharts';
@@ -16,31 +15,21 @@ import { TapePanel } from './TapePanel';
 /**
  * The rail to the right of the chart.
  *
- * It used to be the mini-chart column and nothing else. Its first tab is
- * still what it opens on, because that is what is wanted by default. Three
- * of the others are the pre-trade check — what the company is, what it has
- * said, and what it has filed — and the second, AI, is the only one that
- * answers rather than reports: it weighs the other four against the strip
- * and the ladder and says what the combination is.
+ * Four tabs: one context chart over the time-and-sales window, then the
+ * pre-trade check — what the company is, what it has said, what it has filed.
  *
- * That first tab now holds one context chart over the time-and-sales window
- * rather than two charts. A 5-minute candle is a summary of what the tape
- * already said, and on a small-cap runner the tape says it first — so the
- * second chart was paying rail width to repeat the first one more slowly.
+ * Three things keep it from destabilising a dense layout:
  *
- * Three things keep this from destabilising a dense layout.
+ * The width never changes by itself — one number, dragged from the left edge
+ * and remembered, shared by every tab, so switching tabs cannot move the chart
+ * out from under the cursor.
  *
- * The width never changes by itself. A rail that resized when you switched
- * tabs would move the chart out from under the cursor, so it is one number,
- * dragged from the left edge and remembered, shared by every tab.
+ * The charts tab is unmounted rather than hidden when another tab is open: a
+ * `display:none` container is zero-height and lightweight-charts cannot size a
+ * pane inside one. Same reason the rail is not rendered below the breakpoint.
  *
- * The charts tab is unmounted rather than hidden when another tab is open. A
- * `display:none` container is zero-height, and lightweight-charts cannot size
- * a pane inside a chart that has none — the same reason the rail is not
- * rendered at all below the breakpoint.
- *
- * The tabs read from caches warmed at subscribe time, so switching to one
- * costs no request and shows no spinner.
+ * The tabs read from caches warmed at subscribe time, so switching costs no
+ * request and shows no spinner.
  */
 export function Dock({
   onMiniTimeframeChange,
@@ -137,9 +126,6 @@ export function Dock({
             <TapePanel />
           </>
         )}
-        {/* Mounted only when open: a judgement costs a cent and a minute,
-            so it must not be asked for by a tab nobody is looking at. */}
-        {tab === 'ai' && <AiTab />}
         {tab === 'fundamentals' && <FundamentalsTab />}
         {tab === 'news' && <NewsTab />}
         {tab === 'filings' && <FilingsTab />}
@@ -149,11 +135,9 @@ export function Dock({
 }
 
 /**
- * The drag strip on the rail's left edge.
- *
- * Pointer capture rather than window listeners: dragging faster than the rail
- * can follow is normal on a wide monitor, and without capture the drag stops
- * the moment the cursor leaves the strip.
+ * The drag strip on the rail's left edge. Pointer capture rather than window
+ * listeners: dragging faster than the rail can follow is normal, and without
+ * capture the drag stops when the cursor leaves the strip.
  */
 function ResizeHandle() {
   const setWidth = useTerminalStore((state) => state.setDockWidth);

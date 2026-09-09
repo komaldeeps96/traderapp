@@ -133,14 +133,12 @@ test.describe('chart navigation', () => {
   });
 
   test('the controls follow the sub-pane height', async ({ terminal }) => {
-    // They must clear the sub-panes at any viewport — an earlier version
-    // pinned them flush in the corner, where they landed on the time axis in
-    // translucent white: present, clickable, and invisible.
+    // They must clear the sub-panes at any viewport, or they land on the time
+    // axis in translucent white: present, clickable, invisible.
     //
     // Asserted against the engine's own reported offset rather than a fixed
-    // pixel clearance. A hardcoded one was tried and sat three pixels from
-    // the boundary at 700px tall, so it passed or failed on sub-pixel
-    // rounding and read as flakiness.
+    // pixel clearance, which sits three pixels from the boundary at 700px tall
+    // and so passes or fails on sub-pixel rounding.
     await terminal.waitForChart();
     const controls = terminal.page.getByTestId('chart-controls').locator('div').first();
 
@@ -350,12 +348,10 @@ test.describe('chart navigation', () => {
 });
 
 /**
- * Time left in the current bar, on the price axis.
- *
- * It is drawn into the axis by a series primitive, so there is no element to
- * query — the engine's own report is the only handle a test has on it. What
- * matters is that every chart counts its own timeframe, because a 10-second
- * bar and a 5-minute bar are shown side by side.
+ * Time left in the current bar, on the price axis. Drawn by a series primitive,
+ * so there is no element to query and the engine's own report is the only
+ * handle. Every chart counts its own timeframe, since a 10-second bar and a
+ * 5-minute bar are shown side by side.
  */
 test.describe('bar countdown', () => {
   test('counts the current bar down on the price axis', async ({ terminal }) => {

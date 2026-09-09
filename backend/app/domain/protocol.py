@@ -78,9 +78,8 @@ class SubscribeCommand(_Command):
     def parsed_extra_timeframes(self) -> tuple[Timeframe, ...]:
         """The extras, deduplicated, with the primary removed.
 
-        The primary is already subscribed; a client whose main chart sits on a
-        timeframe one of its minis also wants should not be charged for it
-        twice.
+        The primary is already subscribed, so a mini asking for the same
+        timeframe must not be charged for it twice.
         """
         primary = self.parsed_timeframe
         seen: dict[Timeframe, None] = {}
@@ -139,9 +138,9 @@ MAX_INDICATOR_OVERRIDES = 200
 class SetIndicatorVisibilityCommand(_Command):
     """Which indicators are switched on, for one timeframe.
 
-    The client sends the whole picture for that timeframe and the server
-    stores only what differs from the configured defaults, so the two never
-    disagree about what "default" currently means.
+    The client sends the whole picture; the server stores only what differs from
+    the configured defaults, so the two never disagree about what "default"
+    means.
     """
 
     action: Literal["indicators.visibility"]
@@ -176,13 +175,11 @@ class WatchlistRemoveCommand(_Command):
 
 
 # Order entry. The client sends what was *clicked* — a dollar amount or a
-# fraction of the position — and never a share count. The backend recomputes
-# the quantity from its own freshest quote and IBKR's own position at the
-# instant of the order, so a tab that has been asleep for a minute cannot put
-# a stale size on the wire. See services/trading.py.
+# fraction of the position — never a share count, so a tab asleep for a minute
+# cannot put a stale size on the wire. See services/trading.py.
 #
 # Bounds here are shape only; the real ceiling is trading.max_order_dollars,
-# checked server-side where a client cannot reach it.
+# checked server-side.
 class BuyCommand(_Command):
     action: Literal["trade.buy"]
     symbol: str = Field(pattern=SYMBOL_PATTERN)
@@ -299,10 +296,9 @@ class TapeMessage(TypedDict):
     """New prints for one symbol.
 
     ``reset`` marks the opening backlog sent at subscribe time: the client
-    replaces its list rather than appending to it. Incremental batches overlap
-    that backlog by design — the broadcaster's cursor is shared by every
-    client and cannot rewind for a late joiner — so the client drops anything
-    at or below the sequence it already holds.
+    replaces its list rather than appending. Incremental batches overlap it,
+    since the broadcaster's cursor is shared and cannot rewind for a late
+    joiner, so the client drops anything at or below the sequence it holds.
     """
 
     type: Literal["tape"]
@@ -376,10 +372,9 @@ class WatchlistMessage(TypedDict):
 class TradingMessage(TypedDict):
     """The order-entry strip's own state: whether it can trade at all.
 
-    ``paper`` is read from the TWS port rather than asked of the user, and
-    ``read_only`` latches once TWS has rejected an order for its own
-    read-only setting — which is not knowable at connect time, because TWS
-    accepts the connection either way.
+    ``paper`` is read from the TWS port rather than asked of the user.
+    ``read_only`` latches once TWS has rejected an order for its own read-only
+    setting, which is not knowable at connect time.
     """
 
     type: Literal["trading"]

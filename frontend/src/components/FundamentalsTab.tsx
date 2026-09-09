@@ -16,23 +16,17 @@ import { DockBody, DockEmpty, DockGroup, DockRow } from './DockPanel';
 const SHELF_GROWN_MULTIPLE = 1.5;
 
 /**
- * What the company is, in the only terms this workflow cares about.
- *
- * Not a fundamentals screen. A P/E ratio has never stopped a trade; a shelf
- * takedown priced into the spike you are long has stopped plenty. So the
- * panel is three questions, in the order they disqualify a candidate:
+ * What the company is, in the terms this workflow cares about — three
+ * questions, in the order they disqualify a candidate:
  *
  *   SUPPLY    warrants, preferred, converts, unissued authorised shares —
  *             stock that exists but is not yet on the tape
  *   NEED      cash against burn, and the shelf capacity to fix it
- *   HABIT     the offering trail and a year of share count — they have done
- *             it before, so they will do it again
+ *   HABIT     the offering trail and a year of share count
  *
- * Every figure carries the period it was reported for. SEC facts are
- * quarterly and arrive late; a delinquent filer's most recent cash number can
- * be three quarters old, and that staleness is itself the signal. Anything
- * over two quarters stale is toned down rather than shown as if it were
- * current.
+ * Every figure carries the period it was reported for. SEC facts are quarterly
+ * and arrive late, so a delinquent filer's newest cash number can be three
+ * quarters old — itself the signal. Over two quarters stale is toned down.
  */
 export function FundamentalsTab() {
   const symbol = useTerminalStore((state) => state.symbol);
@@ -226,10 +220,9 @@ function Need({ read }: { read: DilutionRead }) {
 /**
  * What they may sell off a shelf, at today's prices.
  *
- * The cover-page cap is the one everybody quotes and it is measured once a
- * year. The rule re-measures on the date of every sale, against a 60-day
- * look-back — so the run is what sets the ceiling it is running into. Both
- * are shown when they disagree, because the gap between them *is* the read.
+ * The cover-page cap everybody quotes is measured once a year; the rule
+ * re-measures on the date of every sale against a 60-day look-back. Both are
+ * shown when they disagree, because the gap between them *is* the read.
  */
 function Shelf({ read }: { read: DilutionRead }) {
   const live = read.live_shelf;
@@ -335,13 +328,9 @@ function Habit({ read }: { read: DilutionRead }) {
 }
 
 /**
- * The ratios, last.
- *
- * Deliberately at the bottom and deliberately quiet: this is the half of a
- * conventional fundamentals screen, and in a workflow measured in minutes it
- * is context rather than a decision. The next earnings date is the exception
- * and the reason the group is here at all — a date to plan around rather than
- * be surprised by.
+ * The ratios, last — context rather than a decision in a workflow measured in
+ * minutes. The next earnings date is the exception, and the reason the group is
+ * here at all.
  */
 function Business({ stats }: { stats: BusinessStats }) {
   const earnings = stats.earnings_next;
@@ -391,11 +380,8 @@ function Ratio({
 }
 
 /**
- * A reported figure with its period end.
- *
- * Anything over two quarters old is dimmed: it is still the best number
- * available, but presenting it with the same weight as a current one would
- * misrepresent how much is known.
+ * A reported figure with its period end. Over two quarters old is dimmed: still
+ * the best number available, but not with the weight of a current one.
  */
 const STALE_DAYS = 190;
 
@@ -426,11 +412,9 @@ function Dated({
 }
 
 /**
- * Fetch on symbol change, aborting the one in flight.
- *
- * Switching tickers fast is the normal case here — a scanner row, then
- * another — and without the abort a slow response for the previous symbol
- * lands after the fast one and shows the wrong company's filings.
+ * Fetch on symbol change, aborting the one in flight. Switching tickers fast is
+ * the normal case, and without the abort a slow response for the previous
+ * symbol lands after the fast one and shows the wrong company's filings.
  */
 function useFundamentals(symbol: string) {
   const [data, setData] = useState<FundamentalsResponse | null>(null);

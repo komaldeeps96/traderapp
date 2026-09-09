@@ -1,28 +1,21 @@
 """The last N prints per symbol, classified against the book.
 
-Sits beside ``MarketDataService`` on the same trade stream and does none of
-its work: no bars, no indicators, no history. A print is stamped with a
-sequence number, placed against the newest quote and pushed onto a ring
-buffer, and the broadcaster ships whatever is new on its own cadence — the
-same coalescing every other stream on this socket gets, for the same reason.
-A runner printing three hundred times a minute would otherwise be three
-hundred WebSocket frames a minute, per client.
+Sits beside ``MarketDataService`` on the same trade stream and does none of its
+work: no bars, no indicators, no history. A print is stamped with a sequence
+number, placed against the newest quote and pushed onto a ring buffer; the
+broadcaster ships what is new on its own cadence, coalescing what would
+otherwise be hundreds of frames a minute per client.
 
-Two bounds, both deliberate:
+Two bounds:
 
-- **The buffer is a deque with a maxlen.** A tape is read from the top; a
-  print that has scrolled a thousand rows off the bottom is not going to be
-  read, and holding it costs memory during exactly the session where memory
-  matters.
-- **Symbols are evicted least-recently-printed.** Nothing tells this service
-  that a chart was closed — the hub releases *bars* when the last client
-  leaves, and wiring a second unload path through it to save a few hundred
-  kilobytes is not worth the coupling. Flipping between a dozen runners is
-  the whole workflow, so the cap is set above that and the thirteenth name
-  evicts the oldest.
+- **The buffer is a deque with a maxlen.** A print a thousand rows off the
+  bottom will not be read, and holding it costs memory.
+- **Symbols are evicted least-recently-printed.** Nothing tells this service a
+  chart was closed — the hub releases *bars* when the last client leaves. The
+  cap sits above the dozen names a session flips between.
 
-Unlike the chart, this fills from the very first print: there is no history to
-load, so a symbol switch has a live tape before it has candles.
+Unlike the chart this fills from the first print, so a symbol switch has a live
+tape before it has candles.
 """
 
 from __future__ import annotations
@@ -102,9 +95,8 @@ class TapeService:
     def since(self, symbol: str, seq: int) -> list[Print]:
         """Prints newer than ``seq``, oldest first.
 
-        Walked from the back and stopped early: on a fast tape this runs every
-        broadcast tick against a buffer of hundreds, and all but the last
-        handful are already sent.
+        Walked from the back and stopped early: this runs every broadcast tick
+        against a buffer of hundreds, of which all but a handful are sent.
         """
         rows = self._prints.get(symbol)
         if not rows:

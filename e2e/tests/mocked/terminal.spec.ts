@@ -131,13 +131,9 @@ test.describe('top panel', () => {
   });
 
   /**
-   * The reopen window.
-   *
-   * The one condition in the playbook with a large measured effect behind
-   * it, so what earns a browser test is that the strip actually reaches the
-   * three states — the measured cohort, the hour that falls outside it, and
-   * the already-extended case that measured negative — and that it clears
-   * itself when the fifteen minutes are up rather than sitting there all day.
+   * The reopen window. What earns a browser test is that the strip reaches all
+   * three states — the measured cohort, the hour outside it, and the
+   * already-extended case — and clears itself after fifteen minutes.
    */
   test('reads the minutes after a resume', async ({ terminal, backend }) => {
     await terminal.waitForChart();
@@ -336,13 +332,9 @@ test.describe('session clock', () => {
 });
 
 /**
- * The news clock.
- *
- * Issuers schedule press releases on the hour and the half hour, densest at
- * 8:00 and 8:30, and the morning's whole opportunity set follows that
- * calendar. So the clock that matters is not "how long until the open" but
- * "how long until news can land" — and then whether it did. The wall clock
- * is frozen here because the chip is a function of it and nothing else.
+ * The news clock. Issuers file on the hour and the half hour, so the useful
+ * clock is "how long until news can land", then whether it did. The wall clock
+ * is frozen because the chip is a function of it and nothing else.
  *
  * 5 March 2024 is on EST, so New York is UTC−5.
  */
@@ -408,12 +400,9 @@ test.describe('market regime', () => {
 /**
  * The symbol panel says which of its terms it will explain.
  *
- * Every field up there has carried a `title` since the panel was built, and
- * it went unfound — a native tooltip needs about a second of hover and
- * advertises itself not at all, so ROT, WRVOL, HTB and R/S just read as
- * jargon. What is asserted here is the affordance, not the tooltip: whether
- * the browser chooses to paint one is not ours to test, but whether the panel
- * offers to be asked is.
+ * A native tooltip advertises itself not at all, so ROT, WRVOL, HTB and R/S
+ * read as jargon without a standing marker. What is asserted is the affordance,
+ * not the tooltip — whether the browser paints one is not ours to test.
  */
 test.describe('the symbol panel explains itself', () => {
   test('marks the labels that carry an explanation', async ({ terminal }) => {

@@ -1,30 +1,18 @@
 """The news panel's cache: backfill, live merge, and article bodies.
 
-Two sources. IBKR is the entitled one — eight feeds, thirty days of headlines,
-full article bodies — while everything fundamental on the same connection
-answers error 10358. Alpaca's Benzinga feed is the second, and it is here
-because the first goes quiet on some of exactly the companies this terminal
-exists for: WETO returned its own halt and its own resume and nothing else
-while Benzinga had ten rows, and AEMD's catalyst was there when IBKR had
-nothing in thirty days.
+Two sources: IBKR (eight entitled feeds, thirty days, full bodies) and Alpaca's
+Benzinga feed, which covers the small caps IBKR goes quiet on. Both land in one
+per-symbol dict keyed by article id, so ``build`` dedupes *across* them — a
+release carried by Dow Jones and by Benzinga is one row. Cleaning, catalyst
+tagging and dedup live in ``domain/news.py``.
 
-Both land in one per-symbol dict keyed by article id, so ``build`` dedupes
-*across* them: a press release carried by Dow Jones and by Benzinga is one
-row, not two. The cleaning, catalyst tagging and deduplication all live in
-``domain/news.py``.
+This file adds the state. Headlines arrive as a thirty-day backfill at
+subscribe time and as single live rows on generic tick 292, and both must land
+in one list deduplicated *as a whole* — a live headline is often the starred
+bulletin whose fuller press release arrives seconds later. So the raw rows are
+kept per symbol and the whole set is rebuilt on every change.
 
-What this adds is state. Headlines arrive two ways — a thirty-day backfill
-when a symbol is opened, and single live headlines on generic tick 292 — and
-both have to land in one list that is deduplicated *as a whole*. A live
-headline is very often the starred bulletin whose fuller press-release version
-arrives seconds later, so merging by appending would show the story twice. The
-raw rows are therefore kept per symbol and the whole set is rebuilt on every
-change, which is cheap at fifty rows and is the only way the dedup stays
-correct across the two paths.
-
-Article bodies are cached separately and indefinitely: an article is immutable
-once published, and re-fetching one the user clicked back to would spend an
-IBKR request on a string we already have.
+Article bodies are cached indefinitely: an article is immutable once published.
 """
 
 from __future__ import annotations
@@ -101,10 +89,8 @@ class NewsService:
     async def prefetch(self, symbol: str) -> None:
         """Warm the backfill; called at subscribe time beside the others.
 
-        Both sources are asked at once and each is allowed to fail on its own.
-        One feed being down is the ordinary case this exists to survive — the
-        whole reason there are two — so a raise from either must not cost the
-        panel the rows the other returned.
+        Both sources are asked at once and each may fail on its own: a raise
+        from either must not cost the panel the rows the other returned.
         """
         if self._provider is None and self._alpaca is None:
             return
@@ -157,9 +143,8 @@ class NewsService:
     def add_live(self, symbol: str, row: dict) -> Headline | None:
         """Fold one live headline in, returning the row it produced.
 
-        ``None`` when the headline collapsed into a story already on screen —
-        the usual case for the starred bulletin that precedes a press release
-        — so the caller can broadcast only genuinely new rows.
+        ``None`` when the headline collapsed into a story already on screen, so
+        the caller broadcasts only genuinely new rows.
         """
         before = {headline.article_id for headline in self.peek(symbol)}
         self._merge(symbol, [row])
@@ -188,7 +173,7 @@ class NewsService:
         """Cache a body that arrived alongside its headline.
 
         Benzinga sends the article with the notification, so opening one from
-        the live stream costs no request at all.
+        the live stream costs no request.
         """
         if body:
             self._articles[(BENZINGA_CODE, article_id)] = body

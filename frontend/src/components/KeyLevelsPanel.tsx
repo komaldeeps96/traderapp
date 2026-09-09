@@ -16,15 +16,13 @@ interface KeyLevelsPanelProps {
 /**
  * Key levels, grouped into confluence bands and sorted by price.
  *
- * This is the momentum workflow. The list runs high to low with the last trade
- * slotted into its true position, so the band directly above the marker is the
- * next thing in the way and the one below is the first thing that would catch
- * a pullback — those two are coloured, everything else stays quiet.
+ * High to low with the last trade slotted into its true position, so the band
+ * directly above the marker is the next thing in the way and the one below is
+ * the first thing that would catch a pullback. Those two are coloured.
  *
- * Levels sitting at effectively the same price collapse into one band with a
- * strength count, because five levels on one shelf is a far stronger read than
- * five separate lines, and drawn separately they were unreadable on a
- * sub-dollar ticker.
+ * Levels at effectively the same price collapse into one band with a strength
+ * count: five levels on a shelf is a stronger read than five separate lines,
+ * which are unreadable on a sub-dollar ticker anyway.
  */
 export function KeyLevelsPanel({ onToggle, onToggleGroup }: KeyLevelsPanelProps) {
   const { clusters, price, count } = useKeyLevels();
@@ -122,20 +120,16 @@ export function KeyLevelsPanel({ onToggle, onToggleGroup }: KeyLevelsPanelProps)
 /**
  * Keep the last-price row in the middle of the panel.
  *
- * On a gapper with two dozen levels overhead — a whole quarter's and year's
- * highs stacked above a sub-dollar price — the marker lands so far down the
- * list that the panel opens on levels nobody is trading against, and the price
- * has to be scrolled to. Centring it puts the next resistance and the first
- * support either side of the marker, which is the read the panel exists for.
+ * On a gapper with two dozen levels overhead the marker otherwise lands far
+ * down the list and the price has to be scrolled to. Centring puts the next
+ * resistance and the first support either side of it.
  *
- * The clamp is what handles an unbalanced book. With nothing above, there is
- * no scroll to give and the marker simply sits at the top; with nothing below,
- * at the bottom. So "centred" quietly becomes "as centred as the levels allow"
- * rather than padding the list out with empty space.
+ * The clamp handles an unbalanced book: with nothing above, the marker sits at
+ * the top; with nothing below, at the bottom — "as centred as the levels
+ * allow", rather than padding the list with empty space.
  *
- * It re-centres only when the marker actually changes place in the list — when
- * price crosses a level, or the symbol changes — not on every tick. Scrolling
- * up to check the 52-week high would otherwise be yanked back a second later.
+ * It re-centres only when the marker changes place in the list, not on every
+ * tick, so scrolling up to check the 52-week high is not yanked back.
  */
 function useCentreOnLast(anchor: string) {
   const scrollRef = useRef<HTMLDivElement>(null);

@@ -41,9 +41,8 @@ export function isKeyLevel(spec: IndicatorSpec): boolean {
 /**
  * Every key level with its distance from the last trade, sorted high to low.
  *
- * Sorting by price rather than by name is what makes this readable while
- * trading: the level directly above the current price is the next thing in
- * the way, and it sits directly above the price row in the list.
+ * By price rather than by name, so the level directly above the current price
+ * is the next thing in the way and sits directly above the price row.
  */
 export function buildKeyLevels(
   specs: IndicatorSpec[],
@@ -80,17 +79,12 @@ export function buildKeyLevels(
 /**
  * The next thing in the way, and how much room there is before it.
  *
- * The daily chart is not background here — it is the variable that selects
- * which regime the trade is in. Clear overhead and a runner has somewhere to
- * go, so it is worth laddering into and holding; a 200-day moving average
- * sitting just above and the same setup is a base hit at best, because the
- * move stops there. Both are decisions about size and target taken before
- * the entry, off one number, and the ladder in the sidebar makes them
- * readable but never states them.
+ * Clear overhead means a runner has somewhere to go; a moving average just
+ * above caps the same setup. It is one number behind decisions about size and
+ * target, and the sidebar ladder makes it readable without stating them.
  *
- * Hidden levels are excluded. The ladder is the trader's own account of what
- * counts as resistance on this name, and naming a level they have switched
- * off as the thing in the way would contradict it.
+ * Hidden levels are excluded: the ladder is the trader's own account of what
+ * counts as resistance on this name.
  */
 export type HeadroomTone = 'blue-sky' | 'clear' | 'capped';
 
@@ -102,11 +96,8 @@ export interface HeadroomView {
 }
 
 /**
- * Under this much room there is no base hit in the trade.
- *
- * A 15–20 cent target on a $5–10 name is 2–4%, and the round trip costs 10–20
- * cents of slippage before it. Three percent is where the target stops
- * covering its own execution.
+ * Under this much room there is no base hit in the trade: three percent is
+ * where a 15–20 cent target on a $5–10 name stops covering its own execution.
  */
 export const CAPPED_HEADROOM_PERCENT = 3;
 
@@ -137,13 +128,10 @@ export const ATH_LEVEL_ID = 'ath';
 /**
  * Past this distance a level is out of reach and reads as such.
  *
- * Ten times the price is not a target, a stop or a magnet; it is context. It
- * arises honestly — a dollar stock that once traded at fifty — and it arises
- * from broken data, because a split-adjusted all-time high compounds every
- * reverse split into itself: CHAI prints $93,250,082 against a $0.38 tape.
- * Both stay in the ladder, quiet, at the top where they belong. Neither is
- * drawn on the chart, where a line that far out is off-screen in every
- * session and only puts a stray tag on the axis.
+ * Ten times the price is context, not a target — whether honest (a dollar stock
+ * that once traded at fifty) or broken (a split-adjusted all-time high
+ * compounding every reverse split into itself). Both stay in the ladder, quiet;
+ * neither is drawn on the chart, where the line is off-screen every session.
  */
 export const FAR_LEVEL_PERCENT = 1000;
 
@@ -154,18 +142,13 @@ export function isFarLevel(distancePercent: number | null | undefined): boolean 
 /**
  * The all-time high as a key level.
  *
- * It arrives on the info stream rather than as a per-bar series, so it is not
- * one of the levels the backend streams — but it is the same kind of thing as
- * the 52-week high sitting next to it in the list, and reading it there is
- * how it gets used: sorted into the ladder, with the distance to it, and an
- * eye to take it off the chart. That is why it is no longer a field in the
- * panel above.
+ * Arrives on the info stream rather than as a per-bar series, so it is not one
+ * of the streamed levels, but it is used like the 52-week high beside it:
+ * sorted into the ladder, with its distance.
  *
- * It is listed however far away it is, including when reverse splits have put
- * it millions of times above the tape. The ladder marks it out of reach
- * rather than dropping it (see FAR_LEVEL_PERCENT): silence would be
- * indistinguishable from the provider never answering, and "the all-time high
- * is meaningless on this name" is itself worth knowing.
+ * Listed however far away it is. The ladder marks it out of reach rather than
+ * dropping it (see FAR_LEVEL_PERCENT) — silence would be indistinguishable from
+ * the provider never answering.
  */
 export function athLevel(
   info: Pick<InfoMessage, 'all_time_high'> | null,
@@ -236,14 +219,12 @@ export const DEFAULT_CLUSTER_TOLERANCE_PERCENT = 0.35;
 /**
  * Group levels that sit at effectively the same price.
  *
- * Confluence is the point: five levels stacked within a cent is a far stronger
- * shelf than one level alone, but drawn as five separate lines it reads as
- * noise and five colliding axis labels. Grouping turns that into one band with
- * a strength.
+ * Confluence is the point: five levels within a cent is a stronger shelf than
+ * one, but as five lines it is noise and five colliding axis labels. Grouping
+ * makes one band with a strength.
  *
- * Chaining is bounded — a cluster may not span more than twice the tolerance —
- * so a long ladder of near-equal levels cannot collapse into a single
- * meaningless blob.
+ * Chaining is bounded to twice the tolerance, so a long ladder of near-equal
+ * levels cannot collapse into one blob.
  */
 export function clusterLevels(
   levels: KeyLevel[],
@@ -297,11 +278,9 @@ export function clusterLevels(
 }
 
 /**
- * Flag the first band overhead and the first underneath.
- *
- * Those two are what a trade is planned against — the next thing in the way
- * and the first thing that would catch a pullback — so they are the only
- * levels that earn colour.
+ * Flag the first band overhead and the first underneath — the next thing in the
+ * way and the first thing that would catch a pullback, so the only two that
+ * earn colour.
  */
 function markNearest(clusters: LevelCluster[]): LevelCluster[] {
   let resistance: LevelCluster | null = null;
@@ -329,13 +308,10 @@ export interface LevelStyle {
 }
 
 const NEUTRAL_LEVEL = { light: '#898781', dark: '#898781' };
-// Violet overhead, amber beneath.
-//
-// Deliberately not red/green: those are the candle colours, so a level in
-// them competes with the bars it is drawn over and inherits their meaning.
-// These two also clear the three EMA hues (blue, orange, green), and they sit
-// on the blue-yellow axis — the one axis red-green colour blindness leaves
-// intact, so the pair stays separable where red/green would collapse.
+// Violet overhead, amber beneath. Not red/green: those are the candle colours,
+// so a level in them competes with the bars it is drawn over. These clear the
+// three EMA hues (blue, orange, green) and sit on the blue-yellow axis, which
+// red-green colour blindness leaves intact.
 const OVERHEAD = { light: '#8250df', dark: '#a371f7' };
 const BENEATH = { light: '#9a6700', dark: '#d29922' };
 
@@ -350,10 +326,8 @@ function paletteFor(cluster: LevelCluster): { light: string; dark: string } {
 /**
  * Turn clusters into per-series chart styling.
  *
- * Colour marks the two actionable bands; everything else stays recessive so
- * those two can be seen at all. Weight no longer counts the members — a
- * multi-level shelf is drawn as a shaded zone instead (see buildBands), which
- * shows where it starts and stops rather than only that it is there.
+ * Colour marks the two actionable bands; everything else stays recessive. A
+ * multi-level shelf is drawn as a shaded zone instead (see buildBands).
  */
 export function buildLevelStyles(
   clusters: LevelCluster[],
@@ -401,10 +375,8 @@ function withAlpha(hex: string, alpha: number): string {
 }
 
 /**
- * The shaded zones behind the lines.
- *
- * Only clusters holding more than one level get a band: a lone level is a
- * line, and shading it would invent a thickness the data does not have.
+ * The shaded zones behind the lines. Only clusters of more than one level get
+ * one — shading a lone level invents a thickness the data does not have.
  */
 export function buildBands(clusters: LevelCluster[], theme: 'light' | 'dark'): PriceBand[] {
   const bands: PriceBand[] = [];
@@ -476,11 +448,9 @@ export function buildOhlcv(readout: Readout | null, info?: InfoMessage | null): 
 // ── level 1 quote ──────────────────────────────────────────────────────
 
 /**
- * Spread tiers, in the units the decision is made in.
- *
- * Roughly ten cents is where a spread starts to bite on a single-digit
- * stock, twenty is where trades start being declined, and fifty cents is the
- * stated hard ceiling — no trade past it, full stop.
+ * Spread tiers, in the units the decision is made in: ten cents starts to bite
+ * on a single-digit stock, twenty is where trades are declined, fifty is the
+ * hard ceiling.
  */
 export type SpreadTone = 'tight' | 'ok' | 'wide' | 'untradeable';
 
@@ -525,11 +495,9 @@ export function spreadTone(spread: number): SpreadTone {
 // ── request budgets ────────────────────────────────────────────────────
 
 /**
- * How much headroom a request window has left.
- *
- * `ok` while at least half remains, `warn` down to a fifth, `hot` below
- * that — hot means the next burst of ticker switches will start queueing
- * behind the limiter.
+ * How much headroom a request window has left: `ok` above half, `warn` down to
+ * a fifth, `hot` below — the next burst of switches will queue behind the
+ * limiter.
  */
 export type BudgetTone = 'ok' | 'warn' | 'hot';
 
@@ -549,10 +517,9 @@ export interface InfoView {
   /**
    * Market cap on the previous close: shares outstanding × yesterday's close.
    *
-   * The day's reference, and deliberately fixed for the whole session — it is
-   * what the name was worth before the move, so "a $12M company up 50%" has
-   * one meaning at 09:31 and the same meaning at 15:59. Its moving twin is
-   * the current cap in the panel beside it.
+   * Fixed for the whole session — what the name was worth before the move, so
+   * "a $12M company up 50%" means the same at 09:31 and 15:59. The current cap
+   * in the panel beside it is the moving twin.
    */
   marketCap: number | null;
   /** TradingView's own snapshot, the fallback with no share count. */
@@ -663,12 +630,9 @@ export interface PullbackView {
 }
 
 /**
- * The playbook's first-pullback judgment, from the raw measurements.
- *
- * `failed` past the 78.6% fib — the deepest retrace that still counts as
- * holding; `stale` at ten minutes off the high — that is a downtrend with a
- * story; `healthy` when the top half of the leg holds AND volume has dried
- * to half the rally's pace; anything in between is merely `ok`.
+ * The playbook's first-pullback judgment: `failed` past the 78.6% fib, `stale`
+ * at ten minutes off the high, `healthy` when the top half of the leg holds and
+ * volume has dried to half the rally's pace, `ok` in between.
  */
 export type PullbackTone = 'healthy' | 'ok' | 'failed' | 'stale';
 
@@ -686,20 +650,16 @@ export function pullbackTone(
 // ── the reopen window ──────────────────────────────────────────────────
 
 /**
- * The fifteen minutes after a halt lifts.
+ * The fifteen minutes after a halt lifts — the one condition in the playbook
+ * with a large measured effect behind it.
  *
- * This is the one condition in the playbook with a large measured effect
- * behind it. Across 66,785 reopens the following fifteen minutes averaged
- * +0.33%; the 2,805 that reopened before 10:00 ET averaged **+3.10%**
- * (median +2.44%, t = 9.2, 61% up). The same study found the sign flips on a
- * name that has already run: the 3,121 reopens on stocks extended 30–100%
- * averaged **−1.09%** (t = −4.6). A wide 20% band beat a narrow 10% one,
- * +0.66% against +0.19% — real but small next to the other two.
+ * Across 66,785 reopens the following fifteen minutes averaged +0.33%; the
+ * 2,805 reopening before 10:00 ET averaged +3.10% (t = 9.2, 61% up). The sign
+ * flips on a name that has already run: 3,121 reopens on stocks extended
+ * 30–100% averaged −1.09% (t = −4.6).
  *
- * None of that has ever been traded, and nothing here says to. The read
- * states which of the measured conditions hold right now and gets out of the
- * way; `extended` is the one that says something happened, because it is the
- * only bucket that measured negative.
+ * The read states which conditions hold now and says nothing about trading.
+ * `extended` is the only bucket that measured negative.
  */
 export const REOPEN_WINDOW_SECONDS = 15 * 60;
 
@@ -723,13 +683,12 @@ export interface ReopenView {
 }
 
 /**
- * Both clocks here are the server's — `generated_at` and the resume stamp
- * come from the same process — so a client whose clock is minutes out still
- * reads the right elapsed time.
+ * Both clocks are the server's — `generated_at` and the resume stamp come from
+ * one process — so a client whose clock is out still reads the right elapsed
+ * time.
  *
- * The time-of-day test runs against the *resume*, not against now: the
- * cohort is defined by when the stock came back, and a reopen at 09:58 stays
- * in it while its window plays out past ten.
+ * The time-of-day test runs against the *resume*, not now: the cohort is
+ * defined by when the stock came back, so a 09:58 reopen stays in it past ten.
  */
 export function reopenRead(info: InfoMessage, changePercent: number | null): ReopenView | null {
   if (info.halted || info.halt_resumed_at == null) return null;
@@ -848,11 +807,9 @@ export function paneIndicators(specs: IndicatorSpec[], timeframe: string): Indic
 // ── dilution ───────────────────────────────────────────────────────────
 
 /**
- * The supply read, in the idiom the strip already uses for spread, pullback
- * and borrow: a word beside the numbers, never instead of them.
- *
- * `clean` says nothing and renders nothing — an ordinary large cap should
- * cost the strip no width at all. Everything above it earns its place.
+ * The supply read, in the strip's idiom for spread, pullback and borrow: a word
+ * beside the numbers, never instead of them. `clean` renders nothing, so an
+ * ordinary large cap costs the strip no width.
  */
 export interface DilutionView {
   /** Never `clean`: a clean read produces no chip at all. */
@@ -876,9 +833,8 @@ const DILUTION_RANK: Record<DilutionTone, number> = {
 /**
  * Build the chip, or null when there is nothing worth saying.
  *
- * The label picks the single worst fact rather than concatenating them: the
- * strip has room for one chip, and "89% warrants" stops a trade faster than a
- * three-item list nobody reads at speed. The rest go to the tooltip.
+ * The label picks the single worst fact rather than concatenating: the strip
+ * has room for one chip. The rest go to the tooltip.
  */
 export function buildDilutionView(
   dilution: DilutionSummary | null | undefined,

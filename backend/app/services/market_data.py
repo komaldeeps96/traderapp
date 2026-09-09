@@ -5,12 +5,10 @@ timeframes and indicator series are computed lazily and cached against a
 per-symbol revision counter, so a burst of trades costs one recompute at the
 next broadcast rather than one per trade or one per client.
 
-Loading is two-phase, because a ticker switch is judged by its first paint:
-phase one fetches only the daily bars and the *viewed* timeframe's base —
-for the 10s default that is a single IBKR request — and the snapshot goes
-out. Phase two backfills the remaining bases and the older 10s hours in the
-background, then announces itself so subscribers get a silently extended
-chart.
+Loading is two-phase. Phase one fetches only the daily bars and the *viewed*
+timeframe's base — one IBKR request for the 10s default — and sends the
+snapshot. Phase two backfills the remaining bases and the older 10s hours in
+the background, then announces itself so subscribers extend the chart.
 """
 
 from __future__ import annotations
@@ -36,11 +34,10 @@ logger = logging.getLogger(__name__)
 
 BackfillHandler = Callable[[str], Awaitable[None]]
 
-# A symbol nobody is watching keeps its bars warm for this long before the
-# memory is reclaimed. Flipping between the same few runners is the whole
-# workflow; reloading the 10s window on every flip costs three IBKR requests,
-# a capped Alpaca tape walk for the sessions behind them, and a second of
-# blank chart — for data we held moments ago.
+# A symbol nobody is watching keeps its bars warm for this long. Flipping
+# between the same few runners is the workflow, and reloading the 10s window on
+# every flip costs three IBKR requests, a capped Alpaca tape walk and a second
+# of blank chart.
 KEEP_WARM_SECONDS = 600.0
 KEEP_WARM_MAX_SYMBOLS = 8
 
@@ -75,12 +72,9 @@ class MarketDataService:
     async def stop(self) -> None:
         """Cancel everything still in flight and wait for it to unwind.
 
-        Loads, backfills, repairs and warm-cache timers are all fire-and-forget
-        by design — nothing awaits them in the request path. That leaves them
-        for shutdown to collect: without this they are still pending when the
-        loop closes, which is both a stack of "Task was destroyed but it is
-        pending" warnings and a cancellation that never actually runs the
-        ``finally`` blocks those tasks rely on.
+        Loads, backfills, repairs and warm-cache timers are fire-and-forget, so
+        shutdown has to collect them: otherwise they are still pending when the
+        loop closes, and their ``finally`` blocks never run.
         """
         pending = [
             task
@@ -105,9 +99,8 @@ class MarketDataService:
         """Load enough of a symbol to draw ``focus``, once, shared by callers.
 
         Concurrent callers share the in-flight task and await it shielded, so
-        one client disconnecting mid-load does not cancel the load for the
-        others. The first caller's focus decides the fast path; the backfill
-        catches every other base moments later.
+        one client disconnecting mid-load does not cancel it for the others. The
+        first caller's focus decides the fast path.
         """
         if symbol in self._loaded:
             return True
@@ -190,19 +183,16 @@ class MarketDataService:
     async def _backfill(self, symbol: str, fast_base: Timeframe) -> None:  # noqa: PLR0912
         """Phase two: whatever phase one skipped, merged in quietly.
 
-        The minute base is never fetched from IBKR here: its freshest
-        minutes — the stretch a delayed Alpaca feed cannot serve — are
-        resampled from the 10s base instead, which is IBKR-consolidated data
-        already in hand. A ticker switch therefore costs exactly two IBKR
-        historical requests: the two 10s slices. The prior sessions behind
-        them are Alpaca's, and cost REST pages from a much larger allowance.
+        The minute base is never fetched from IBKR: its freshest minutes, which
+        a delayed Alpaca feed cannot serve, are resampled from the 10s base
+        instead. A ticker switch therefore costs exactly two IBKR historical
+        requests. The prior sessions behind them are Alpaca REST pages.
         """
         try:
-            # A list of pairs rather than a dict keyed by timeframe: the 10s
-            # base is filled by two independent fetches, and the order they
-            # merge in is load-bearing. `merge` lets the incoming bars win, so
-            # the prior sessions go in first and IBKR's own bars overwrite them
-            # wherever the two windows overlap.
+            # Pairs rather than a dict keyed by timeframe: the 10s base is
+            # filled by two independent fetches and merge order matters. `merge`
+            # lets incoming bars win, so prior sessions go in first and IBKR's
+            # own bars overwrite them where the windows overlap.
             fetches: list[tuple[Timeframe, Awaitable[list[Bar]]]] = [
                 (Timeframe.S10, self._router.fetch_prior_tensec(symbol))
             ]
@@ -252,35 +242,27 @@ class MarketDataService:
     def _refresh_minutes_from_tensec(self, symbol: str) -> bool:
         """Fold the *live* end of the 10s base into fresh minute bars.
 
-        Six consolidated 10-second bars sum to the consolidated minute, so
-        this closes the delayed feed's 15-minute gap without spending an
-        IBKR request. The newest minute is dropped — its final 10s buckets
-        may not exist yet — and the live builder owns it anyway.
+        Six consolidated 10-second bars sum to the consolidated minute, so this
+        closes the delayed feed's 15-minute gap without an IBKR request. The
+        newest minute is dropped — its final buckets may not exist yet — and the
+        live builder owns it anyway.
 
-        These *overwrite* Alpaca's published minutes wherever both exist, and
-        that is the point: the 10s base is IBKR's, so deriving the minute from
-        it is what keeps the two timeframes on one set of numbers for the
-        whole 10s window. Minutes older than the 10s base keep Alpaca's,
-        which are on the consolidated tape's convention and so read higher —
-        the one seam this arrangement accepts.
+        These *overwrite* Alpaca's published minutes where both exist, keeping
+        both timeframes on one set of numbers. Older minutes keep Alpaca's,
+        which read higher on the consolidated tape's convention: the one seam
+        this accepts.
 
-        Which is why only the IBKR-served window is folded, not the whole 10s
-        base. The prior sessions behind it were themselves rebuilt from
-        Alpaca's tape, and rebuilt minutes are strictly worse than the ones
-        Alpaca publishes for those same minutes: our own condition filter
-        drops prints their bars count, so overwriting a settled published
-        minute with a derived one would trade an authoritative number for an
-        approximation of it, and for no gain — there is no delayed-feed gap
-        to close in a session that closed yesterday.
+        Only the IBKR-served window is folded. The prior sessions behind it were
+        rebuilt from Alpaca's tape through our own condition filter, so
+        overwriting Alpaca's published minutes there would trade an
+        authoritative number for an approximation, closing no gap.
         """
         tensec = self._store.get(symbol, Timeframe.S10)
         if not tensec:
             return False
-        # Measured back from the live edge of the 10s base rather than from
-        # the wall clock: it is the same boundary the router fetched against
-        # (the newest 10s bar is either the live stream's or the recent
-        # slice's, both of which end at ``now``), and it stays true of a
-        # series loaded from a fixture instead of from a market.
+        # Measured back from the live edge of the 10s base, not the wall clock:
+        # it is the same boundary the router fetched against, and it stays true
+        # of a series loaded from a fixture.
         cutoff = tensec[-1].time - TENSEC_WINDOW_SECONDS
         live = [bar for bar in tensec if bar.time >= cutoff]
         if not live:
@@ -302,10 +284,9 @@ class MarketDataService:
     def schedule_recent_repair(self, symbol: str) -> None:
         """Re-fetch the recent 10s slice and merge it in.
 
-        Called when the real-time source comes (back) online: any history
-        loaded from the delayed fallback in the meantime ends fifteen
-        minutes short of the live stream, and that seam never heals on its
-        own because the symbol is already marked loaded.
+        Called when the real-time source comes (back) online: history loaded
+        from the delayed fallback ends fifteen minutes short of the live stream,
+        and that seam never heals on its own once the symbol is marked loaded.
         """
         if symbol not in self._loaded:
             return
@@ -344,17 +325,13 @@ class MarketDataService:
     def unload(self, symbol: str) -> None:
         """Stop working a symbol nobody is watching, keeping its bars warm.
 
-        The history stays parked for a while — flipping back re-serves it
-        instantly with a single gap repair instead of a full reload. Memory
-        is reclaimed on expiry, or immediately for the oldest symbol when
-        the warm cache is full.
+        History stays parked so flipping back re-serves it with a single gap
+        repair. Memory is reclaimed on expiry, or immediately for the oldest
+        symbol when the warm cache is full.
 
-        The revision counter deliberately survives even eviction: it must be
-        monotonic for the life of the process, because the broadcaster's
-        already-sent caches key on it. If a reload started again at 1, a
-        drop-and-resubscribe inside one broadcast interval would leave the
-        fresh load looking already delivered, and a quiet symbol would never
-        get its first frame.
+        The revision counter survives eviction: the broadcaster's already-sent
+        caches key on it, so it must be monotonic for the life of the process.
+        Restarting at 1 would make a fresh load look already delivered.
         """
         was_loaded = symbol in self._loaded
         self._loaded.discard(symbol)
@@ -430,19 +407,14 @@ class MarketDataService:
     def _base_bars(self, symbol: str, base: Timeframe) -> list[Bar]:
         """The stored base series, with the daily one carried up to now.
 
-        Only the daily base needs this. It is fetched and never streamed, so
-        its newest row is whatever the provider had published when the symbol
-        was loaded — on a runner the 1D and 1W charts would sit at that price
-        for the rest of the session while every other chart moved.
+        Only the daily base needs this: it is fetched and never streamed, so
+        without it the 1D and 1W charts sit at load-time price all session.
+        Folding today's minutes in puts the day's candle on the same prices the
+        intraday charts draw from.
 
-        Folding today's minutes in fixes that, and puts the day's candle on
-        the same prices the intraday charts are drawn from: its close is the
-        newest minute's close, and its range the session's, rather than a
-        second story told beside them.
-
-        Derived on read rather than written back to the store: the daily bars
-        the key levels are built from must stay strictly historical, or a
-        level would repaint as today traded.
+        Derived on read rather than written back: the daily bars the key levels
+        are built from must stay strictly historical, or a level would repaint
+        as today traded.
         """
         stored = self._store.get(symbol, base)
         if base is not Timeframe.D1:
@@ -500,9 +472,8 @@ class MarketDataService:
     ) -> SessionLevels:
         """Session-boundary prices for the day the chart is showing.
 
-        From the minute base, not the displayed timeframe: the after-hours
-        high belongs to the previous session, which the 10-second window does
-        not reach even at twelve hours deep.
+        From the minute base, not the displayed timeframe: the after-hours high
+        belongs to the previous session, which the 10s window may not reach.
         """
         if not bars or not timeframe.is_intraday:
             return EMPTY_SESSION_LEVELS
@@ -515,9 +486,8 @@ class MarketDataService:
         """The full chart payload, or ``None`` when the symbol has nothing.
 
         An *empty* snapshot is still sent when the symbol is loaded but this
-        particular base has no history yet — the realistic case is a 10s chart
-        on Alpaca before any trades arrive, which should draw an empty chart
-        that fills live rather than reporting the whole symbol as missing.
+        base has no history yet (a 10s chart on Alpaca before any trades), so
+        the chart fills live rather than reporting the symbol as missing.
         """
         bars = self.bars(symbol, timeframe)
         if not bars and not self._has_any_bars(symbol):
@@ -591,9 +561,9 @@ class MarketDataService:
     async def _handle_bar(self, symbol: str, timeframe: Timeframe, bar: Bar) -> None:
         """Apply a provider's own minute bar.
 
-        These carry consolidated volume that a trade stream can understate, so
-        the provider bar replaces whatever we built for that period. Only the
-        minute base gets them — 10s bars are always trade-built.
+        These carry consolidated volume a trade stream can understate, so the
+        provider bar replaces whatever we built for that period. Minute base
+        only; 10s bars are always trade-built.
         """
         if symbol not in self._loaded or timeframe is not Timeframe.M1:
             return
@@ -616,22 +586,16 @@ class MarketDataService:
 def _widen(stored: Bar, session: Bar) -> Bar:
     """The fetched day's row extended by the session folded from minutes.
 
-    Extended, never narrowed. The minute base can have seen less of the day
-    than the provider's own row for it — a load that fell back to the 10s
-    tape reaches back hours, not to the pre-market open — so nothing here may
-    shrink a range that has already been published.
+    Extended, never narrowed: the minute base can have seen less of the day than
+    the provider's row, so nothing here may shrink a published range.
 
-    Volume takes whichever side counted more, which early in a session is
-    routinely the provider's: our minute base runs on the IBKR-derived
-    convention for the recent hours and so reads a few percent under the
-    consolidated tape, the same seam `_refresh_minutes_from_tensec` accepts.
-    Taking the larger keeps the day's bar on the published number until our
-    own count overtakes it, and never walks the volume backwards.
+    Volume takes whichever side counted more. Ours runs on the IBKR-derived
+    convention and reads a few percent under the consolidated tape (the seam
+    `_refresh_minutes_from_tensec` accepts), so taking the larger holds the
+    published number until our own count overtakes it and never walks backwards.
 
-    The close is the exception and the whole point of the exercise: it is the
-    newest price either side holds, which is the minute base's by
-    construction. The open stays the provider's, whose first print of the day
-    is the one the gap is measured from.
+    The close is the newest price either side holds, which is the minute base's.
+    The open stays the provider's, since the gap is measured from it.
     """
     return Bar(
         time=stored.time,

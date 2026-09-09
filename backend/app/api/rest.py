@@ -4,11 +4,10 @@ Everything here is static or near-static configuration the frontend needs
 before it can draw: which indicators exist, which timeframes are offered, and
 what the data source is currently doing. Live data goes over the WebSocket.
 
-The dock's panels are served here too, and belong here for the same reason: a
-company's filings and XBRL facts change quarterly, are read when a tab is
-opened rather than streamed, and would be forty fields of dead weight on every
-broadcast tick. Only the compact verdict the always-visible chip needs rides
-on the ``info`` message.
+The dock's panels are served here too: filings and XBRL facts change quarterly,
+are read when a tab is opened rather than streamed, and would be forty fields
+of dead weight on every broadcast tick. Only the compact verdict the
+always-visible chip needs rides on the ``info`` message.
 """
 
 from __future__ import annotations
@@ -98,22 +97,19 @@ async def session() -> dict:
 async def fundamentals(symbol: str) -> dict:
     """Everything the fundamentals tab draws, for one symbol.
 
-    Warmed at subscribe time by the symbol-info prefetch, so this is normally
-    a cache read. It still awaits a prefetch rather than returning empty: a
-    symbol reached by typing rather than by clicking a scanner row can arrive
-    here before the warm has finished, and an empty panel that fills a second
-    later reads as a bug.
+    Warmed at subscribe time by the symbol-info prefetch, so normally a cache
+    read. It still awaits the prefetch rather than returning empty: a typed
+    symbol can arrive before the warm has finished.
     """
     container = _container()
     resolved = _symbol(symbol)
-    # TradingView's ratios ride the row the info strip already fetches, so
-    # they are free here whether or not EDGAR is switched on.
+    # TradingView's ratios ride the row the info strip already fetches, so they
+    # are free whether or not EDGAR is on.
     #
-    # Fetched rather than peeked: this endpoint is called the moment a symbol
-    # changes, which can beat the subscribe-time warm, and a peek would then
-    # return nothing and leave the Business group missing until the next
-    # symbol switch. Gated on the regime switch exactly as the WebSocket's
-    # prefetch is, so a run with it off still reaches nothing off-machine.
+    # Fetched rather than peeked: this is called the moment a symbol changes,
+    # which can beat the subscribe-time warm, and a peek would leave the
+    # Business group missing until the next switch. Gated on the regime switch
+    # as the WebSocket's prefetch is, so a run with it off reaches nothing.
     stats = (
         await container.tv.get_stats(resolved)
         if container.settings.regime.enabled
@@ -150,10 +146,9 @@ async def fundamentals(symbol: str) -> dict:
 async def financials(symbol: str, period: str = "annual", limit: int = 8) -> dict:
     """Income statement, balance sheet and cash flow, from EDGAR.
 
-    Prefetched the same way the fundamentals panel is, and for the same
-    reason: a symbol reached by typing can arrive before the subscribe-time
-    warm has finished, and an empty statement that fills a second later reads
-    as a company that files nothing.
+    Prefetched like the fundamentals panel: a typed symbol can arrive before
+    the subscribe-time warm finishes, and an empty statement reads as a company
+    that files nothing.
     """
     container = _container()
     resolved = _symbol(symbol)
@@ -188,11 +183,9 @@ async def financials(symbol: str, period: str = "annual", limit: int = 8) -> dic
 async def concepts(symbol: str, q: str = "", period: str = "annual", limit: int = 8) -> dict:
     """Every concept a filer tags, searchable — not just the statement lines.
 
-    The curated statement is roughly a tenth of what a company reports, and
-    the rest is where a specific question gets answered. Values here are **as
-    filed**, in the unit the company used: this is the raw view, and
-    converting a concept whose meaning is not known would be inventing a
-    number rather than reporting one.
+    The curated statement is roughly a tenth of what a company reports. Values
+    are **as filed**, in the unit the company used — converting a concept whose
+    meaning is not known would invent a number rather than report one.
     """
     container = _container()
     resolved = _symbol(symbol)
@@ -213,9 +206,9 @@ async def concepts(symbol: str, q: str = "", period: str = "annual", limit: int 
 async def metrics(symbol: str, period: str = "annual", limit: int = 8) -> dict:
     """Ratios per period, and valuation against today's market cap.
 
-    The multiples deliberately mix two sources: the filings for the trailing
-    figures and the quote side for market cap. A book value is as of a
-    quarter end, and comparing today's price against it is the whole point.
+    The multiples mix two sources: the filings for trailing figures and the
+    quote side for market cap. A book value is as of a quarter end, and
+    comparing today's price against it is the point.
     """
     container = _container()
     resolved = _symbol(symbol)
@@ -296,9 +289,8 @@ async def filings(symbol: str) -> dict:
 async def peers(symbol: str) -> dict:
     """The company beside the ones it competes with.
 
-    Ranked against its own industry rather than against every filer: a 39x
-    earnings multiple is expensive for a utility and cheap for a chip
-    designer, and a percentile across all US issuers cannot tell them apart.
+    Ranked against its own industry rather than every filer: a 39x earnings
+    multiple is expensive for a utility and cheap for a chip designer.
     """
     container = _container()
     resolved = _symbol(symbol)
@@ -319,9 +311,9 @@ async def peers(symbol: str) -> dict:
 async def ownership(symbol: str) -> dict:
     """What insiders have done, with the payroll set aside.
 
-    Priced per *filing* rather than per company — the numbers live inside
-    each Form 4 — so it is capped, cached, and never warmed at subscribe
-    time. It runs when the tab is opened and not before.
+    Priced per *filing* rather than per company, since the numbers live inside
+    each Form 4 — so it is capped, cached, and runs when the tab is opened
+    rather than at subscribe time.
     """
     container = _container()
     resolved = _symbol(symbol)
@@ -351,9 +343,8 @@ async def ownership(symbol: str) -> dict:
 async def news(symbol: str) -> dict:
     """Thirty days of headlines for a symbol, deduplicated and tagged.
 
-    Warmed at subscribe time; awaited here for the same reason the
-    fundamentals endpoint awaits its prefetch — a symbol typed rather than
-    clicked can reach this before the warm finishes.
+    Warmed at subscribe time and awaited here, like the fundamentals endpoint:
+    a typed symbol can reach this before the warm finishes.
     """
     container = _container()
     resolved = _symbol(symbol)
@@ -369,16 +360,13 @@ async def news(symbol: str) -> dict:
 async def news_brief(symbol: str, refresh: bool = False) -> dict:
     """One day's headlines, read and scored out of ten.
 
-    Awaited rather than kicked off and pushed: a reading takes five to
-    fifteen seconds and the panel above the feed shows a spinner for exactly
-    that long, which is honest about what is happening. A second client
-    asking mid-reading joins the same process rather than starting another.
+    Awaited rather than kicked off and pushed: a reading takes five to fifteen
+    seconds and the panel shows a spinner for that long. A second client asking
+    mid-reading joins the same process.
 
-    Never raises for an ordinary absence. "No CLI installed", "nothing
-    published today" and "the reader timed out" are all states the panel
-    prints in one line; a 500 here would show as a broken terminal instead.
-
-    ``refresh`` overrides the cooldown, for the panel's own refresh button.
+    Never raises for an ordinary absence — no CLI, nothing published today, the
+    reader timed out — since the panel prints those in one line and a 500 would
+    show as a broken terminal. ``refresh`` overrides the cooldown.
     """
     container = _container()
     resolved = _symbol(symbol)
@@ -387,38 +375,16 @@ async def news_brief(symbol: str, refresh: bool = False) -> dict:
     return {"symbol": resolved, **payload}
 
 
-@router.get("/setup/{symbol}")
-async def setup_judgement(symbol: str, refresh: bool = False) -> dict:
-    """The whole screen, judged out of ten against Cameron's framework.
-
-    Assembled on the server from the info strip, the indicator series, the
-    quote, the regime and the news reading — not posted by the browser. The
-    frontend has every one of these numbers on screen and it would be less
-    code to let it send them, but then the thing being judged is whatever the
-    client says it is.
-
-    Awaited rather than pushed: a judgement takes fifteen to forty seconds
-    and the panel shows that for exactly that long. It does not refresh
-    itself — a chart left open would otherwise spend a cent a minute saying
-    much the same thing — so ``refresh`` is how a new one is asked for.
-    """
-    container = _container()
-    resolved = _symbol(symbol)
-    payload = await container.setup_ai.judge(resolved, force=refresh)
-    return {"symbol": resolved, **payload}
-
-
 @router.get("/news/{symbol}/article")
 async def news_article(symbol: str, provider: str, article_id: str) -> dict:
     """One article body, as plain-text paragraphs.
 
-    The wire sends an HTML fragment. It is converted to text server-side
-    rather than rendered as markup in the browser: this is third-party content
-    on the page that also holds the trading UI.
+    The wire sends an HTML fragment, converted to text server-side rather than
+    rendered as markup: third-party content on the page that holds the trading
+    UI.
 
-    Provider and article id are query parameters rather than path segments
-    because IBKR's ids carry a ``$`` (``DJ-N$1f364634``), which is legal in a
-    query string and a nuisance in a path.
+    Provider and article id are query parameters, not path segments, because
+    IBKR's ids carry a ``$`` (``DJ-N$1f364634``).
     """
     container = _container()
     _symbol(symbol)
@@ -432,9 +398,8 @@ async def news_article(symbol: str, provider: str, article_id: str) -> dict:
 async def swing_screens() -> dict:
     """The swing setups on offer, and the filters they share.
 
-    These answer from TradingView alone, so unlike the market-cap scanners
-    they still work with no TWS running — which is most of the time outside a
-    session.
+    These answer from TradingView alone, so unlike the market-cap scanners they
+    still work with no TWS running.
     """
     container = _container()
     return {

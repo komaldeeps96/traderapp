@@ -19,27 +19,18 @@ import type { TapePrint } from '@/types/protocol';
 /**
  * Time and sales — the print-by-print tape, under the context chart.
  *
- * Every row is one trade that actually happened, tinted by which side of the
- * book took it. Two greens and two reds, exactly as a direct-access platform
- * draws them, because that colour is the whole message: a column of green
- * with rising prices is buyers lifting offers, and the same column in red is
- * a stock being sold into. On a small-cap runner the tape turns before the
- * candle does, which is why this took the second context chart's place.
+ * Every row is one trade, tinted by which side of the book took it: two greens
+ * and two reds, as a direct-access platform draws them. The rules — what the
+ * colours mean, what the filters do and in what order — live in `lib/tape.ts`
+ * and are unit-tested there. This file is rendering and controls.
  *
- * The rules — what the colours mean, what the filters do and in what order —
- * live in `lib/tape.ts` and are unit-tested there. This file is the rendering
- * and the controls.
+ * The list is capped at `TAPE_RENDERED` rows rather than virtualised: React
+ * reconciling a keyed list that size once a second is cheaper than a windowing
+ * library.
  *
- * Two rendering decisions worth knowing.
- *
- * The list is capped at `TAPE_RENDERED` rows rather than virtualised. Past a
- * couple of hundred nobody is reading, and React reconciling a keyed list
- * that size once a second is cheaper than a windowing library.
- *
- * Freezing stops the *reading*, not the filling. The store keeps taking
- * prints behind a paused window, so unpausing lands on the live tape rather
- * than replaying a backlog — and the filters still apply while frozen, so a
- * size floor can be dialled in against a burst that has already gone past.
+ * Freezing stops the *reading*, not the filling. The store keeps taking prints
+ * behind a paused window, so unpausing lands on the live tape rather than
+ * replaying a backlog, and the filters still apply while frozen.
  */
 export function TapePanel() {
   const prints = useTerminalStore((state) => state.tape);
@@ -47,24 +38,15 @@ export function TapePanel() {
   const setFilters = useTerminalStore((state) => state.setTapeFilters);
   const symbol = useTerminalStore((state) => state.symbol);
 
-  // The freeze, and the only mutable thing here: a paused window keeps
-  // rendering the prints it was frozen on. A ref rather than state because
-  // the freeze is the *absence* of a render, so nothing should schedule one.
+  // The freeze: a paused window keeps rendering the prints it was frozen on. A
+  // ref rather than state, because the freeze is the *absence* of a render.
   //
-  // A symbol switch breaks the freeze open. Prints are facts about one
-  // instrument and read as live either way, so a frozen window left under a
-  // new ticker would be showing the last company's tape — the one thing the
-  // store's own clearing exists to prevent. The freeze itself survives; only
-  // what it is holding is replaced.
-  //
-  // Which is why this tracks *what the freeze is holding* rather than what
-  // symbol was last seen. The switch clears the store's tape a beat before
-  // the new company's buffer arrives, so there is a render in between where
-  // the tape is legitimately empty — and a freeze that re-armed on that
-  // render would latch the empty list and hold it for as long as the window
-  // stayed paused. Null means the freeze has nothing real yet: the window is
-  // live, or the new symbol has not printed. Either way the next render is
-  // free to take a fresh snapshot.
+  // A symbol switch replaces what the freeze holds, so a paused window cannot
+  // show the last company's tape. This tracks *what is held* rather than the
+  // last symbol seen: the switch clears the store's tape a beat before the new
+  // buffer arrives, and re-arming on that empty render would latch an empty
+  // list for the whole pause. Null means nothing real is held yet, so the next
+  // render is free to take a fresh snapshot.
   const held = useRef<readonly TapePrint[]>(prints);
   const frozenOn = useRef<string | null>(null);
   if (!filters.paused || frozenOn.current !== symbol) {
@@ -120,11 +102,8 @@ export function TapePanel() {
 }
 
 /**
- * One print.
- *
- * The tint carries the side and the text stays at full contrast on top of it.
- * These are 10px numbers: colouring them as well as the row would cost
- * legibility to repeat something the row has already said.
+ * One print. The tint carries the side and the text stays at full contrast: at
+ * 10px, colouring both would cost legibility to say the same thing twice.
  */
 function Row({
   row,
@@ -277,12 +256,9 @@ function Toggle({
 }
 
 /**
- * Which way the visible tape leans.
- *
- * The colours say it row by row; this says it for the whole window at once,
- * which is the read actually taken off a fast tape. Computed over exactly
- * what is on screen, filters included, so the bar and the rows above it can
- * never disagree.
+ * Which way the visible tape leans — the colours say it row by row, this says it
+ * for the window at once. Computed over exactly what is on screen, filters
+ * included, so the bar and the rows cannot disagree.
  */
 function TapeFooter({
   buy,
@@ -332,11 +308,9 @@ function clock(epochMs: number): string {
 }
 
 /**
- * The same instant to the millisecond, for the row's tooltip.
- *
- * The column cannot afford four more characters, and inside a burst the
- * ordering is the whole question — a dozen rows share a second, and which
- * came first is what says whether one order swept five venues.
+ * The same instant to the millisecond, for the row's tooltip. The column cannot
+ * afford four more characters, and inside a burst a dozen rows share a second —
+ * which came first is what says whether one order swept five venues.
  */
 function stamp(epochMs: number): string {
   return `${clock(epochMs)}.${String(Math.floor(epochMs) % 1000).padStart(3, '0')}`;

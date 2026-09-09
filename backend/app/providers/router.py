@@ -1,10 +1,8 @@
 """Chooses between IBKR and Alpaca, and fails over between them.
 
-IBKR is preferred for live data because it is real-time and consolidated.
-When TWS is not running — which is most of the time during development, and
-any time it drops mid-session — the router transparently moves streaming to
-Alpaca. Alpaca may be delayed depending on the configured feed; the delay is
-reported to the client rather than hidden, so the chart can say so.
+IBKR is preferred for live data, being real-time and consolidated. With TWS
+down the router moves streaming to Alpaca, which may be delayed depending on
+the configured feed; the delay is reported to the client rather than hidden.
 
 History is always assembled from both when both are up: Alpaca supplies the
 long window, IBKR overwrites the most recent minutes with its own bars.
@@ -29,46 +27,36 @@ logger = logging.getLogger(__name__)
 
 # The 10-second history window: twelve hours, IBKR-native. IBKR caps a 10s
 # request at four hours, so this is three requests — the recent slice for the
-# first paint, and the remaining eight hours chunked in the background pass.
+# first paint, the remaining eight hours in the background pass.
 #
 # Twelve rather than eight so the window reaches 04:00 from any point in the
-# session a trade is taken: at 15:00 New York eight hours stops at 07:00 and
-# leaves three hours of pre-market outside the chart. Session-scoped
-# indicators are seeded past that edge anyway (see indicators/functions.py,
-# SessionPrefix), but a seed is a summary — the bars themselves are what a
-# level gets drawn against.
+# session: at 15:00 New York eight hours stops at 07:00 and leaves three hours
+# of pre-market off the chart. Session-scoped indicators are seeded past that
+# edge (indicators/functions.py, SessionPrefix), but a seed is a summary and the
+# bars are what a level is drawn against.
 #
 # Rebuilding the same window from Alpaca's raw tape costs ten to forty
-# sequential pages on a runner — seconds of download for bars IBKR serves in
-# one — so the tape walk is only a fallback for when TWS is down, and then
-# only for the recent slice.
+# sequential pages on a runner, so the tape walk is only a fallback for when TWS
+# is down, and then only for the recent slice.
 TENSEC_WINDOW_SECONDS = 12 * 3600
 TENSEC_RECENT_SECONDS = 4 * 3600
 
-# Behind those twelve hours sit the previous session(s), and those *are*
-# walked off Alpaca's tape — the one place the paragraph above makes an
-# exception, because there is no other way to get them.
+# Behind those twelve hours sit the previous session(s), walked off Alpaca's
+# tape — the exception to the paragraph above, because there is no other way.
 #
-# IBKR could serve them natively, and that is not the cheap option it looks
-# like: its 10s requests cap at four hours each, so reaching the previous
-# session's 04:00 turns three chunked requests per ticker switch into nine or
-# ten, against a pacing allowance of sixty per ten minutes. Two of those
-# chunks are the dead overnight hours. Flipping between runners is the whole
-# workflow, and it would start tripping pacing after six switches.
+# IBKR serving them natively is not the cheap option it looks: its four-hour cap
+# turns three chunked requests per ticker switch into nine or ten (two of them
+# dead overnight hours) against a pacing allowance of sixty per ten minutes, so
+# flipping between runners would trip pacing after six switches. The tape walk
+# costs Alpaca requests instead, from an allowance of 200 a minute, and is
+# capped (alpaca.max_prior_session_pages).
 #
-# The tape walk costs Alpaca requests instead, from an allowance of 200 a
-# minute, and is capped (alpaca.max_prior_session_pages). Measured for one
-# previous session: AEMD 0.4s, WETO 1.8s, SPWR 7.3s uncapped.
+# What it buys is the slow moving averages: ``ema()`` returns nothing until it
+# has ``span`` bars, and EMA 600 on the 10s chart is the 100-minute EMA.
 #
-# What it buys is the slow moving averages. EMA 600 on the 10s chart is the
-# 100-minute EMA, and ``ema()`` returns nothing at all until it has 600 bars:
-# at midday twelve hours held 1,078 of them for SPWR, so the line started
-# more than half way across the chart, and at the open it did not start.
-#
-# The seam this accepts: Alpaca's tape includes odd lots, IBKR's "Last" slice
-# does not (~21-26% of shares on a small-cap gapper), so the prior sessions
-# read higher on volume than today does. Prices — and therefore every moving
-# average, which is what the depth is for — are unaffected.
+# The seam this accepts: Alpaca's tape includes odd lots and IBKR's "Last" slice
+# does not (~21-26% of shares on a small-cap gapper), so the prior sessions read
+# higher on volume. Prices, and so every moving average, are unaffected.
 
 
 class FeedRouter(MarketDataProvider):
@@ -188,10 +176,9 @@ class FeedRouter(MarketDataProvider):
     async def _settle_ibkr(self) -> None:
         """Give a just-started IBKR connection a beat to come up.
 
-        A server restart races history loads against the TWS handshake;
-        loading delayed fallback data in that window tears a 15-minute hole
-        between history and the real-time stream. Outside startup this
-        returns immediately, so a genuinely absent TWS costs nothing.
+        A server restart races history loads against the TWS handshake, and
+        delayed fallback data in that window tears a 15-minute hole between
+        history and the live stream. Outside startup this returns immediately.
         """
         if getattr(self._ibkr, "is_starting_up", False):
             await self._ibkr.wait_available(5.0)
@@ -216,11 +203,10 @@ class FeedRouter(MarketDataProvider):
     async def fetch_earlier_tensec(self, symbol: str, end: datetime | None = None) -> list[Bar]:
         """Hours four to twelve — the background extension of the 10s chart.
 
-        IBKR only, and two native requests rather than one: the provider
-        chunks anything longer than four hours itself. When TWS is down the
-        extension is simply skipped rather than rebuilt from the tape, because
-        a multi-page trade download for off-screen history is exactly the cost
-        this window exists to avoid.
+        IBKR only, and two native requests: the provider chunks anything longer
+        than four hours itself. With TWS down the extension is skipped rather
+        than rebuilt from the tape — a multi-page download for off-screen
+        history is the cost this window exists to avoid.
         """
         await self._settle_ibkr()
         if not self._ibkr.is_available:
@@ -237,15 +223,14 @@ class FeedRouter(MarketDataProvider):
     async def fetch_prior_tensec(self, symbol: str, end: datetime | None = None) -> list[Bar]:
         """The sessions behind the IBKR window, off Alpaca's trade tape.
 
-        Alpaca-only, and deliberately so — see the module header. The walk is
-        capped at ``alpaca.max_prior_session_pages`` and runs newest-first, so
-        a tape too heavy to finish leaves the stretch adjacent to today rather
-        than a disconnected island of yesterday morning.
+        Alpaca-only; see the module header. Capped at
+        ``alpaca.max_prior_session_pages`` and newest-first, so a tape too heavy
+        to finish leaves the stretch adjacent to today rather than an island of
+        yesterday morning.
 
-        Where it stops is where IBKR takes over, which depends on whether TWS
-        is up: with it up, the twelve-hour boundary; with it down, the four-
-        hour one, since the earlier slice is skipped entirely without IBKR
-        and this is the only thing that can close the hole it leaves.
+        It stops where IBKR takes over: the twelve-hour boundary with TWS up,
+        the four-hour one with it down, since the earlier slice is skipped
+        without IBKR and this is the only thing that closes that hole.
         """
         if not self._alpaca.is_available or self._history.tensec_prior_sessions <= 0:
             return []
@@ -277,8 +262,8 @@ class FeedRouter(MarketDataProvider):
         """The minute base in a single request — the fast path.
 
         Alpaca's newest page covers days of minutes at once; IBKR's
-        consolidated recent hour merges in with the background pass instead
-        of holding up the first paint.
+        consolidated recent hour merges in with the background pass rather than
+        holding up the first paint.
         """
         now = datetime.now(UTC)
         start = now - timedelta(days=self._history.intraday_days)

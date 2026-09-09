@@ -1,7 +1,9 @@
 """Headline cleaning, catalyst tagging and Dow Jones deduplication.
 
 The fixtures are real wire headlines captured from IBKR during the research
-that produced this feature — ``tmp/ibkr-news/CELU_20260827T150637Z.json``.
+that produced this feature. The capture they were taken from has been deleted,
+so these strings are now the only record of the shape the wire actually sends —
+edit them to match a real payload, never to match the parser.
 """
 
 from __future__ import annotations
@@ -302,7 +304,7 @@ class TestToParagraphs:
         assert to_paragraphs(body) == ["First para", "Second para"]
 
     def test_the_real_wire_shape_reads_as_prose(self):
-        # Straight from tmp/ibkr-news: <pre> spacers and &#10; for newlines.
+        # Straight off the IBKR wire: <pre> spacers and &#10; for newlines.
         body = (
             "<pre>&#10; </pre>&#10;<p>&#10;  Celularity Inc. (CELU) filed a Form 8K "
             "with the U.S Securities and Exchange Commission. </p>&#10;"

@@ -1,34 +1,23 @@
 """Which trade prints are allowed to shape a bar.
 
-The consolidated tape carries prints that report volume but must not move
-price: average-price blocks, late (out-of-sequence) reports, prior-reference
-prices, derivatively-priced crosses, odd lots. Folding those into OHLC is
-exactly how a chart grows phantom wicks and a session VWAP lurches — one
-five-million-share average-price print at a stale price does both at once.
+The tape carries prints that report volume but must not move price:
+average-price blocks, late reports, prior-reference prices, derivatively-priced
+crosses, odd lots. Folding those into OHLC grows phantom wicks and lurches the
+session VWAP.
 
-The classification follows the CTA/UTP participation rules the SIPs
-themselves use when building the official high/low/last — the CTS Pillar
-Output Specification, the UTP Binary Output Spec and TDDS 2.1, which Alpaca
-documents following as well — with one deliberate divergence for odd lots,
-explained at ``_ODD_LOT``:
+Follows the CTA/UTP participation rules the SIPs use to build the official
+high/low/last (CTS Pillar Output Specification, UTP Binary Output Spec, TDDS
+2.1), with one divergence for odd lots at ``_ODD_LOT``:
 
-- ``SKIP``        dropped outright: administrative reprints whose volume is
-                  already on the tape elsewhere, plus odd lots, which IBKR
-                  also omits from both price and volume;
+- ``SKIP``        administrative reprints whose volume is on the tape
+                  elsewhere, plus odd lots;
 - ``VOLUME_ONLY`` real volume whose price is not a market price *now*;
-- everything else is a price-forming trade.
+- everything else is price-forming.
 
-One caveat this module cannot express: the specification filters *per field*,
-not per trade — ``G`` for instance is barred from high/low but allowed to set
-open and close. A single flag collapses that distinction. It has not bitten
-yet because none of the affected codes has appeared in this cohort.
-
-``T`` — the ordinary extended-hours condition — stays price-forming on
-purpose: the pre-market session is half the point of this terminal, and on a
-small-cap gapper every pre-open print carries it, so excluding it would leave
-04:00–09:30 blank. ``U`` is the *out-of-sequence* extended-hours flavour and
-is treated like its regular-session twin ``Z``: a late report should not plant
-a wick at a stale price during the session we actually trade.
+The specification filters *per field*, not per trade (``G`` is barred from
+high/low but may set open and close); a single flag collapses that. ``T``,
+ordinary extended hours, stays price-forming — every pre-open print on a
+gapper carries it. ``U`` is its out-of-sequence flavour, treated like ``Z``.
 """
 
 from __future__ import annotations
@@ -48,20 +37,12 @@ class TradeKind(Enum):
 # SIP specification itself bars from volume.
 _SKIP = frozenset({"M", "Q", "9"})
 
-# A deliberate divergence from the specification, for consistency with the
-# bars this app is built on.
-#
-# The SIP rule is that an odd lot is barred from price but still counts in
-# volume, and that is what Alpaca's published bars do. IBKR does not: its
-# historical bars, its 5-second bars and its ``Last`` tick stream all quote
-# volume net of odd lots, as does TWS. Those historical 10s bars are our
-# baseline — the minute base is resampled from them — so following the SIP
-# here would put the Alpaca failover on a different convention from the
-# chart it is filling in, and move reported volume by a quarter mid-session.
-#
-# On a small-cap gapper odd lots run ~73% of prints and ~21-26% of shares, so
-# the two conventions are not close. One convention, matched to the baseline,
-# is worth more than conformance here.
+# Divergence from the specification, for consistency with the bars this app is
+# built on. The SIP rule bars an odd lot from price but counts it in volume, as
+# Alpaca's bars do; IBKR quotes volume net of odd lots everywhere, and its 10s
+# bars are our baseline. Following the SIP would put the Alpaca failover on a
+# different convention from the chart it fills in — worth ~21-26% of shares on a
+# small-cap gapper.
 _ODD_LOT = frozenset({"I"})
 
 # Counted in volume, excluded from open/high/low/close:

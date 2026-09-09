@@ -1,17 +1,14 @@
 /**
  * The main area: the chart, and what else can occupy the same space.
  *
- * The chart is the first tab and stays the reason the terminal exists. The
- * others are the desk work around a position — what the company earns, owns
- * and owes — kept here rather than in the right-hand dock because a
- * statement needs the width and the dock is a rail.
+ * The chart is the first tab. The others are the desk work around a position —
+ * what the company earns, owns and owes — kept here rather than in the dock
+ * because a statement needs the width and the dock is a rail.
  *
- * The chart is never unmounted when another tab is open, only hidden with
- * `visibility`. `display:none` would collapse it to zero height, and
- * lightweight-charts cannot size a pane inside a container that has none —
- * the dock hit exactly that and unmounts its charts instead. Unmounting is
- * not an option here: coming back to the chart must return it to the same
- * bars, at the same zoom, not reset to the right edge.
+ * The chart is hidden with `visibility`, never unmounted. `display:none` would
+ * collapse it to zero height and lightweight-charts cannot size a pane inside
+ * such a container; unmounting would lose the viewport, and coming back must
+ * return the same bars at the same zoom.
  */
 
 export const MAIN_TAB_IDS = [

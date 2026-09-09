@@ -9,16 +9,13 @@ after one. What makes a pullback orderly is concrete enough to measure:
   pullback, it is distribution);
 - it is fresh (a "pullback" ten minutes old is a downtrend with a story).
 
-This module turns those into numbers from the day's 1-minute bars. Nothing
-here decides healthy/failed — the raw measurements ride the info payload
-and the frontend applies the thresholds, where they are unit-tested against
-what the trader actually sees.
+This turns those into numbers from the day's 1-minute bars. Nothing here
+decides healthy/failed: the raw measurements ride the info payload and the
+frontend applies the thresholds.
 
-Leg detection is deliberately simple: the peak is the highest high of the
-trailing window, the trough the lowest low before it in the same window.
-Swing-labeling algorithms were not attempted — every parameter they add is
-a parameter this display would have to explain. The two constants below are
-the entire tuning surface.
+Leg detection is deliberately simple — the peak is the highest high of the
+trailing window, the trough the lowest low before it. The two constants below
+are the entire tuning surface.
 """
 
 from __future__ import annotations
@@ -57,9 +54,8 @@ class Pullback:
 def measure(bars: list[Bar]) -> Pullback | None:
     """Measure the active pullback, or None when there is nothing to measure.
 
-    None is the common answer, and each way of reaching it is a statement:
-    no leg (chop), no pullback yet (price is at the highs), or a leg fully
-    retraced (whatever that is now, it is not a pullback).
+    None is the common answer, and each route to it is a statement: no leg
+    (chop), no pullback yet (price at the highs), or a leg fully retraced.
     """
     window = bars[-LOOKBACK_BARS:]
     if len(window) < 3:

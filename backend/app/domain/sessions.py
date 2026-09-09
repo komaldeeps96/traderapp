@@ -57,13 +57,11 @@ def prior_session_open(reference: datetime, sessions: int = 1) -> datetime:
     """04:00 NY on the trading day ``sessions`` before the current one.
 
     "The current one" is the session ``reference`` sits in, and before 04:00
-    that is still yesterday's — at 02:00 Thursday nothing has traded today,
-    so one session back is Tuesday, not Wednesday.
+    that is still yesterday's: at 02:00 Thursday, one session back is Tuesday.
 
-    Weekends are stepped over. Market holidays are not, for the same reason
-    ``session_of`` does not model them: the providers return no bars on those
-    days, so a holiday costs the window one session of depth and nothing
-    else.
+    Weekends are stepped over; market holidays are not, as in ``session_of``.
+    The providers return no bars on those days, so a holiday costs the window
+    one session of depth and nothing else.
     """
     ny = to_ny(reference.timestamp())
     day = ny.date()

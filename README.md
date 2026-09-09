@@ -5,23 +5,19 @@ from the 10-second chart. FastAPI backend, React + lightweight-charts frontend,
 IBKR and Alpaca market data with automatic failover, TradingView reference
 data. TWS/Bloomberg density, TradingView-quality charts.
 
-The point of it is the things a hosted charting service will not do: a native
-10-second timeframe, key levels computed exactly how you want them, float and
-float rotation next to the tape, and two scanners wired straight into your own
-workflow.
+It does what a hosted charting service will not: a native 10-second timeframe,
+key levels computed exactly how you want them, float and float rotation next to
+the tape, and two scanners wired into your own workflow.
 
 ![The terminal](docs/screenshots/terminal.png)
 
-<sub>Every image in this README is captured by `npm run screenshots`, from the
-same seeded fixtures and frozen clock the visual regression suite uses — so
-they are regenerated against the current code rather than going quietly stale.
-There is a light theme too: [`docs/screenshots/terminal-light.png`](docs/screenshots/terminal-light.png).</sub>
+<sub>Every image here is captured by `npm run screenshots`, from the seeded
+fixtures and frozen clock the visual regression suite uses, so they never go
+quietly stale. Light theme: [`docs/screenshots/terminal-light.png`](docs/screenshots/terminal-light.png).</sub>
 
-The left rail is the IBKR trade-rate scanner — *is anything moving right
-now?* — with the key-level ladder and the indicator chips for whatever is
-loaded beneath it. Screening proper is left to a standard screener on a second
-monitor; TradingView stays wired in on the backend for float, market cap and
-the market-regime counts, which appear in the toolbar.
+The left rail is the IBKR trade-rate scanner — *is anything moving right now?*
+— with the key-level ladder and indicator chips beneath it. TradingView is
+wired in on the backend for float, market cap and the market-regime counts.
 
 The strip above the chart carries the symbol facts that are not bars: last,
 change, bid×ask with sizes, the spread in cents and percent (graded — past
@@ -35,47 +31,31 @@ only — where its crossovers mean something.
 Across the bottom of that column, outside the tab panel so it survives Chart →
 Financials → Metrics, is the **order strip**: three buy buttons in dollars,
 three sell buttons in percent of the position, each showing the share count it
-would send. It is off by default, because the account behind it is a live one.
+would send. Off by default — the account behind it is live.
 
 Down the right is the dock: a 1-minute context chart over a **time and sales**
-window, then fundamentals, news and SEC filings behind their own tabs. The
-tape is tinted the way a direct-access platform tints it — green at the offer
-and a stronger green through it, red at the bid and stronger below — with a
-size floor, a block threshold, same-price aggregation and a freeze. Nobody's
-feed publishes which side took a print, so that verdict is the server's,
-formed against the standing quote; [`docs/time-and-sales.md`](docs/time-and-sales.md)
-explains how, and what the tape does not carry.
+window, then fundamentals, news and SEC filings behind their own tabs. The tape
+is tinted as a direct-access platform tints it — green at the offer, stronger
+through it, red at the bid and stronger below — with a size floor, block
+threshold, same-price aggregation and a freeze. No feed publishes which side
+took a print, so that verdict is the server's, formed against the standing
+quote; see [`docs/time-and-sales.md`](docs/time-and-sales.md).
 
 <img src="docs/screenshots/tape.png" width="420" alt="The context chart over the time and sales window">
 
-The dock's second tab is **AI**: the whole screen judged out of ten against
-Ross Cameron's five pillars — price, percent change, relative volume, float
-and catalyst — weighed *jointly* rather than counted, which is the one thing
-the strip above the chart cannot do. It names the factor carrying or killing
-the setup, lists the hard gates that actually fired, and says what would
-change the read. It is asked for rather than automatic, and it marks itself
-stale when the tape moves 2% past the price it was read at.
-[`docs/setup-judgement.md`](docs/setup-judgement.md) is the design.
-
-<img src="docs/screenshots/ai-tab.png" width="420" alt="The AI tab: a setup scored 6 out of 10, grade B, with a veto above the prose">
-
 The news tab is split. Below is the feed — thirty days from IBKR's entitled
 wires and Alpaca's Benzinga, deduplicated across both. Above it is one trading
-session of that feed — from the previous close to now, because a 16:05 press
-release is what the next morning gaps on — read by the `claude` CLI on this
-machine and scored out of ten against Ross Cameron's catalyst rubric: cost of production first, then the
-credibility checks, then the dilution structures. It is the read a substring
-classifier cannot make — an FDA clearance with a registered direct bolted to
-it scores a 2 rather than tinting green — and the score is *catalyst quality*,
-not a trade signal: it sees no float, no gap and no regime. A switch on the
-toolbar turns it off, and off means nothing is requested and no process is
+session of that feed, from the previous close to now, read by the `claude` CLI
+on this machine and scored out of ten against Ross Cameron's catalyst rubric.
+The score is *catalyst quality*, not a trade signal: it sees no float, no gap
+and no regime. A toolbar switch turns it off, and off means no process is
 spawned. [`docs/news-summary.md`](docs/news-summary.md) is the design.
 
 <img src="docs/screenshots/news-brief.png" width="420" alt="The news tab: an FDA clearance priced into a registered direct an hour later, scored 2 out of 10">
 
 The screenshot is the case the panel exists for: an FDA clearance at 08:30,
 then a $12M registered direct at 09:30 with immediately exercisable warrants.
-The clearance is real and it is being sold into — a **2**, on a headline any
+The clearance is real and it is being sold into — a **2**, on a headline a
 keyword classifier would tint green.
 
 ## Quick start
@@ -382,12 +362,12 @@ its own — no dataframes, no clock, no globals.
 backend/app/
   core/        settings, logging, time
   domain/      bars, timeframes, sessions, wire protocol, tape, orders,
-               and the two AI rubrics — prompts are modules, not strings
+               and the news rubric — a prompt is a module, not a string
   indicators/  pure maths, key levels, YAML specs, engine
   market/      bar builder, resampling, in-memory store
   providers/   alpaca, ibkr, the router that fails over, and the broker
   services/    subscriptions, market data, scanner, broadcaster, tape,
-               trading, and the Claude reader the two AI panels share
+               trading, and the Claude reader behind the news score
   api/         REST + WebSocket
 frontend/src/
   chart/       lightweight-charts engine wrapper (bars never enter React)
@@ -421,15 +401,15 @@ second, and only when that symbol's data actually changed.
 **Indicators are computed server-side** and sent as series, so the browser
 never recomputes an EMA and every client agrees on the numbers.
 
-**The AI panels are a subprocess, sandboxed, and never asked unprompted.** Both
-spawn the `claude` CLI already on the machine rather than calling an API — no
+**The news score is a subprocess, sandboxed, and never asked unprompted.** It
+spawns the `claude` CLI already on the machine rather than calling an API — no
 second key, no SDK to pin — with `--tools ""` so a press release cannot reach
 the filesystem however it is worded, `--safe-mode` so this project's own
 instructions stay out of a scoring prompt, and a JSON schema so the answer is a
-validated object rather than prose to be parsed. The prompts are Python
-modules with tests pinning the sentences that carry the behaviour, the server
-assembles the snapshot so the browser never poses its own question, and a
-replay harness scores both against two years of real movers.
+validated object rather than prose to be parsed. The rubric is a Python module
+with tests pinning the sentences that carry the behaviour, the server assembles
+the question so the browser never poses its own, and a replay harness scores it
+against two years of real movers.
 [`docs/ai-architecture.md`](docs/ai-architecture.md) is the layer.
 
 ### The design notes
@@ -440,8 +420,7 @@ before changing the thing they describe.
 
 | | |
 | --- | --- |
-| [`ai-architecture.md`](docs/ai-architecture.md) | The AI layer — the sandbox, the caching, and how both panels are measured |
-| [`setup-judgement.md`](docs/setup-judgement.md) | The AI tab: why a model rather than a scoring function |
+| [`ai-architecture.md`](docs/ai-architecture.md) | The AI layer — the sandbox, the caching, and how the score is measured |
 | [`news-summary.md`](docs/news-summary.md) | Scoring one session of headlines for catalyst quality |
 | [`order-entry.md`](docs/order-entry.md) | Six buttons, and everything checked before they were built |
 | [`time-and-sales.md`](docs/time-and-sales.md) | The tape, and what it deliberately does not carry |
@@ -546,7 +525,6 @@ TRADERAPP_ALPACA__KEY_ID=...
 TRADERAPP_ALPACA__FEED=delayed_sip
 TRADERAPP_IBKR__ENABLED=false
 TRADERAPP_NEWS_AI__ENABLED=false
-TRADERAPP_SETUP_AI__ENABLED=false
 TRADERAPP_LOG_LEVEL=DEBUG
 ```
 

@@ -130,9 +130,8 @@ export class WsClient {
 
   /**
    * Watch a chart, optionally alongside extra timeframes on the same symbol.
-   *
-   * The extras are stored with the primary so the replay on reconnect restores
-   * every chart the page is showing, not just the main one.
+   * The extras are stored with the primary, so a reconnect replays every chart
+   * the page is showing.
    */
   subscribe(
     symbol: string,
@@ -162,11 +161,9 @@ export class WsClient {
   }
 
   /**
-   * Which indicators are on for one timeframe.
-   *
-   * Remembered and replayed on reconnect for the same reason the
-   * subscription is — and because it is sent during startup, where it may
-   * well be called before the socket has finished opening.
+   * Which indicators are on for one timeframe. Remembered and replayed on
+   * reconnect like the subscription, and because startup may call it before
+   * the socket has finished opening.
    */
   setIndicatorVisibility(timeframe: Timeframe, visible: Record<string, boolean>): void {
     this.visibility.set(timeframe, visible);

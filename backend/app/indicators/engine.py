@@ -1,9 +1,8 @@
 """Turns bars plus indicator specs into the series the chart draws.
 
-The engine recomputes a whole timeframe at once rather than updating
-incrementally. Results are cached per (symbol, timeframe) in the market data
-service and shared by every subscriber, so the cost is paid once per data
-change regardless of how many clients are watching.
+Recomputes a whole timeframe at once rather than updating incrementally.
+Results are cached per (symbol, timeframe) in the market data service and shared
+by every subscriber, so the cost is paid once per data change.
 """
 
 from __future__ import annotations
@@ -205,9 +204,9 @@ class IndicatorEngine:
     ) -> dict[str, float]:
         """Just the current value of each indicator.
 
-        Called once a second per subscribed chart, so it deliberately avoids
-        building full series: key levels become a single lookup and the
-        session-scoped indicators only walk back to the start of the day.
+        Called once a second per subscribed chart, so it avoids building full
+        series: key levels become a single lookup and session-scoped indicators
+        walk back only to the start of the day.
         """
         if not bars:
             return {}

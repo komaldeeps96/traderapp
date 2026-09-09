@@ -1,16 +1,12 @@
 /**
- * The measure tool: drag a region, read what happened inside it.
- *
- * Answers the three questions a trader asks of a move in one gesture — how
- * far (price change and percent), how fast (bars and clock time), and on how
- * much (cumulative volume). The last one is the tell this cohort trades on:
- * a 5% pop on 40K shares and a 5% pop on 2M shares are different events.
+ * The measure tool: drag a region, read what happened inside it — how far
+ * (price change and percent), how fast (bars and clock time), and on how much
+ * (cumulative volume).
  *
  * Drawn as a series primitive like the confluence bands, so it needs no extra
- * DOM and repaints itself whenever the chart does. Anchors are stored as
- * bar time + price rather than pixels or logical indices: pixels go stale on
- * every pan, and logical indices shift when a history backfill prepends bars
- * mid-measurement. Times survive both.
+ * DOM and repaints when the chart does. Anchors are bar time + price rather
+ * than pixels or logical indices: pixels go stale on every pan, and logical
+ * indices shift when a backfill prepends bars mid-measurement.
  */
 
 import type {

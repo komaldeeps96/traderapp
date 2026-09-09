@@ -1,28 +1,21 @@
 """Headlines, cleaned up and read for what they do to the tape.
 
-Two sources feed this. IBKR is the entitled one — eight feeds, thirty days of
-history, live headlines on generic tick 292, and full article bodies. Alpaca's
-Benzinga feed is the second, and it is here because the first goes quiet on
-some of exactly the companies this terminal exists for: WETO returned its own
-halt and its own resume and nothing else, while Benzinga had ten rows, and
-AEMD's catalyst 8-K was there when IBKR had nothing in thirty days.
+Two sources: IBKR (eight entitled feeds, thirty days, live headlines on generic
+tick 292, full bodies) and Alpaca's Benzinga feed, which covers the small caps
+IBKR goes quiet on.
 
-What arrives from IBKR is not usable as-is:
+IBKR's copy is not usable as-is:
 
     {A:800015:L:en}Celularity Files 8K - Listing Notice >CELU
 
-The brace prefix is a legacy routing tag, the trailing ``>SYMBOL`` is a ticker
-marker, and Dow Jones sends the same story three times — a bulletin prefixed
-``*``, a full "Press Release:" version, and one or more ``-2-`` continuations
-carrying the rest of the body. Left alone, one press release eats five rows of
-a panel that has about twenty.
+The brace prefix is a legacy routing tag and the trailing ``>SYMBOL`` a ticker
+marker. Dow Jones sends one story three times — a ``*`` bulletin, a full "Press
+Release:" version, and ``-2-`` continuations — so left alone a single release
+eats five rows of a twenty-row panel.
 
-The catalyst tag is the point of the panel. A momentum trader reading a feed
-mid-run is asking one question — is this a reason to be long, or is it an
-offering? — and "Announces Pricing of Public Offering" should be the loudest
-row on the screen. Supply and distress outrank upside for the same reason the
-8-K item classifier takes the worst item: a raise announced alongside good
-news is still a raise.
+The catalyst tag is the point of the panel: is this a reason to be long, or is
+it an offering? Supply and distress outrank upside, as the 8-K item classifier
+takes the worst item — a raise announced alongside good news is still a raise.
 """
 
 from __future__ import annotations
@@ -198,15 +191,11 @@ _PUNCT = re.compile(r"[^a-z0-9 ]+")
 
 # Characters of the normalised headline that form the dedup key.
 #
-# Measured in characters rather than words because the wire truncates at a
-# character limit and cuts mid-word: the same story runs as "…Announce U.S.
-# Manufacturing Collab" on the bulletin and "…Manufacturing Collaboration for
-# the Dezawa" on the press release. A word count would compare "collab"
-# against "collaboration" and call them different stories.
-#
-# Long enough that two different announcements from one company do not
-# collide; comfortably shorter than the ~110 characters the wire truncates at,
-# so the cut never lands inside the key.
+# Characters rather than words because the wire truncates at a character limit
+# and cuts mid-word, so a word count would compare "collab" against
+# "collaboration" and call them different stories. Long enough that two
+# announcements from one company do not collide, and comfortably shorter than
+# the ~110 characters the wire truncates at.
 _STEM_CHARS = 45
 
 # Two headlines only collapse if they arrive within this of each other. The
@@ -273,11 +262,9 @@ MAX_ARTICLE_CHARS = 40_000
 def to_paragraphs(raw_html: str) -> list[str]:
     """An article body as plain-text paragraphs.
 
-    The wire sends an HTML fragment. It is turned into text here rather than
-    rendered as markup in the browser: the body is third-party content on a
-    page that also holds the trading UI, and there is no version of that where
-    injecting provider HTML into the DOM is the right call. Paragraph breaks
-    are preserved because a press release without them is unreadable.
+    The wire sends an HTML fragment, turned into text here rather than rendered
+    as markup: it is third-party content on a page that also holds the trading
+    UI. Paragraph breaks are preserved.
     """
     if not raw_html:
         return []
@@ -293,11 +280,9 @@ def to_paragraphs(raw_html: str) -> list[str]:
 def extract_tickers(raw: str) -> tuple[str, ...]:
     """The trailing ``>CELU`` markers, before they are stripped for display.
 
-    Live headlines arrive on generic tick 292 with no contract id attached —
-    ``ib_async`` discards the request id its wrapper receives — so this marker
-    is the only thing on the wire that says which company a live headline is
-    about. Not every headline carries one, which is why the caller needs a
-    fallback.
+    Live headlines arrive on generic tick 292 with no contract id — ``ib_async``
+    discards the request id its wrapper receives — so this marker is the only
+    thing saying which company they are about. Not every headline carries one.
     """
     match = _TICKERS.search(_TAG.sub("", raw or "").strip())
     if match is None:
@@ -334,9 +319,8 @@ def stem(headline: str) -> str:
     """The dedup key: the first few significant words, normalised.
 
     Dow Jones publishes one story as a starred bulletin, a "Press Release:"
-    version and a run of continuations, each truncated at a different length.
-    Normalising the lead-in and keying on the opening words is what makes
-    those three collapse into one row without merging unrelated stories.
+    version and continuations, each truncated at a different length. Normalising
+    the lead-in and keying on the opening words collapses them into one row.
     """
     text = _LEAD_NOISE.sub("", (headline or "").lower())
     text = _CONTINUATION.sub("", text)
@@ -374,11 +358,10 @@ _BENZINGA_ID = "bz:"
 def to_benzinga_row(entry: dict) -> dict | None:
     """One Alpaca news item, in the shape ``build`` already reads.
 
-    ``symbols`` is the field that earns its keep. Benzinga publishes movers
-    lists naming a dozen tickers, and the symbol asked for is simply one of
-    them — so "Why Elastic Shares Are Trading Higher By 22%" comes back under
-    AEMD. Carrying the count lets the panel show those without letting them
-    pose as this company's news.
+    ``symbols`` earns its keep: Benzinga publishes movers lists naming a dozen
+    tickers, so an unrelated headline comes back under the symbol asked for.
+    Carrying the count lets the panel show those without letting them pose as
+    this company's news.
     """
     headline = str(entry.get("headline") or "").strip()
     identifier = entry.get("id")
@@ -457,16 +440,14 @@ def build(raw_headlines: list[dict]) -> list[Headline]:
 def _match(groups: list[_Group], row: _Copy) -> _Group | None:
     """The story this wire copy belongs to, if any.
 
-    A copy too short to produce a full stem is matched by prefix instead:
-    ``Press Release: Celularity and MuseCell -2-`` stems to three words where
-    its parent stems to eight, and the wire truncates its bulletins at a
-    different length again. An equality test would leave every one of those as
-    a row of its own, which is the noise this exists to remove.
+    A copy too short for a full stem is matched by prefix: a ``-2-``
+    continuation stems to three words where its parent stems to eight, and an
+    equality test would leave each as its own row.
 
-    A stub can in principle prefix-match an unrelated story that opens with
-    the same words. Inside a six-hour window, about the same company, that is
-    overwhelmingly the same story — and the cost of being wrong is one row
-    folded, not one row lost: the copy is kept in ``related``.
+    A stub can prefix-match an unrelated story opening with the same words.
+    Inside a six-hour window about one company that is overwhelmingly the same
+    story, and the cost of being wrong is one row folded, not lost — the copy is
+    kept in ``related``.
     """
     time, headline = row.time, row.headline
     key = stem(headline)
@@ -483,9 +464,8 @@ def _match(groups: list[_Group], row: _Copy) -> _Group | None:
 def _prefix_match(a: str, b: str) -> bool:
     """One key is a truncation of the other.
 
-    Tested in both directions because the copies arrive in no useful order:
-    the bulletin can precede or follow the press release, and whichever comes
-    first is the one that opened the group.
+    Tested in both directions: the bulletin can precede or follow the press
+    release, and whichever came first opened the group.
     """
     if len(a) == len(b):
         return False
@@ -496,11 +476,9 @@ def _prefix_match(a: str, b: str) -> bool:
 def _headline_for(group: _Group) -> Headline:
     """Collapse a story's wire copies into the row that represents it.
 
-    The longest headline wins: the same story arrives as a truncated bulletin,
-    a fuller press-release version and a stub continuation, and the longest is
-    the one that actually says what happened. The catalyst is read across all
-    of them, so a bulletin that only mentions the offering in its second line
-    still tints the row.
+    The longest headline wins, being the one that says what happened. The
+    catalyst is read across all copies, so a bulletin mentioning the offering
+    only in its second line still tints the row.
     """
     best = max(group.members, key=lambda row: len(row.headline))
     catalyst = Catalyst.NONE

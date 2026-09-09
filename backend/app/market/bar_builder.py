@@ -58,20 +58,18 @@ class BarBuilder:
     def add_trade(self, trade: Trade) -> Bar | None:
         """Fold a trade in. Returns the previous bar when a period rolls over.
 
-        Trades that arrive for an already-closed period are dropped rather
-        than reopening it — out-of-order prints would otherwise resurrect a
-        bar the client has already been told is final.
+        Trades for an already-closed period are dropped rather than reopening
+        it: an out-of-order print must not resurrect a bar the client has been
+        told is final.
 
-        A non-price-forming print (late report, average-price block, odd
-        lot) adds volume to its period's bar but never touches OHLC, and
-        never opens a bar of its own — a bar whose open is not a market
-        price would poison every indicator built on it.
+        A non-price-forming print (late report, average-price block, odd lot)
+        adds volume but never touches OHLC and never opens a bar of its own — a
+        bar whose open is not a market price poisons every indicator on it.
 
-        When such a print lands before its period has been opened it is held
-        rather than dropped, and folded in once a real trade opens the bar.
-        Odd lots are the reason: they are the great majority of prints on a
-        small-cap gapper, so a minute frequently *begins* with one, and
-        discarding those cost ~4% of volume against the published bar.
+        Such a print landing before its period is opened is held rather than
+        dropped and folded in once a real trade opens the bar. Odd lots are the
+        reason: a minute frequently begins with one, and discarding those costs
+        ~4% of volume against the published bar.
         """
         if trade.price <= 0 or trade.size < 0:
             return None
@@ -117,9 +115,9 @@ class BarBuilder:
     def adopt(self, bar: Bar) -> None:
         """Seed the in-progress period from an authoritative provider bar.
 
-        Provider minute bars carry consolidated volume that a trade stream
-        alone can understate, so when one lands for the period we are building
-        it replaces our running totals instead of adding to them.
+        Provider minute bars carry consolidated volume a trade stream can
+        understate, so one landing for the period being built replaces our
+        running totals rather than adding to them.
         """
         period = bucket_start(bar.time, self._timeframe)
         self._forget_pending()

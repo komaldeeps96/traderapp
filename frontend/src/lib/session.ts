@@ -71,13 +71,8 @@ export function sessionAt(epochSeconds: number): SessionName {
 // ── the news clock ─────────────────────────────────────────────────────
 
 /**
- * Issuers schedule press releases, and they schedule them on the hour and
- * the half hour. That is not a habit of any one trader's — it is a property
- * of the wire calendar, and the whole shape of the morning follows from it:
- * headline density peaks at 8:00 and 8:30, and so does the profit.
- *
- * 9:15 is the ragged end of it — "the last chance for breaking news, and a
- * bit of a hail mary".
+ * Issuers schedule press releases on the hour and the half hour, so headline
+ * density peaks at 8:00 and 8:30. 9:15 is the ragged end of it.
  */
 export const NEWS_SLOTS = [7 * 60, 7 * 60 + 30, 8 * 60, 8 * 60 + 30, 9 * 60, 9 * 60 + 15];
 
@@ -92,12 +87,9 @@ const DENSE_SLOTS = new Set([8 * 60, 8 * 60 + 30]);
 export const LAST_INITIATION_MINUTE = 9 * 60 + 15;
 
 /**
- * How long after a mark a move is still presumed to belong to it.
- *
- * Measured wire-to-scanner latency runs three to fifteen seconds, so this is
- * mostly reaction time. Two minutes also gives the other half of the rule:
- * once a scheduled slot has passed in silence, the window is closed and the
- * odds of a catalyst in the next half hour drop.
+ * How long after a mark a move is still presumed to belong to it. Measured
+ * wire-to-scanner latency runs three to fifteen seconds, so this is mostly
+ * reaction time; it also closes the window once a slot passes in silence.
  */
 export const NEWS_WATCH_SECONDS = 120;
 
@@ -137,11 +129,10 @@ export function slotLabel(slot: number): string {
 /**
  * Which New York trading day an epoch second belongs to.
  *
- * A fixed 4.5-hour offset instead of a real timezone lookup, on purpose: the
- * tape only prints between 4:00 and 20:00 ET, and any offset between 4 and 5
- * hours buckets every such timestamp identically under both EST and EDT. That
- * makes the day boundary pure arithmetic — this runs once per bar over
- * thousands of bars every time the session cache rebuilds.
+ * A fixed 4.5-hour offset rather than a timezone lookup: the tape only prints
+ * between 04:00 and 20:00 ET, and any offset between 4 and 5 hours buckets
+ * every such timestamp identically under EST and EDT. This runs once per bar
+ * over thousands of bars.
  */
 export function nyDayIndex(epochSeconds: number): number {
   return Math.floor((epochSeconds - 16_200) / 86_400);
@@ -150,10 +141,8 @@ export function nyDayIndex(epochSeconds: number): number {
 /**
  * Cumulative volume through each bar, restarting at every New York day.
  *
- * `result[i]` is the session volume *as of* bar i — what the day had done by
- * that moment, which is the honest way to read a historical setup. On daily
- * and weekly bars every bar is its own "day", so the figure degrades to the
- * bar's own volume.
+ * `result[i]` is the session volume *as of* bar i. On daily and weekly bars
+ * every bar is its own day, so the figure degrades to the bar's own volume.
  */
 export function sessionVolumes(bars: readonly { t: number; v: number }[]): number[] {
   const result: number[] = new Array(bars.length);
@@ -225,11 +214,8 @@ function nyOffsetSeconds(epochSeconds: number): number {
 }
 
 /**
- * The countdown as it reads on the price axis.
- *
- * Bare seconds while a bar is under a minute long, because "0:09" on a
- * 10-second chart is three characters of nothing. Minutes and seconds above
- * that, where a bare "247s" would have to be divided in the head.
+ * The countdown as it reads on the price axis: bare seconds under a minute,
+ * minutes and seconds above, where "247s" would have to be divided in the head.
  */
 export function formatCountdown(timeframe: Timeframe, remaining: number): string {
   if (TIMEFRAME_SECONDS[timeframe] < 60) return `${remaining}s`;
@@ -247,10 +233,9 @@ export function formatCountdown(timeframe: Timeframe, remaining: number): string
 /**
  * Is the bar in its closing stretch?
  *
- * Proportional rather than a fixed number of seconds: five seconds is half a
- * 10-second bar and a rounding error on a 5-minute one. The final tenth marks
- * the point where the shape is unlikely to change again — with a two-second
- * floor so a fast timeframe still gives some warning.
+ * Proportional rather than a fixed number of seconds — five seconds is half a
+ * 10-second bar and a rounding error on a 5-minute one. The final tenth, with a
+ * two-second floor so a fast timeframe still gives warning.
  */
 export function isCandleClosing(timeframe: Timeframe, remaining: number): boolean {
   return remaining <= Math.max(2, TIMEFRAME_SECONDS[timeframe] / 10);

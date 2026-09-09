@@ -21,23 +21,19 @@ const INPUT =
 /**
  * Prints per minute above which a row flashes green.
  *
- * A thousand a minute is about seventeen a second — a rate a name only
- * reaches when something is actually happening to it, and well clear of the
- * couple of hundred a busy-but-ordinary runner prints. The list is already
- * ordered by this number, so the highlight is not saying where to look; it is
- * saying the top of the list has crossed from busy into worth dropping what
- * you are doing. The styling lives in index.css, under `.scanner-row-hot`.
+ * A thousand a minute is about seventeen a second, well clear of the couple of
+ * hundred a busy-but-ordinary runner prints. The list is already ordered by
+ * this, so the highlight marks crossing from busy into urgent rather than
+ * saying where to look. Styling is `.scanner-row-hot` in index.css.
  */
 export const HOT_TRADE_RATE = 1000;
 
 /**
  * One IBKR trade-rate scanner, filtered to a single market-cap tier.
  *
- * The edge it carries is the tape: trades-per-minute and dollar
- * volume over sliding windows, straight from live prints. IBKR-only, with no
- * fallback, so when TWS is absent the panel says so plainly. Four of these
- * run side by side — small/mid/large/mega cap — each with its own filters
- * and persisted state; see App.tsx.
+ * Trades-per-minute and dollar volume over sliding windows, straight from live
+ * prints. IBKR-only with no fallback, so an absent TWS is said plainly. Four
+ * run side by side, each with its own filters and persisted state; see App.tsx.
  */
 export function ScannerPanel({ scannerId, onSelect, onConfigure }: ScannerPanelProps) {
   const tier = useTerminalStore((state) => state.scanners[scannerId]);
@@ -317,12 +313,9 @@ function ScannerFilters({
 }
 
 /**
- * How far a name has climbed the list in the last few seconds.
- *
- * The level says what is busiest; the movement says what is *becoming*
- * busy, and it turns first — a name is often several places into a climb
- * before it reaches anywhere worth noticing. Steady rows render nothing at
- * all, so the marks only appear where something is happening.
+ * How far a name has climbed the list in the last few seconds. The level says
+ * what is busiest, the movement what is *becoming* busy, and it turns first.
+ * Steady rows render nothing.
  */
 function RankMove({ delta, entered }: { delta: number | null; entered: boolean }) {
   if (entered) {

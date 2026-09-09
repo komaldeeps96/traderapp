@@ -8,19 +8,14 @@ import type { InsiderIntent, InsiderTrade, OwnershipResponse } from '@/types/pro
 /**
  * What insiders have actually done.
  *
- * Most of a Form 4 trail is payroll. Grants, option exercises and shares
- * withheld to cover the tax on a vest move the share count and say nothing
- * about what anyone thinks — counting them is how "insiders dumped stock"
- * headlines get written about a vesting date.
+ * Most of a Form 4 trail is payroll — grants, option exercises and shares
+ * withheld for the tax on a vest — so the summary leads with the two things
+ * that carry information: cash spent at the market, and sales that were
+ * *decided* rather than scheduled. A 10b5-1 plan sale is set months ahead, so
+ * it is shown separately rather than netted.
  *
- * So the summary leads with the two things that carry information: cash
- * spent at the market, and sales that were *decided* rather than scheduled.
- * A 10b5-1 plan sale is set months ahead and is as automatic as a payroll
- * deduction, so it is shown separately rather than netted.
- *
- * The rows below keep everything, because the reason a number is small
- * matters: "no insider buying" and "no insider filings at all" are different
- * facts about a company.
+ * The rows below keep everything: "no insider buying" and "no insider filings
+ * at all" are different facts.
  */
 
 const INTENT_CLASS: Record<InsiderIntent, string> = {

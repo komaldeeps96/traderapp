@@ -1,15 +1,9 @@
 """Time and sales: one row per print, and which side of the book took it.
 
-A chart is a summary; the tape is the thing itself. On a small-cap runner the
-question that decides an entry — is somebody lifting offers, or is this a
-stack of prints hitting the bid on the way down — is answered here a beat
-before it shows up as a candle.
-
 **Nobody publishes the aggressor.** Neither the SIP feeds nor IBKR's
-tick-by-tick stream say whether a print was a buy or a sell; the tape carries
-price, size, venue and sale conditions and nothing else. Every terminal that
-shows green and red rows is doing what this module does — comparing the print
-against the top of book that was standing when it arrived:
+tick-by-tick stream say whether a print was a buy or a sell, so the side is
+inferred by comparing the print against the top of book standing when it
+arrived:
 
     above the ask   a sweep: somebody paid through the offer
     at the ask      a buyer lifted the offer
@@ -17,18 +11,13 @@ against the top of book that was standing when it arrived:
     at the bid      a seller hit the bid
     below the bid   a sweep the other way
 
-That comparison inherits one honest weakness. Our quote is the newest one to
-have *arrived*, not the one that was standing at the print's own timestamp, so
-a print that overtakes its own quote update is classified against the book a
-few milliseconds late. It is the same weakness every platform has, it moves a
-row by one shade rather than from green to red, and the alternative — holding
-a quote history and binding each print to it — costs more than the answer is
-worth on a window nobody reads a single row of.
+That quote is the newest to have *arrived*, not the one standing at the print's
+own timestamp, so a print overtaking its own quote update is classified a few
+milliseconds late.
 
 Sizes and conditions are carried through untouched so the window can filter on
-them. What *is* missing is stated in ``docs/time-and-sales.md``: odd lots never
-reach here, because IBKR's ``Last`` stream does not carry them and the app's
-bars are built to match that.
+them. Odd lots never reach here — IBKR's ``Last`` stream does not carry them.
+See ``docs/time-and-sales.md``.
 """
 
 from __future__ import annotations

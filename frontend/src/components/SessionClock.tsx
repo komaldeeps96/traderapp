@@ -24,13 +24,8 @@ const PHASE_LABEL: Record<string, string | null> = {
 };
 
 /**
- * New York clock and session badge.
- *
- * The candle countdown used to live here too and has moved onto the price
- * axis of each chart, under the last-price label. It matters most in a
- * candle's closing seconds, which is exactly when the eye is on the right
- * edge of the chart — reading it up here meant looking away from the thing
- * it describes, and it could only ever count one chart's timeframe.
+ * New York clock and session badge. The candle countdown lives on each chart's
+ * price axis instead (`chart/countdown.ts`), under the last-price label.
  */
 export function SessionClock() {
   const [now, setNow] = useState(() => Date.now());
@@ -73,13 +68,10 @@ export function SessionClock() {
 /**
  * The next scheduled release window.
  *
- * Issuers file on the hour and the half hour, densest at 8:00 and 8:30, and
- * the day's profit distribution sits directly behind that calendar. So the
- * useful clock is not "how long until the open" — it is "how long until the
- * next time news can land", and then whether it did.
+ * Issuers file on the hour and the half hour, densest at 8:00 and 8:30, so the
+ * useful clock is "how long until news can land", then whether it did.
  *
- * Past 9:15 the chip stops counting and says so instead: no slot is left to
- * wait for, and a position opened after it has no runway to recover in.
+ * Past 9:15 the chip stops counting and says so: no slot is left to wait for.
  */
 function NewsSlot({ window, minutes }: { window: NewsWindow | null; minutes: number }) {
   if (minutes >= LAST_INITIATION_MINUTE && minutes < 16 * 60) {

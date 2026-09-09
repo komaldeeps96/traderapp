@@ -12,11 +12,8 @@ const FALLBACK_OFFSET = 140;
  * Floating zoom and pan controls, centred above the sub-panes.
  *
  * The vertical offset is measured from the chart rather than hardcoded: the
- * sub-panes sit below the price pane and can be resized by dragging their
- * separator, and a fixed offset would leave the controls stranded over the
- * volume bars or the time axis. An earlier version pinned them flush in the
- * corner, where they landed on the axis in translucent white — present,
- * clickable, and invisible.
+ * sub-panes are resizable by dragging their separator, and a fixed offset would
+ * strand the controls over the volume bars or the time axis.
  */
 export function ChartControls() {
   const offset = useSubPaneOffset();
@@ -50,10 +47,8 @@ export function ChartControls() {
 }
 
 /**
- * The measure tool's switch. While on, dragging on the chart selects a
- * region and reads out its move, span and volume; panning is suspended for
- * the duration. Escape is the fast exit, because the reflex after reading a
- * measurement is to get the drag gesture back.
+ * The measure tool's switch. While on, dragging selects a region and reads out
+ * its move, span and volume, and panning is suspended. Escape is the fast exit.
  */
 function MeasureToggle() {
   const [measuring, setMeasuring] = useState(false);
@@ -96,10 +91,9 @@ function MeasureToggle() {
  * Track the height of the panes below the price pane.
  *
  * lightweight-charts does not announce a pane resize, so this samples after
- * everything that can cause one: a new snapshot (which is when the sub-panes
- * are actually built — sampling only at mount reads a chart that has no
- * volume pane yet), the window resizing, and the mouse being released after a
- * separator drag.
+ * everything that causes one: a new snapshot (when the sub-panes are built —
+ * at mount there is no volume pane yet), a window resize, and the mouse being
+ * released after a separator drag.
  */
 function useSubPaneOffset(): number {
   const [offset, setOffset] = useState(FALLBACK_OFFSET);
@@ -119,14 +113,9 @@ function useSubPaneOffset(): number {
      * Sample until the panes stop moving.
      *
      * The chart relayouts on its own ResizeObserver, which runs *after* the
-     * window resize event we hear, and its panes settle a frame or two after
-     * that. Sampling once on the event reads the pre-resize geometry and
-     * keeps it, leaving the controls stranded over the volume bars until
-     * something else happens to resample.
-     *
-     * Converging beats guessing at a delay: it re-reads each frame until
-     * two agree, so it is as quick as the browser is and does not depend on
-     * a timeout being long enough on a loaded machine.
+     * window resize event, and its panes settle a frame or two later — so
+     * sampling once on the event keeps the pre-resize geometry. Re-reading each
+     * frame until two agree is as quick as the browser and needs no timeout.
      */
     const settle = (deadline = performance.now() + 2_000) => {
       cancelAnimationFrame(frame);

@@ -1,23 +1,18 @@
 """Foreign exchange, so a filer's statements can be read in dollars.
 
 A company reporting in CAD, DKK or CNY is not comparable to anything else on
-the screen until it is converted. The rates come from Frankfurter, which
-serves the European Central Bank's published reference rates: free, no key,
-no attribution requirement, and a source that can be pointed at if a number
-is ever questioned.
+screen until converted. Rates come from Frankfurter, which serves the ECB's
+published reference rates: free, no key, and citable.
 
 **Two conventions, because a balance and a flow are not converted the same
 way.** IAS 21 puts income and expenses at the rate on the transaction date —
-approximated, as every data provider does, by the average across the period —
-and assets and liabilities at the closing rate on the balance-sheet date.
-Using one rate for both is the common shortcut and it is wrong: checked
-against TradingView's own USD figures for Alibaba, the period average lands
-within 0.06% while the closing rate is out by 2.94%.
+approximated by the average across the period — and assets and liabilities at
+the closing rate on the balance-sheet date. Using one rate for both is out by
+~3% where the right one is within 0.06%.
 
-Rates for a period that has already ended never change, so they are cached
-for the life of the process. The public endpoint rate-limits, and a miss is
-worth one retry rather than a wrong number: a failed conversion returns None
-and the caller reports the statements in their own currency instead.
+Rates for an ended period never change, so they are cached for the life of the
+process. A failed conversion returns None and the caller reports the statements
+in their own currency.
 """
 
 from __future__ import annotations
@@ -126,8 +121,7 @@ class FxService:
         """The rate on one day — what a balance sheet is converted at.
 
         Frankfurter answers a weekend or holiday with the previous business
-        day's rate, which is the same thing every provider does and the same
-        thing an accountant does.
+        day's rate.
         """
         if currency == USD:
             return 1.0

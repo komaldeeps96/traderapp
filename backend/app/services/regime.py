@@ -1,14 +1,8 @@
 """The market-regime poll.
 
-How many listed common stocks are up 50% and 100% today. Setup quality holds
-in a hot tape and degrades badly in a cold one, so the same chart is worth
-trading on one day and not the next — the count is the cheapest read of which
-day it is.
-
-This was a full TradingView screener until the panel was removed in favour of
-a standard screener on a second monitor. Only the regime survived it, so only
-the regime is polled: the scan itself was a wasted request every fifteen
-seconds for rows nothing displayed.
+How many listed common stocks are up 50% and 100% today. Setup quality holds in
+a hot tape and degrades in a cold one, so the same chart is worth trading on one
+day and not the next; the count is the cheapest read of which day it is.
 """
 
 from __future__ import annotations

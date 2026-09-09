@@ -438,11 +438,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   },
 
   /**
-   * Show this, and remember it on the server.
-   *
-   * The whole picture goes out; the server stores what differs from the
-   * config. Keeping the same deltas here means a timeframe switch and back
-   * reads the toggles from memory rather than waiting on a round trip.
+   * Show this, and remember it on the server. The whole picture goes out and
+   * the server stores what differs from the config; keeping the same deltas
+   * here means a timeframe switch and back needs no round trip.
    */
   applyVisibility: (next) => {
     const { specs, timeframe, indicatorOverrides } = get();

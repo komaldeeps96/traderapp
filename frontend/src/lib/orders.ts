@@ -4,22 +4,17 @@
  * A direct mirror of `backend/app/domain/orders.py`, asserted against the same
  * case table in `order-cases.json` so the two cannot drift.
  *
- * WHY IT EXISTS TWICE. The button has to read `$25 · 6 sh` and update as the
- * spread moves, which is a hundred times a minute — asking the server for that
- * number would put a round trip inside a readout. So the client previews
- * locally. But the client never *sends* a quantity: the command carries the
- * dollar amount or the fraction, and the backend recomputes the shares from
- * its own freshest quote at the instant of the order. A tab that has been
- * asleep for a minute therefore cannot put a stale size on the wire, and this
- * file is a display, not a decision.
+ * **It exists twice** because the button reads `$25 · 6 sh` and updates as the
+ * spread moves, and a round trip does not belong inside a readout. The client
+ * still never *sends* a quantity: the command carries the dollar amount or the
+ * fraction and the backend recomputes shares from its own freshest quote, so
+ * this file is a display, not a decision.
  *
- * EVERYTHING IS INTEGER ARITHMETIC IN MILLIONTHS OF A DOLLAR — the same choice
- * the backend makes, and the reason the two agree bit for bit. In floats,
- * `0.98 - 0.05` is 0.9299999999999999, and the flooring step that snaps a sell
- * onto its tick turns that into a limit of 0.9299 — a hundredth of a penny
- * below where it was meant to be, arrived at silently. A micro-dollar is exact
- * for every price a US equity can quote, and a million dollars is 1e12, well
- * inside the 2^53 a double represents exactly.
+ * **Integer arithmetic in millionths of a dollar**, as in the backend, which is
+ * why the two agree bit for bit. In floats `0.98 - 0.05` is 0.9299999999999999
+ * and the tick snap turns that into a limit of 0.9299. A micro-dollar is exact
+ * for every price a US equity can quote, and $1M is 1e12, inside the 2^53 a
+ * double holds exactly.
  */
 
 import type { BlockedReason } from "@/types/protocol";
@@ -83,9 +78,7 @@ export function buyLimit(ask: number, offset: OffsetConfig): number {
  * Marketable sell limit: through the bid, snapped **down** onto a tick.
  *
  * Clamped at one tick above zero — a wide offset on a two-cent stock would
- * otherwise price the order at or below nothing, which TWS rejects, and an
- * exit that will not leave the building is the one failure this side cannot
- * afford.
+ * otherwise price the order at or below nothing, which TWS rejects.
  */
 export function sellLimit(bid: number, offset: OffsetConfig): number {
   const bidMicros = toMicros(bid);
@@ -114,10 +107,9 @@ export function sharesForDollars(dollars: number, ask: number): number {
 /**
  * How many whole shares `fraction` of a long position comes to.
  *
- * A whole-position exit returns the position exactly rather than a proportion
- * of it, so nothing can leave a share behind on the one order whose entire
- * purpose is to leave nothing behind. Long only: clamped to the position, so
- * no fraction can open a short.
+ * A whole-position exit returns the position exactly rather than a proportion,
+ * so nothing is left behind. Long only: clamped to the position, so no fraction
+ * can open a short.
  */
 export function sharesForFraction(position: number, fraction: number): number {
   if (position <= 0 || fraction <= 0) return 0;

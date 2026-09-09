@@ -8,15 +8,12 @@ import type { PeerRank, PeerRow, PeersResponse } from '@/types/protocol';
 /**
  * The company beside the ones it competes with.
  *
- * A ratio on its own is not a judgement: 39× earnings is expensive for a
- * utility and cheap for a chip designer. The ranking strip at the top says
- * where this company sits in its own industry on each measure, and the
- * median beside it says what "normal" is here — which is the number that
- * makes the company's own figure mean something.
+ * A ratio alone is not a judgement: 39× earnings is expensive for a utility and
+ * cheap for a chip designer. The ranking strip says where this company sits in
+ * its own industry, and the median beside it says what "normal" is here.
  *
- * First is always best, and which end that is depends on the measure: a low
- * P/E ranks well, a low gross margin does not. The backend decides that; the
- * table only draws it.
+ * First is always best, and which end that is depends on the measure — a low
+ * P/E ranks well, a low gross margin does not. The backend decides that.
  */
 
 const RANK_TONE = (position: number | null, total: number): string => {

@@ -23,10 +23,9 @@ class LevelKey:
     """Identifies one daily level, e.g. ``sma`` over 20 bars.
 
     ``weeks`` switches the span from a count of bars to a span of calendar
-    time. A moving average is a bar count by nature — twenty closes averaged
-    — but a "52-week high" is a claim about the calendar, and 252 bars is
-    only an approximation of it. The two disagree at the edge, which is
-    exactly where a yearly extreme tends to sit.
+    time. A moving average is a bar count by nature; a "52-week high" is a claim
+    about the calendar, and 252 bars only approximates it — they disagree at the
+    edge, which is where a yearly extreme tends to sit.
     """
 
     kind: str
@@ -168,10 +167,9 @@ class DailyLevelIndex:
     def _last_index_before(self, day: date) -> int:
         """Index of the newest daily bar that closed before ``day``.
 
-        Memoised because the answer depends only on the day, while every
-        span and prev-day level asks it again for the same day — some thirty
-        identical binary searches per bar on a daily chart. The index is
-        rebuilt whenever the daily bars change, so the cache cannot go stale.
+        Memoised because the answer depends only on the day while every span and
+        prev-day level asks it again — some thirty identical binary searches per
+        bar on a daily chart. Rebuilt whenever the daily bars change.
         """
         hit = self._index_cache.get(day)
         if hit is not None:
@@ -189,10 +187,8 @@ class DailyLevelIndex:
     def _previous_bucket(self, prefix: str, current) -> _Aggregate | None:
         """The newest completed bucket strictly before ``current``.
 
-        This looked like a handful of calls when levels only ever landed on
-        intraday charts, where 2,000 bars span a week of distinct days. On a
-        daily chart every bar is its own day, so it runs once per bar per
-        level, and scanning every bucket made the snapshot quadratic in the
+        On a daily chart every bar is its own day, so this runs once per bar per
+        level: scanning every bucket would make the snapshot quadratic in the
         length of history.
         """
         keys = self._period_keys[prefix]
@@ -267,11 +263,10 @@ def parse_level_key(raw: str) -> LevelKey:
 def _running_year_max(values: list[float], dates: list[date]) -> list[float]:
     """The highest value so far in each bar's own calendar year.
 
-    Reset on 1 January rather than rolled over a window: unlike the 52-week
-    high beside it, this level is anchored, so it only moves when the year
-    makes a new high. Early in the year the two sit far apart and by December
-    they nearly agree, and that gap is how much of the yearly range this
-    year's move accounts for.
+    Reset on 1 January rather than rolled over a window: unlike the 52-week high
+    beside it this level is anchored, so it moves only when the year makes a new
+    high. The gap between the two is how much of the yearly range this year's
+    move accounts for.
     """
     out: list[float] = []
     year: int | None = None
@@ -289,24 +284,15 @@ def _calendar_extreme(
     """The extreme over a span of calendar time rather than a count of bars.
 
     A monotonic deque, so this stays linear over the forty years of daily
-    history the terminal loads.
+    history the terminal loads. The window is open at the far end: a bar exactly
+    `weeks` old has fallen out.
 
-    The window is open at the far end: a bar exactly `weeks` old has fallen
-    out. That is what makes this differ from the bar count it replaces —
-    Celularity's high was dated 366 days back, inside a 252-bar window and
-    outside a 52-week one, and the label says weeks.
-
-    **Not weekly resampling**, which is the obvious alternative and is wrong
-    for a level. Fifty-two weekly bars span 357 days on a Monday and 361 on a
-    Friday, because the newest bar is a partial week — so an old extreme
-    expires up to a week early and the level drops in Monday steps rather
-    than decaying by the day. Measured on Celularity: for four consecutive
-    days in August 2026 the weekly method read 3.1539 while the highest print
-    of the preceding fifty-two weeks was still 4.0098.
-
-    The two answer different questions. "The highest of the last 52 weekly
-    candles" is what a weekly chart shows; "the highest price in the last 52
-    weeks" is what a level labelled 52W means, and it is this one.
+    **Not weekly resampling.** Fifty-two weekly bars span 357 days on a Monday
+    and 361 on a Friday, because the newest bar is a partial week, so an old
+    extreme expires up to a week early and the level drops in Monday steps
+    rather than decaying by the day. "The highest of the last 52 weekly candles"
+    is what a weekly chart shows; a level labelled 52W means the highest price
+    in the last 52 weeks.
     """
     window = timedelta(weeks=weeks)
     out: list[Number] = []

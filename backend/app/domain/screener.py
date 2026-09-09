@@ -14,16 +14,10 @@ from dataclasses import asdict, dataclass, field
 def finite(value: object) -> float | None:
     """A real number, or nothing at all.
 
-    Every screener row arrives through pandas, which fills a missing cell
-    with NaN — and `isinstance(nan, float)` is True, so a plain type check
-    lets it straight through. NaN then poisons whatever it touches, and
-    silently: every comparison against it is False, so a row carrying one
-    passes a filter *because* it failed the test, and sorting a list with a
-    few in it puts everything in an arbitrary order.
-
-    That is not hypothetical. It ranked Apple first of thirty-one on
-    price-to-book, at 43x against a peer median of 2x, because three peers
-    reported no book value.
+    Every screener row arrives through pandas, which fills a missing cell with
+    NaN, and `isinstance(nan, float)` is True — so a plain type check lets it
+    through. Every comparison against NaN is False, so a row carrying one passes
+    a filter *because* it failed the test, and sorting scrambles the order.
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -72,11 +66,9 @@ class SymbolStats:
 
     # ── the slow half ──────────────────────────────────────────────────
     #
-    # Ratios and statements, for the fundamentals panel's lower section.
-    # Deliberately separate from the fields above: those decide whether a
-    # trade is possible at all — float, rotation, the all-time high — and
-    # these never do. A P/E ratio has stopped no trade in this workflow.
-    # They ride the same single query, so they cost nothing to carry.
+    # Ratios and statements, for the fundamentals panel's lower section. Kept
+    # separate from the fields above, which decide whether a trade is possible
+    # at all. They ride the same single query, so they cost nothing to carry.
     industry: str = ""
     country: str = ""
     employees: float | None = None

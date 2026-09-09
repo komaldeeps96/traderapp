@@ -1,23 +1,18 @@
 /**
  * The left column: what the market is doing, and two ways of asking.
  *
- * The four market-cap panels are a day-trading instrument. They rank by trade
- * rate and rotation and answer "what is moving *now*", which is a question
- * about the tape — so they need IBKR, and they are dark whenever TWS is not
- * running.
+ * The four market-cap panels rank by trade rate and rotation and answer "what
+ * is moving *now*" — a question about the tape, so they need IBKR and are dark
+ * without TWS.
  *
- * A swing setup is a different question, asked of daily structure rather than
- * of the tape: what has been working, and is it at a place worth buying. It
- * answers from TradingView, so that tab still fills with nothing else
- * connected.
+ * A swing setup asks of daily structure instead: what has been working, and is
+ * it at a place worth buying. It answers from TradingView, so that tab fills
+ * with nothing else connected.
  *
- * The watchlist is neither: nothing chose those names but the person sitting
- * here. It shares the column because it answers the same question the two
- * screens do — what to look at next — and because a name is usually put on it
- * *from* one of them.
+ * The watchlist is neither — nothing chose those names but the person here.
  *
- * They share the column rather than the screen because only one of them is
- * ever being acted on, and the key levels below need the height.
+ * They share the column rather than the screen because only one is ever being
+ * acted on, and the key levels below need the height.
  */
 
 export const SCANNER_TAB_IDS = ['day', 'swing', 'watch'] as const;

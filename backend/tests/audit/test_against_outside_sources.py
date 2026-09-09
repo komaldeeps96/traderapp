@@ -6,10 +6,9 @@ Run it deliberately:
     cd backend && .venv/bin/pytest -m audit -p no:randomly
 
 The two auditors answer different questions. **yfinance** reports in the
-filer's own currency, so it checks the *parse*: the right concept, in the
-right period, before anything is restated. **TradingView** publishes in USD,
-so it checks the *conversion*. Passing one and failing the other localises a
-fault immediately, which is the whole reason for using two.
+filer's own currency, so it checks the *parse*: the right concept, in the right
+period, before restatement. **TradingView** publishes in USD, so it checks the
+*conversion*. Passing one and failing the other localises a fault.
 """
 
 from __future__ import annotations
@@ -32,11 +31,10 @@ SUBJECTS = [pytest.param(subject, id=subject.symbol) for subject in UNIVERSE]
 
 # Our line, and the labels yfinance files it under, in priority order.
 #
-# Order matters more than it looks. yfinance publishes both an *adjusted*
-# "Operating Income" and a "Total Operating Income As Reported", and only the
-# second is the figure in the filing: for Crocs in 2025 they are $888M and
-# $150M, the difference being a goodwill impairment. Comparing against the
-# adjusted line makes the audit fail on thirty-eight true readings.
+# Order matters: yfinance publishes both an *adjusted* "Operating Income" and a
+# "Total Operating Income As Reported", and only the second is the figure in the
+# filing — for Crocs in 2025, $888M against $150M, the difference a goodwill
+# impairment. Comparing against the adjusted line condemns true readings.
 CHECKED = (
     ("revenue", "income", ("Total Revenue", "Operating Revenue")),
     ("net_income", "income", ("Net Income", "Net Income Common Stockholders")),
@@ -238,16 +236,14 @@ class TestInternalConsistency:
         assets = our_line(statements, "total_assets")
         liabilities = our_line(statements, "total_liabilities")
         equity = our_line(statements, "equity")
-        # The two claims that sit outside shareholders' equity and still have
-        # to be on the right-hand side: minority interests, and shares
-        # subject to redemption. Without them Alibaba is out by 7.7% and a
-        # SPAC-era balance sheet by 460%.
+        # The two claims outside shareholders' equity that still belong on the
+        # right-hand side: minority interests and shares subject to redemption.
+        # Without them Alibaba is out by 7.7% and a SPAC-era sheet by 460%.
         #
         # Whether minorities are already inside `equity` depends on which
-        # concept answered, and the two taxonomies disagree by default: IFRS
-        # `Equity` includes them, US-GAAP `StockholdersEquity` does not.
-        # Adding them blind double-counts exactly the filers it was meant to
-        # fix.
+        # concept answered — IFRS `Equity` includes them, US-GAAP
+        # `StockholdersEquity` does not — so adding them blind double-counts
+        # exactly the filers it was meant to fix.
         equity_concepts = set(line_concepts(statements, "equity"))
         minorities_already_inside = bool(
             equity_concepts

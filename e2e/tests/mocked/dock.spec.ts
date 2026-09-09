@@ -19,12 +19,15 @@ test.describe('dock', () => {
     await expect(terminal.miniCharts).toBeVisible();
   });
 
-  test('offers a tab for each panel', async ({ terminal }) => {
+  test('offers a tab for each panel and no others', async ({ terminal }) => {
     await terminal.waitForChart();
 
     for (const id of ['charts', 'fundamentals', 'news', 'filings'] as const) {
       await expect(terminal.dockTab(id)).toBeVisible();
     }
+    // Counted as well as listed: a tab is far inside the visual tolerance,
+    // so a stale one left on the rail would show up nowhere else.
+    await expect(terminal.dockTabs()).toHaveCount(4);
   });
 
   test('switching tabs unmounts the charts rather than hiding them', async ({ terminal }) => {

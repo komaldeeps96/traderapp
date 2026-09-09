@@ -1,22 +1,17 @@
 """Trading-halt state, fed by whichever provider notices first.
 
-Two sources report halts and neither is complete on its own. Alpaca's
-``statuses`` stream pushes halt and resume events with LULD reason codes,
-but only while the websocket is up. IBKR's quote line carries a ``halted``
-magnitude on every update, but only for the focused symbol and without a
-reason. Both feed the same per-symbol state machine here, which makes the
-double-report harmless: a transition is counted once no matter how many sources
-report it.
+Two sources, neither complete alone: Alpaca's ``statuses`` stream pushes halt
+and resume events with LULD reason codes while the websocket is up, and IBKR's
+quote line carries a ``halted`` magnitude for the focused symbol without a
+reason. Both feed one per-symbol state machine, so a transition is counted once
+however many sources report it.
 
-The count answers the question the chart cannot — "how many times has this
-thing halted today" — which is the difference between a runner and a
-circuit-breaker yo-yo. It resets lazily at the New York date boundary, so
-a terminal left open overnight starts the new session at zero.
+The count is the difference between a runner and a circuit-breaker yo-yo. It
+resets lazily at the New York date boundary.
 
-The transition *times* are kept for a different reason. The reopen is the one
-condition in this whole strategy with a large measured effect behind it, and
-measuring it needs to know how long ago the tape came back — not merely that
-it did. Nothing here judges the reopen; it only records when it happened.
+The transition *times* are kept because the reopen is the one condition in this
+strategy with a large measured effect behind it, and that needs how long ago the
+tape came back. Nothing here judges the reopen.
 """
 
 from __future__ import annotations

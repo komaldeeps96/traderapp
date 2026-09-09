@@ -2,12 +2,10 @@ import { expect, liveTest as test } from '../../fixtures/test';
 import type { TerminalPage } from '../../pages/TerminalPage';
 
 /**
- * The real stack.
- *
- * Real backend, real Alpaca provider, real indicator maths, real WebSocket —
- * only Alpaca's HTTP endpoint is replaced by a fixture server, so this runs
- * with no credentials and outside market hours. The mocked suite proves the
- * frontend behaves; this proves the two halves actually agree on the protocol.
+ * The real stack: real backend, Alpaca provider, indicator maths and WebSocket,
+ * with only Alpaca's HTTP endpoint replaced by a fixture server, so it runs
+ * without credentials or market hours. The mocked suite proves the frontend
+ * behaves; this proves the two halves agree on the protocol.
  */
 
 test.describe('backend', () => {
@@ -35,23 +33,6 @@ test.describe('backend', () => {
     expect(body.available).toBe(false);
     expect(body.status).toBe('off');
     expect(body.brief).toBeNull();
-    expect(body.note).toContain('switched off');
-  });
-
-  test('answers the setup judgement with a reason rather than an error', async ({ request }) => {
-    // Same rule as the news summary, one process further out: it spawns a
-    // `claude` process that reaches Anthropic, so it is off here. What this
-    // proves is that "off" is a served state rather than a 500 — a route
-    // that raised when the feature is disabled would take the AI tab down
-    // with it instead of printing the reason.
-    const response = await request.get('http://127.0.0.1:8100/api/setup/AAPL');
-    expect(response.ok()).toBe(true);
-
-    const body = await response.json();
-    expect(body.symbol).toBe('AAPL');
-    expect(body.available).toBe(false);
-    expect(body.status).toBe('off');
-    expect(body.judgement).toBeNull();
     expect(body.note).toContain('switched off');
   });
 
@@ -291,11 +272,10 @@ test.describe('indicator toggles, against the real server', () => {
   /**
    * Toggle, and prove it reached state.yaml rather than the browser.
    *
-   * Reading back through a reload is the only honest check: the chart applies
-   * a toggle optimistically, so asserting on the chart alone would pass even
-   * if the command never left the page. Each test restores what it changed
-   * and reloads once more to prove the restore landed too — otherwise the
-   * next test inherits it, these all share one backend.
+   * The chart applies a toggle optimistically, so asserting on the chart alone
+   * would pass even if the command never left the page — only a reload checks.
+   * Each test restores what it changed and reloads again, since these share one
+   * backend.
    */
   async function toggleEma9(terminal: TerminalPage): Promise<boolean> {
     const before = (await terminal.chartState()).visible.ema9;
@@ -349,17 +329,13 @@ test.describe('indicator toggles, against the real server', () => {
 
 
 /**
- * The watchlist, against the real server.
+ * The watchlist, against the real server — the one thing a mock cannot prove.
+ * It survives a reload with the browser's storage cleared, which no client-side
+ * list could.
  *
- * The mocked suite covers how the panel behaves; this covers the only thing
- * a mock cannot prove — that the list is genuinely on the server. It survives
- * a reload with the browser's own storage cleared, which no client-side list
- * could do.
- *
- * The backend here runs with the screener switched off, because nothing in a
- * test run may leave the machine. That is exactly the state this asserts is
- * still useful: the names, their order and their persistence do not depend on
- * a price being fetched for them.
+ * The backend runs with the screener off, since nothing in a test run may leave
+ * the machine, and that is the state this asserts is still useful: names, order
+ * and persistence do not depend on a price being fetched.
  */
 test.describe('watchlist, against the real server', () => {
   async function openWatch(terminal: TerminalPage): Promise<void> {

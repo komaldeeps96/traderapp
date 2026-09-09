@@ -1,20 +1,16 @@
 """Insider transactions, read for what they mean rather than what they are.
 
-A Form 4 is filed for every share an insider touches, and most of what it
-records is payroll. Grants, option exercises and shares withheld to cover the
-tax on a vest are compensation mechanics: they move the share count and say
-nothing about what the insider thinks. Naive trackers count all of it, which
-is why "insider selling" headlines are usually a vest.
+A Form 4 is filed for every share an insider touches, and most of it is
+payroll: grants, option exercises and shares withheld for the tax on a vest move
+the share count and say nothing about what the insider thinks.
 
-Two things carry information, and this module exists to separate them from
-the rest:
+Two things carry information, and this module separates them from the rest:
 
-**An open-market purchase.** An insider paying their own cash for stock at
-the market price, under the same disclosure rules as everyone else.
+**An open-market purchase** — an insider paying their own cash at the market
+price.
 
-**A discretionary sale.** A sale *not* made under a 10b5-1 plan. Plan sales
-are scheduled months ahead and are as automatic as a payroll deduction; the
-form says which is which, so there is no reason to guess.
+**A discretionary sale** — one *not* made under a 10b5-1 plan. Plan sales are
+scheduled months ahead; the form says which is which.
 """
 
 from __future__ import annotations

@@ -11,28 +11,17 @@ import { NewsBriefPanel } from './NewsBrief';
 /**
  * The news feed, read in place — with the day's reading above it.
  *
- * IBKR is entitled to eight feeds here — Briefing.com and Dow Jones — with
- * thirty days of history, live headlines on generic tick 292 and full article
- * bodies, while every fundamentals request on the same connection answers
- * error 10358. Nothing needs a browser: headlines on top, the article in a
- * pane below, and clicking a row never leaves the terminal.
+ * Headlines on top, the article in a pane below; clicking a row never leaves
+ * the terminal. Rows are tinted by what the headline does to the tape, not by
+ * sentiment, so "Announces Pricing of Public Offering" is the loudest row.
  *
- * Rows are tinted by what the headline does to the tape, not by sentiment.
- * "Announces Pricing of Public Offering" is the loudest row on the screen
- * because it is the one that ends a long, and a trader scanning a feed
- * mid-run is asking exactly that question.
+ * Live headlines arrive over the WebSocket and merge into the list the backfill
+ * produced, deduplicated as a whole: the same story arrives as a starred
+ * bulletin seconds before the fuller press release.
  *
- * Live headlines arrive over the WebSocket and are merged into the same list
- * the backfill produced, deduplicated as a whole — Dow Jones sends the same
- * story as a starred bulletin seconds before the fuller press release, and
- * appending would show it twice.
- *
- * The panel is split. The top half is one day, read and scored out of ten by
- * Claude against Ross Cameron's catalyst rubric (`NewsBrief`), so the list
- * below can be skimmed rather than opened row by row; the bottom half is the
- * feed itself, unchanged, because a summary is a thing you check and the rows
- * are what you check it against. The split is why the summary reads one day
- * and the list keeps thirty: they are answering different questions.
+ * The panel is split. The top half is one session, read and scored by Claude
+ * (`NewsBrief`); the bottom is the thirty-day feed the summary is checked
+ * against. They answer different questions, which is why the windows differ.
  */
 const CATALYST_CLASS: Record<Catalyst, string> = {
   supply: 'text-down font-semibold',
@@ -94,11 +83,9 @@ function emptyMessage(symbol: string, status: string, providerCount: number): st
 }
 
 /**
- * Which feeds are behind the list.
- *
- * Worth the one line because the answer is not fixed: the wire feeds are an
- * IBKR entitlement and vanish with TWS, while Benzinga rides in on Alpaca and
- * does not. A panel that goes thin should say which half went away.
+ * Which feeds are behind the list. The answer is not fixed — the wire feeds are
+ * an IBKR entitlement and vanish with TWS, while Benzinga rides in on Alpaca —
+ * so a panel that goes thin says which half went away.
  */
 function Feeds({ providers }: { providers: Array<{ code: string; name: string }> }) {
   if (providers.length === 0) return null;
@@ -173,11 +160,9 @@ function Row({
 }
 
 /**
- * The article body.
- *
- * Paragraphs of plain text, never markup: the wire sends an HTML fragment and
- * it is converted to text on the server, because this is third-party content
- * on the page that also holds the trading UI.
+ * The article body: paragraphs of plain text, never markup. The wire sends an
+ * HTML fragment converted to text on the server, since this is third-party
+ * content on the page that also holds the trading UI.
  */
 function Reader({
   symbol,
@@ -275,11 +260,9 @@ function useArticle(symbol: string, headline: Headline) {
 }
 
 /**
- * Load the feed when the symbol changes.
- *
- * Lives here rather than in `useTerminal` because it is the panel's own
- * concern, but writes to the store so a live headline arriving over the
- * WebSocket can merge into the same list.
+ * Load the feed when the symbol changes. Lives here rather than in
+ * `useTerminal` as the panel's own concern, but writes to the store so a live
+ * headline over the WebSocket merges into the same list.
  */
 export function useNewsFeed(symbol: string): void {
   const setNews = useTerminalStore((state) => state.setNews);

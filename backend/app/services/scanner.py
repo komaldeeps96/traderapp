@@ -76,16 +76,13 @@ class ScannerService:
         """Restore persisted filters before the scan starts.
 
         The file is user-writable and survives releases, so nothing in it is
-        trusted: unknown keys are dropped, wrongly-typed values are dropped,
-        and an unknown scan code rejects the lot. Called before ``start()``,
-        so the adopted filters are simply what the first scan runs with — no
-        restart dance.
+        trusted: unknown keys and wrongly-typed values are dropped, and an
+        unknown scan code rejects the lot. Called before ``start()``, so the
+        adopted filters are what the first scan runs with.
 
-        The row count is pointedly not among them. It has no client command
-        and no UI control, so a value in the file can only be a copy of some
-        older default — and adopting it would let that stale copy pin the
-        tier back to it for good, silently, on every machine that had run the
-        terminal before the depth changed.
+        The row count is not among them: it has no client command and no UI
+        control, so a value in the file could only be a stale copy of an older
+        default and would pin the tier to it silently.
         """
         current = self._state.config.to_dict()
         clean: dict = {}
@@ -213,12 +210,10 @@ class ScannerService:
     def _rank(self, rows: list[ScannerRow]) -> list[ScannerRow]:
         """Order by trade rate, then measure the movement of that order.
 
-        Ordering is plain prints-per-minute — the busiest tape first. Weighting
-        it by momentum was tried and dropped: it reshuffled the list
-        continuously and made positions hard to hold in the eye.
-
-        Rank velocity is measured last, against the order actually emitted —
-        anything else would describe a list nobody sees.
+        Ordering is plain prints-per-minute, busiest tape first: weighting by
+        momentum reshuffles the list continuously and makes positions hard to
+        hold in the eye. Rank velocity is measured last, against the order
+        actually emitted.
         """
         self._stamp_reference(rows)
 
@@ -239,9 +234,8 @@ class ScannerService:
         """Fill float and market cap from TradingView's cache.
 
         Read-only and non-blocking: rows emit every few seconds and must not
-        wait on an HTTP round trip. A symbol missing from the cache is warmed
-        in the background and arrives on a later emission — one fetch per new
-        scanner member, then free until its TTL expires.
+        wait on an HTTP round trip. A missing symbol is warmed in the background
+        and arrives on a later emission.
         """
         if self._tv is None:
             return

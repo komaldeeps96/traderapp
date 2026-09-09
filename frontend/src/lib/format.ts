@@ -71,16 +71,9 @@ const dateTimeWithSecondsFormat = new Intl.DateTimeFormat('en-US', {
 /**
  * Decimal places appropriate to a price's magnitude.
  *
- * Sub-dollar tickers are the whole point of a small-cap terminal, and two
- * decimals throws away most of what matters there: at $0.37 a cent is nearly
- * 3%, so "0.37" hides the difference between a level and the price standing on
- * it.
- */
-/**
- * Decimals follow the quoting tick, not taste. Reg NMS Rule 612: a cent at
- * or above $1.00, sub-penny ($0.0001) only below it. So a $2.34 stock gets
- * two decimals — a third would be a permanent trailing zero — and only the
- * sub-dollar tape, where a whole cent is ~3% of price, earns four.
+ * Decimals follow the quoting tick: Reg NMS Rule 612 gives a cent at or above
+ * $1.00 and sub-penny ($0.0001) only below it. So a $2.34 stock gets two, and
+ * only the sub-dollar tape — where a cent is ~3% of price — earns four.
  */
 export function priceDecimals(value: number): number {
   return Math.abs(value) < 1 ? 4 : 2;
@@ -124,11 +117,9 @@ export function formatInteger(value: number | null | undefined): string {
 /**
  * The bar's opening time, in New York.
  *
- * The date is dropped for a bar from the session on screen: "Aug 28," in
- * front of an intraday timestamp is noise every single day, and dropping it
- * leaves a clean clock that reads against the wall clock in the toolbar. It
- * comes back the moment the bar is from an earlier day, which is the only
- * case where its absence could mislead.
+ * The date is dropped for a bar from the session on screen, leaving a clock
+ * that reads against the toolbar's. It returns for a bar from an earlier day,
+ * the only case where its absence could mislead.
  */
 export function formatBarTime(
   epochSeconds: number,
@@ -172,9 +163,8 @@ const newsTimeFormat = new Intl.DateTimeFormat('en-US', {
 /**
  * A headline's timestamp: the clock for today, the date for anything older.
  *
- * A feed reaching back thirty days that shows only "09:01" makes a filing from
- * June read as this morning's news, which is the one mistake a news panel must
- * not make.
+ * A thirty-day feed showing only "09:01" makes a June filing read as this
+ * morning's news.
  */
 export function formatNewsTime(epochSeconds: number, now: number = Date.now()): string {
   const when = new Date(epochSeconds * 1000);
@@ -197,11 +187,8 @@ const nyDayParts = new Intl.DateTimeFormat('en-CA', {
 /**
  * How long ago something was read: "12s", "4m", "2h", "3d".
  *
- * Distinct from `formatElapsed`, which is a stopwatch — mm:ss — and right for
- * the minutes after a halt reopen. This is an *age*, and an age can be any
- * size: an eight-day-old reading through a stopwatch renders as "11520:00",
- * which is not a duration anybody reads. One unit, always the largest that
- * fits, because the only question here is "is this current".
+ * An *age*, not a stopwatch — `formatElapsed` is mm:ss and would render eight
+ * days as "11520:00". One unit, always the largest that fits.
  */
 export function formatAge(seconds: number | null | undefined): string {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '—';
@@ -214,9 +201,8 @@ export function formatAge(seconds: number | null | undefined): string {
 /**
  * When a brief's window opened: "Fri 16:00".
  *
- * Always shown beside the session, because the two are different facts and
- * the pair is the whole claim: "for Monday, since Friday's close" is what a
- * chart open on a Sunday is actually reading.
+ * Always shown beside the session: the pair is the whole claim, as in "for
+ * Monday, since Friday's close".
  */
 export function formatWindowStart(epoch: number): string {
   return windowStartFormat.format(new Date(epoch * 1000));
@@ -233,14 +219,9 @@ const windowStartFormat = new Intl.DateTimeFormat('en-US', {
 /**
  * The session a brief covers: "Today", or "Fri, Sep 5".
  *
- * The input is a calendar date, not an instant, and the two must not be
- * confused: `new Date('2026-09-07')` is midnight UTC, which formatted in New
- * York is the 6th. The parts are therefore read out of the string and rebuilt
- * as a local date, which has no timezone to be wrong about.
- *
- * "Today" is worth the branch because it is the common case and the one the
- * panel most needs to be unambiguous about — on a Sunday the label reads
- * "Fri, Sep 5" and there is no doubt what was read.
+ * The input is a calendar date, not an instant: `new Date('2026-09-07')` is
+ * midnight UTC, which in New York is the 6th. The parts are read out of the
+ * string and rebuilt as a local date, which has no timezone to be wrong about.
  */
 export function formatNewsDay(iso: string, now: number = Date.now()): string {
   const [year, month, day] = iso.split('-').map(Number);
@@ -251,12 +232,9 @@ export function formatNewsDay(iso: string, now: number = Date.now()): string {
 }
 
 /**
- * A price that may be nonsense.
- *
- * Reverse splits compound into split-adjusted history, so a serial diluter's
- * all-time high can print in the tens of millions against a 38-cent tape.
- * Compacting past five figures is what stops one broken reference number from
- * setting the width of an entire row.
+ * A price that may be nonsense. Reverse splits compound into split-adjusted
+ * history, so an all-time high can print in the tens of millions against a
+ * 38-cent tape; compacting past five figures stops it setting a row's width.
  */
 export function formatLevel(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
@@ -265,11 +243,8 @@ export function formatLevel(value: number | null | undefined): string {
 }
 
 /**
- * A ratio read as a multiple: ×2.4, ×18, ×243M.
- *
- * The escape hatch for percentages that have stopped being percentages —
- * "+24283875452%" is nine characters of nothing, "×243M" is the same fact in
- * five and reads instantly as out of reach.
+ * A ratio read as a multiple: ×2.4, ×18, ×243M. The escape hatch for
+ * percentages that have stopped being percentages.
  */
 export function formatMultiple(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';
@@ -279,12 +254,9 @@ export function formatMultiple(value: number | null | undefined): string {
 }
 
 /**
- * Distance to a level, as a percentage until that stops being readable.
- *
- * A 52-week high on a stock that has fallen 99% — or an all-time high on one
- * that has reverse-split its way down — is a four-figure percentage in a
- * column sized for "+45.68%". Past ten times the price the multiple says the
- * same thing in half the characters.
+ * Distance to a level, as a percentage until that stops being readable. Past
+ * ten times the price a four-figure percentage becomes a multiple, which says
+ * the same thing in half the characters.
  */
 export function formatDistance(percent: number | null | undefined): string {
   if (percent == null || !Number.isFinite(percent)) return '—';
@@ -302,10 +274,8 @@ export function formatRotation(value: number | null | undefined): string {
 /**
  * A percentage that has no direction: 4.1%, 0.4%, 13%.
  *
- * `formatPercent` signs everything, which is right for a change — a bar can
- * close either way. It is wrong for a quantity that cannot be negative. A
- * spread of "+0.4%", a float rotation of "+13%" or a headroom of "+4.1%"
- * invite being read as changes, and the plus carries no information at all.
+ * `formatPercent` signs everything, which is right for a change and wrong for a
+ * quantity that cannot be negative — "+0.4%" invites being read as one.
  */
 export function formatUnsignedPercent(
   value: number | null | undefined,
@@ -316,11 +286,8 @@ export function formatUnsignedPercent(
 }
 
 /**
- * A short elapsed span, counting up: 0:04, 3:27, 14:59.
- *
- * Minutes and seconds throughout, with no hour field — this measures things
- * that matter for minutes, and a reading that has reached an hour has
- * already stopped meaning anything.
+ * A short elapsed span, counting up: 0:04, 3:27, 14:59. No hour field — this
+ * measures things that matter for minutes.
  */
 export function formatElapsed(seconds: number | null | undefined): string {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '—';
@@ -366,10 +333,9 @@ export function computeChange(current: number, previous: number): Change | null 
 }
 
 /**
- * The dollar leg's precision follows the *price level*, not the delta: a
- * $0.37 stock moves in hundredths of a cent, so two decimals would report a
- * +0.0350 move as +0.04 — a 14% lie. Pass the price the change happened at;
- * without one, cent precision is the safe floor.
+ * The dollar leg's precision follows the *price level*, not the delta: on a
+ * $0.37 stock two decimals report a +0.0350 move as +0.04. Pass the price the
+ * change happened at; without one, cent precision is the floor.
  */
 export function formatChange(change: Change | null, referencePrice?: number | null): string {
   if (!change) return '—';
@@ -381,15 +347,12 @@ export function formatChange(change: Change | null, referencePrice?: number | nu
 /**
  * One cell of a financial statement.
  *
- * The unit decides everything. Dollars are compacted, because a column of
- * 416,161,000,000 is unreadable and the scale is what carries meaning. Per-
- * share figures are not: EPS of 2.02 compacted to "2" loses the number, and
- * `formatCompact` rounds anything under a thousand to an integer. Share
- * counts are compacted but never given cents.
+ * The unit decides everything. Dollars are compacted; per-share figures are
+ * not, since `formatCompact` rounds under a thousand to an integer and an EPS
+ * of 2.02 would become "2". Share counts compact but never take cents.
  *
- * Negatives keep their sign rather than taking parentheses. This sits beside
- * a chart where red and a minus already mean down, and a lone "(" in a dense
- * grid reads as a stray character.
+ * Negatives keep their sign rather than parentheses, beside a chart where red
+ * and a minus already mean down.
  */
 export function formatStatementValue(
   value: number | null | undefined,
@@ -409,10 +372,8 @@ export function formatStatementValue(
 /**
  * One cell of the metrics table.
  *
- * A ratio and a multiple are both bare numbers and would be indistinguishable
- * in a column, so a multiple carries its ×. Percentages are given one decimal
- * — a margin quoted to two reads as more precise than the filings that made
- * it.
+ * A ratio and a multiple are both bare numbers, so a multiple carries its ×.
+ * Percentages get one decimal — two reads as more precise than the filings.
  */
 export function formatMetricValue(
   value: number | null | undefined,
@@ -436,11 +397,9 @@ const NY_DAY = new Intl.DateTimeFormat('en-CA', {
 /**
  * Whole days from now until an epoch second, counted in New York.
  *
- * *Calendar* days, not 24-hour blocks: a report tomorrow morning is "1d"
- * whether it is eighteen hours away or thirty, because what is being decided
- * is how many sessions a position has to survive. Both ends go through the
- * New York calendar rather than an offset in seconds — an offset is only
- * correct inside a session, and an earnings release is stamped at any hour.
+ * *Calendar* days, not 24-hour blocks: what is being decided is how many
+ * sessions a position has to survive. Both ends go through the New York
+ * calendar rather than a second offset, which is only correct inside a session.
  */
 export function daysUntil(
   epochSeconds: number | null | undefined,
@@ -457,11 +416,10 @@ export function daysUntil(
 /**
  * One cell of the raw concept view, in whatever unit the company filed it.
  *
- * A search across everything a filer tags returns dollars beside lease terms
- * in years, effective tax rates as decimals and share counts — so this
- * cannot assume money. It compacts what is large enough to need it and keeps
- * two decimals for the rest, because `formatCompact` rounds anything under a
- * thousand to an integer and a lease term of 10.3 years became "10".
+ * A search across everything a filer tags returns dollars beside lease terms in
+ * years, tax rates as decimals and share counts, so this cannot assume money.
+ * It keeps two decimals below the compaction threshold, since `formatCompact`
+ * would round a lease term of 10.3 years to "10".
  */
 export function formatAsFiled(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '—';

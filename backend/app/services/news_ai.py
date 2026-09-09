@@ -1,17 +1,11 @@
 """The news panel's top half: one session, read and scored, by Claude Code.
 
-The process, the flags and the safety argument live in ``claude_cli.py`` —
-this file is the part that stops it being expensive.
+The process and its flags live in ``claude_cli.py``; this file is the caching.
 
-A reading is cached against the *article ids* it covers, so switching away
-from a symbol and back costs nothing, and a live headline that collapsed into
-a story already on screen — the usual case, the starred bulletin ahead of its
-own press release — does not trigger a re-read. When the ids genuinely do
-change there is still a cooldown, because a busy morning delivers a headline
-a minute and each one would otherwise start a process.
-
-One reading per symbol at a time. Two clients, or a client and a live
-headline, asking together share the one process rather than starting two.
+A reading is cached against the *article ids* it covers, so switching symbol
+and back costs nothing and a headline that collapsed into an existing story
+does not re-read. Changed ids still face a cooldown. One reading per symbol at
+a time — concurrent askers share the one process.
 """
 
 from __future__ import annotations
@@ -50,10 +44,9 @@ class NewsAIService:
     def __init__(self, settings: NewsAISettings, news):
         self._settings = settings
         self._reader = ClaudeReader(settings)
-        # The news cache, for the day's headlines and their article bodies.
-        # Typed loosely for the same reason NewsService types its providers
-        # that way: two methods are used and a test should not have to build
-        # the rest.
+        # The news cache, for the day's headlines and article bodies. Typed
+        # loosely, as NewsService types its providers: two methods are used and
+        # a test should not have to build the rest.
         self._news = news
         # symbol -> (digest, brief). The digest is what makes the cache
         # correct rather than merely fast: it changes exactly when the set of
@@ -80,10 +73,9 @@ class NewsAIService:
     async def brief(self, symbol: str, *, force: bool = False) -> dict:
         """The panel's payload: a brief, or the reason there is not one.
 
-        Always a dict rather than a raise. Every branch here is an ordinary
-        state of the world — the CLI is not installed, the company published
-        nothing today, a reading is already running — and a panel that says
-        which one is far more use than one showing an error banner.
+        Always a dict rather than a raise: every branch is an ordinary state of
+        the world (no CLI, nothing published today, a reading already running),
+        and the panel says which.
         """
         blocked = self._blocked()
         if blocked is not None:
@@ -104,9 +96,9 @@ class NewsAIService:
     def _start(self, symbol: str, selection: NewsWindow, *, held, force: bool):
         """The reading in flight for this symbol, or a payload to serve now.
 
-        Three cases. One is already running and is joined rather than
-        duplicated; the cooldown has not elapsed, so the last reading is
-        served and marked behind; or a new process is started.
+        A running reading is joined rather than duplicated; inside the cooldown
+        the last reading is served and marked behind; otherwise a new process
+        starts.
         """
         running = self._running.get(symbol)
         if running is not None:
@@ -127,9 +119,8 @@ class NewsAIService:
     async def _collect(self, symbol: str, running: asyncio.Task[Brief]) -> dict:
         """Wait on a reading, turning every way it can fail into a line.
 
-        Shielded, because two clients share the one process: the first to
-        give up on its own request must not cancel the reading the second is
-        still waiting for.
+        Shielded, because clients share the one process: the first to give up
+        must not cancel the reading the second is waiting for.
         """
         try:
             result = await asyncio.shield(running)
@@ -176,9 +167,8 @@ class NewsAIService:
     async def _bodies(self, symbol: str, selection: NewsWindow) -> dict[str, list[str]]:
         """The article text for the day's own stories.
 
-        Fetched one at a time and each allowed to fail: a body is what turns
-        "Announces Strategic Partnership" into knowing who with and for how
-        much, but a missing one is a thinner reading rather than no reading.
+        Fetched one at a time, each allowed to fail: a missing body is a thinner
+        reading rather than no reading.
         """
         bodies: dict[str, list[str]] = {}
         for row in bodies_wanted(selection):

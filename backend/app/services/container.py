@@ -1,8 +1,8 @@
 """Builds and wires the application's services.
 
-Constructing everything in one place — and letting a caller pass in their own
-``Settings`` — is what lets the integration tests spin up a complete, real
-application against stubbed HTTP instead of reaching for module-level globals.
+Constructing everything in one place, and letting a caller pass its own
+``Settings``, is what lets the integration tests spin up a complete real
+application against stubbed HTTP rather than module-level globals.
 """
 
 from __future__ import annotations
@@ -51,7 +51,6 @@ from ..services.peers import PeerService
 from ..services.quotes import QuoteService
 from ..services.regime import RegimeService
 from ..services.scanner import ScannerService
-from ..services.setup_ai import SetupAIService
 from ..services.state import StateStore
 from ..services.swing import SwingService
 from ..services.symbol_info import SymbolInfoService
@@ -79,12 +78,11 @@ class AppContainer:
         self.market_data = MarketDataService(self.router, self.store, self.engine)
         self.quotes = QuoteService()
         self.router.on_quote(self.quotes.handle_quote)
-        # Time and sales. A second reader on the same trade stream, sharing
-        # the quote service because the aggressor side is inferred from the
-        # standing book and nothing publishes it — see domain/tape.py.
-        # Registered after MarketDataService.start's handler and independently
-        # of it: the tape wants the print, not the period it lands in, so it
-        # fills from the first trade rather than waiting on history.
+        # Time and sales: a second reader on the same trade stream, sharing the
+        # quote service because the aggressor side is inferred from the standing
+        # book (domain/tape.py). Registered independently of
+        # MarketDataService.start's handler — the tape wants the print, not the
+        # period it lands in, so it fills from the first trade.
         self.tape = TapeService(
             self.quotes,
             buffer=self.settings.tape.buffer,
@@ -197,16 +195,13 @@ class AppContainer:
         self.market_data.on_backfill(self._on_backfill)
 
     def _wire_readers(self) -> None:
-        """The two panels that ask Claude to read something.
+        """The panel that asks Claude to read something.
 
-        Both consume services built above rather than sources of their own.
-        The news reader reads the news cache; the setup judge reads nearly
-        everything — the info strip, the indicator series, the quote, the
-        regime and the news reader's own score — which is why it is handed
-        the container rather than six constructor arguments.
+        It consumes a service built above rather than a source of its own: the
+        reader sees the news cache and nothing else, which keeps its answer a
+        read of the headlines rather than of the screen.
         """
         self.news_ai = NewsAIService(self.settings.news_ai, self.news)
-        self.setup_ai = SetupAIService(self.settings.setup_ai, container=self)
 
     # ── lifecycle ──────────────────────────────────────────────────────
 
@@ -284,9 +279,8 @@ class AppContainer:
     def tape_payload(self, symbol: str) -> dict:
         """The whole buffer, as a replacement.
 
-        Sent on subscribe so a symbol switch opens with the prints that
-        already happened rather than with an empty window that fills at
-        whatever rate the name happens to trade.
+        Sent on subscribe so a symbol switch opens with the prints that already
+        happened rather than an empty window.
         """
         return tape_message(symbol, self.tape.recent(symbol), reset=True)
 
@@ -306,8 +300,7 @@ class AppContainer:
 
         The whole picture every time, like the watchlist: an account holds a
         handful of names, so a diff costs more to reason about than the list
-        costs to send — and no window can drift out of step about what is
-        actually held.
+        costs to send.
         """
         self.hub.broadcast(self.trading_payload())
 
@@ -337,8 +330,7 @@ class AppContainer:
         """A live headline: fold it in and push it, if it is genuinely new.
 
         ``add_live`` returns ``None`` when the headline collapsed into a story
-        already on screen — the starred bulletin that precedes a press release
-        by seconds — so the panel does not flash the same story twice.
+        already on screen, so the panel does not flash the same story twice.
         """
         headline = self.news.add_live(symbol, row)
         if headline is not None:
@@ -347,9 +339,8 @@ class AppContainer:
     def _tracked_symbols(self) -> set[str]:
         """The names this terminal is actually following.
 
-        The stream carries every headline published, so something has to
-        decide which are worth keeping. Charts open now, plus the watchlist —
-        which is precisely the set a person said they cared about.
+        The stream carries every headline published, so something has to decide
+        which to keep: charts open now, plus the watchlist.
         """
         return self.hub.symbols() | set(self.watchlist.symbols())
 
@@ -357,8 +348,7 @@ class AppContainer:
         """One Benzinga headline off the socket, routed to whoever wants it.
 
         A story names every company it mentions, so one headline can belong to
-        several open charts at once — and to none, which is the common case on
-        a market-wide feed and costs nothing.
+        several open charts at once, or to none.
         """
         row = to_benzinga_row(entry)
         if row is None:

@@ -1,15 +1,13 @@
 """Request budgets for the two market-data upstreams.
 
-Switching tickers aggressively burns historical-data requests, and both
-upstreams punish overuse — Alpaca throttles past 200 REST calls a minute,
-IBKR pacing rejects historical requests past roughly 60 in ten minutes.
-Every request takes a slot here first (waiting, not failing, when the window
-is full), and the meters in the toolbar read the same buckets, so "can I
-switch symbols comfortably right now" is answerable at a glance.
+Switching tickers burns historical-data requests, and both upstreams punish
+overuse: Alpaca throttles past 200 REST calls a minute, IBKR pacing rejects
+historical requests past roughly 60 in ten minutes. Every request takes a slot
+here first, waiting rather than failing when the window is full, and the toolbar
+meters read the same buckets.
 
-The windowing is pyrate-limiter's sliding in-memory bucket; this wraps it
-with asyncio-friendly waiting, because the library's own blocking delay
-would stall the event loop.
+The windowing is pyrate-limiter's sliding in-memory bucket, wrapped with
+asyncio-friendly waiting because the library's own delay blocks the event loop.
 """
 
 from __future__ import annotations
@@ -52,8 +50,7 @@ class ProviderBudget:
         """Take one request slot, waiting for the window when it is full.
 
         Waiting is the point: a request held back a few seconds keeps the
-        upstream friendly, where a request fired anyway earns a throttle that
-        stalls everything.
+        upstream friendly, where one fired anyway earns a throttle.
         """
         while not self._bucket.put(RateItem(self.name, self._clock.now())):
             if not self._warned:

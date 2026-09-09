@@ -88,12 +88,11 @@ word.
 
 ## Three decisions that are load-bearing
 
-**The window is a session, not a calendar day.** This is the correction that
-matters most, and it was wrong here first. A press release at 16:05 is not
-today's news — it is *tomorrow's gap*. Keying on the New York date filed it
+**The window is a session, not a calendar day.** A press release at 16:05 is
+not today's news — it is *tomorrow's gap*. Keyed on the New York date it lands
 under the day it was published, so a chart opened at 08:00 on a name that
 announced an FDA clearance at 16:10 the night before would summarise whatever
-trivia had printed since midnight and drop the catalyst entirely.
+trivia had printed since midnight and drop the catalyst.
 
 The window therefore runs from the **previous session's close (16:00 NY) to
 now**, and what the panel names is the *session it feeds*. On a Sunday that

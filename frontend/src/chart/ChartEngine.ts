@@ -1,18 +1,15 @@
 /**
  * A framework-free wrapper around lightweight-charts.
  *
- * React never owns bars. Thousands of them arrive per snapshot and the newest
- * one changes every second, so they live here and go straight to the canvas;
- * React only renders the small derived readouts. That keeps re-renders off the
- * hot path entirely.
+ * React never owns bars: they arrive by the thousand and the newest changes
+ * every second, so they go straight to the canvas and React renders only the
+ * small derived readouts.
  *
- * TIME AXIS — the thing that bites
- * lightweight-charts positions bars by *logical index*: every distinct
- * timestamp across every series, visible or not, occupies a slot. A series
- * still holding last timeframe's timestamps therefore inserts phantom gaps
- * into the axis even while hidden. Hiding is not enough — data has to be
- * cleared or the series removed, which is what `reconcileSeries` does on every
- * snapshot.
+ * **Time axis.** lightweight-charts positions bars by *logical index* — every
+ * distinct timestamp across every series, visible or not, occupies a slot. A
+ * hidden series still holding last timeframe's timestamps inserts phantom gaps,
+ * so data has to be cleared or the series removed. `reconcileSeries` does that
+ * on every snapshot.
  */
 
 import {
@@ -357,11 +354,9 @@ export class ChartEngine {
   /**
    * The axis font size, in one place.
    *
-   * Three things have to agree on it: the chart options that set it, and the
-   * two places that derive the axis label's height from it to park the
-   * countdown under the price and to detect a level colliding with the pair.
-   * Disagreement is silent — the chip simply drifts off the label it belongs
-   * to — so they all read it from here.
+   * The chart options that set it and the two places deriving the label height
+   * from it must agree; disagreement is silent, the chip just drifts off its
+   * label.
    */
   private get fontSize(): number {
     return this.mini ? FONT_SIZE.mini : FONT_SIZE.full;
@@ -385,10 +380,9 @@ export class ChartEngine {
   /**
    * Park the countdown under the last-price label.
    *
-   * Anchored to the newest bar's close rather than to the axis, because that
-   * is what the last-value label tracks — the two move together as the price
-   * scale rescales. With no bars, or on a timeframe whose candle does not
-   * close within the day, there is nothing to count and the label goes away.
+   * Anchored to the newest bar's close, which is what the last-value label
+   * tracks, so the two move together as the scale rescales. With no bars, or on
+   * a timeframe whose candle does not close within the day, it goes away.
    */
   private tickCountdown(): void {
     if (this.destroyed) return;
@@ -452,10 +446,9 @@ export class ChartEngine {
   }
 
   /**
-   * Match the price scale to the ticker's magnitude.
-   *
-   * Two decimals is right for a $300 stock and useless for a $0.37 one, where
-   * a cent is nearly 3% and every level would round to the same number.
+   * Match the price scale to the ticker's magnitude: two decimals is right for
+   * a $300 stock and useless at $0.37, where every level rounds to the same
+   * number.
    */
   private applyPricePrecision(): void {
     const last = this.lastBar();
@@ -475,11 +468,8 @@ export class ChartEngine {
   }
 
   /**
-   * Shade the confluence zones behind the candles.
-   *
-   * A shelf of levels has a thickness; drawing it as one thicker line said
-   * that something was there but not where it began or ended, which is what a
-   * stop is placed against.
+   * Shade the confluence zones behind the candles. A shelf of levels has a
+   * thickness, and where it begins and ends is what a stop is placed against.
    */
   setBands(bands: readonly PriceBand[]): void {
     this.bands.setBands(bands);
@@ -510,17 +500,11 @@ export class ChartEngine {
   /**
    * Give the price and its countdown right of way on the axis.
    *
-   * When a level sits within a label's height of the last trade, the axis has
-   * three boxes competing for the same few pixels and the library shuffles
-   * them apart — which pushes the price label off the price, and takes the
-   * countdown pinned beneath it along for the ride. That is backwards: a key
-   * level's axis box is only its number, while the thing that names it is
-   * drawn in the chart area and stays put, and the line itself is still
-   * there to be read. The price and the seconds left on the bar are what the
-   * eye is on at exactly that moment.
-   *
-   * So the colliding level gives up its axis box until the price moves off
-   * it. Only the ones that actually overlap: everything else keeps its label.
+   * A level within a label's height of the last trade puts three boxes in the
+   * same few pixels, and the library shuffles them apart — pushing the price
+   * label off the price and the countdown with it. The level's line and its
+   * in-chart name stay readable without its axis box, so the colliding level
+   * gives that up until price moves off. Only the ones that actually overlap.
    */
   private yieldAxisToPrice(): void {
     const last = this.lastBar();
@@ -551,11 +535,9 @@ export class ChartEngine {
   }
 
   /**
-   * Blank the chart immediately.
-   *
-   * Called the moment the user switches symbols: the old instrument's
-   * candles must not sit under the new ticker's name while its history
-   * loads — a wrong chart reads as data, and worse, as the wrong data.
+   * Blank the chart immediately, the moment the user switches symbols: the old
+   * instrument's candles must not sit under the new ticker's name while its
+   * history loads.
    */
   clear(): void {
     this.bars = [];
@@ -686,19 +668,11 @@ export class ChartEngine {
   }
 
   /**
-   * Whole/half dollar gridlines over the traded range.
-   *
-   * Round numbers are where resistance parks and profit is taken, so they
-   * are drawn rather than inferred. The step widens with the range so a
-   * high-priced or long-range chart never turns into wallpaper.
-   */
-  /**
    * Draw the all-time high as a labelled price line.
    *
-   * A price line rather than a series: the value comes from TradingView as
-   * one number, not from our bars, and a price line neither expands the
-   * autoscale (an ATH ten times above price must not flatten the chart) nor
-   * needs data reconciliation. It simply appears when price gets near.
+   * A price line rather than a series: the value is one number from
+   * TradingView, and a price line neither expands the autoscale (an ATH ten
+   * times above price must not flatten the chart) nor needs reconciliation.
    */
   setAllTimeHigh(price: number | null): void {
     if (price === this.athPrice) return;
@@ -722,6 +696,13 @@ export class ChartEngine {
     return this.athPrice;
   }
 
+  /**
+   * Whole/half dollar gridlines over the traded range.
+   *
+   * Round numbers are where resistance parks, so they are drawn rather than
+   * inferred. The step widens with the range so a high-priced or long-range
+   * chart never turns into wallpaper.
+   */
   private renderDollarLines(): void {
     for (const line of this.dollarLines) this.candles.removePriceLine(line);
     this.dollarLines = [];
@@ -843,10 +824,8 @@ export class ChartEngine {
   }
 
   /**
-   * The MACD pane: line, signal, histogram.
-   *
-   * Colours follow the platform convention the whole point of MACD rests on
-   * — blue MACD line, orange signal, histogram in the candle polarity fills.
+   * The MACD pane: line, signal, histogram. Colours follow the platform
+   * convention — blue MACD, orange signal, histogram in the candle polarity.
    */
   private ensureMacd(
     spec: IndicatorSpec | undefined,
@@ -1007,9 +986,9 @@ export class ChartEngine {
   /**
    * Indicator values at a timestamp.
    *
-   * Key-level series are stored compressed — two points per constant run — so
-   * an exact hit is rare and the value in effect is the newest point at or
-   * before the time asked for.
+   * Key-level series are stored compressed (two points per constant run), so an
+   * exact hit is rare and the value in effect is the newest point at or before
+   * the time asked for.
    */
   valuesAt(time: number): Record<string, number> {
     const values: Record<string, number> = {};
@@ -1035,10 +1014,9 @@ export class ChartEngine {
   /**
    * The newest value of one series.
    *
-   * Points are not stored in time order — a live `update` appends to whatever
-   * the snapshot left — so this is a scan rather than a peek at the end. It
-   * stays cheap because the caller that runs on a timer only asks about key
-   * levels, which are stored compressed at two points each.
+   * Points are not in time order — a live `update` appends to whatever the
+   * snapshot left — so this scans rather than peeking at the end. Cheap because
+   * the timer-driven caller only asks about compressed key levels.
    */
   latestValue(id: string): number | undefined {
     const lookup = this.seriesValues.get(id);
@@ -1073,11 +1051,9 @@ export class ChartEngine {
   /**
    * Scale the visible range about its centre. A factor below 1 zooms in.
    *
-   * Multiplicative rather than trimming a fixed fraction off each edge, so
-   * that zooming out can undo zooming in exactly. Trimming a tenth from both
-   * sides takes the width to 0.8x and adding a tenth back takes it to 1.2x,
-   * so every in-and-out pair left the chart 4% tighter than it started and
-   * repeated tapping crept the view inwards with no way back but Reset.
+   * Multiplicative so zooming out undoes zooming in exactly: trimming a tenth
+   * from both edges gives 0.8x and adding a tenth back gives 1.2x, leaving
+   * every in-and-out pair 4% tighter than it started.
    */
   private scaleRange(factor: number): void {
     const range = this.timeScale.getVisibleLogicalRange();

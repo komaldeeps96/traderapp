@@ -1,18 +1,16 @@
 """Yahoo Finance float, as a second opinion.
 
-TradingView's float goes stale on exactly the day it matters most — an
-offering prices, the float doubles, and the screener row still shows last
-month's number. There is no single correct source, so the honest move is
-two sources and a visible disagreement: the frontend shows a divergence
-badge instead of silently trusting either.
+TradingView's float goes stale on exactly the day it matters most: an offering
+prices, the float doubles, and the screener row still shows last month's number.
+There is no single correct source, so the frontend shows a divergence badge
+rather than silently trusting either.
 
-This is Yahoo's unofficial API. It wants a session cookie and a "crumb"
-token before quoteSummary answers, both of which Yahoo changes at will —
-so every failure here degrades to None and the badge simply does not
-render. Nothing downstream may depend on this provider answering.
+Yahoo's unofficial API wants a session cookie and a "crumb" token before
+quoteSummary answers, both of which Yahoo changes at will, so every failure here
+degrades to None and the badge does not render. Nothing downstream may depend on
+this provider answering.
 
-Cache is deliberately long: float changes on corporate events, not
-intraday, and an unofficial endpoint earns politeness.
+The cache is long: float changes on corporate events, not intraday.
 """
 
 from __future__ import annotations

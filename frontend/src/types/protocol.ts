@@ -257,11 +257,9 @@ export interface DilutionRead extends Omit<DilutionSummary, "warrant_strike"> {
 }
 
 /**
- * The baby-shelf ceiling, re-measured the way an actual sale would be.
- *
- * Public float is re-measured on the date of every takedown against a price
- * from a 60-day look-back, so a run raises the ceiling it is running into —
- * and past $75M of float the cap stops applying at all.
+ * The baby-shelf ceiling, re-measured the way an actual sale would be: public
+ * float on the date of every takedown against a 60-day look-back price, so a
+ * run raises the ceiling it is running into. Past $75M the cap stops applying.
  */
 export interface ShelfCapacity {
   /** The 60-day high the measurement runs against. */
@@ -312,11 +310,10 @@ export type NewsVerdict =
  * One trading session's headlines, read and scored by Claude.
  *
  * The scope is a *session*, not a calendar day: the window runs from the
- * previous close (16:00 NY) to now, because a press release at 16:05 is not
- * today's news — it is tomorrow's gap. `session` is the trading date the
- * window feeds, which on a Sunday is Monday. `score` is catalyst *quality*
- * out of ten — it knows nothing about float, gap or regime, so a low one
- * means "this news is not a reason to be long", never "do not trade".
+ * previous close to now, because a release at 16:05 is tomorrow's gap.
+ * `session` is the trading date the window feeds. `score` is catalyst *quality*
+ * out of ten and knows nothing about float, gap or regime, so a low one means
+ * "this news is not a reason to be long", never "do not trade".
  */
 export interface NewsBrief {
   symbol: string;
@@ -339,58 +336,6 @@ export interface NewsBrief {
   /** Set when newer headlines have landed since this was written and the
    *  cooldown has not yet allowed another reading. */
   stale?: boolean;
-}
-
-/** The five pillars, in the order they are always rendered. */
-export type PillarName = "price" | "change" | "rvol" | "float" | "catalyst";
-export type PillarState = "strong" | "ok" | "weak" | "fail" | "unknown";
-
-export interface Pillar {
-  name: PillarName;
-  state: PillarState;
-  /** The number, in a few words. */
-  note: string;
-}
-
-/** A/B/C/F — Cameron's own grading, which carries measured accuracy. */
-export type SetupGrade = "A" | "B" | "C" | "F";
-
-/**
- * The whole screen, judged.
- *
- * Unlike the news reading this is a read of a *moving* target, so it carries
- * the price it was taken at and goes `stale` when the tape has moved out from
- * under it — two percent, or five minutes.
- */
-export interface SetupJudgement {
-  symbol: string;
-  /** 0-10, judged jointly rather than as a checklist. */
-  score: number;
-  grade: SetupGrade;
-  /** About ten words: what this is and what to do. */
-  headline: string;
-  /** Two to four sentences naming the factor that carries or kills it. */
-  judgement: string;
-  pillars: Pillar[];
-  /** Hard gates that fired, named specifically. Empty when none did. */
-  vetoes: string[];
-  /** What would change the read, in either direction. */
-  watch: string[];
-  /** The last price when the judgement was taken. */
-  price: number | null;
-  generated_at: number;
-  model: string;
-  /** The tape has moved since — 2% of price, or five minutes. */
-  stale: boolean;
-}
-
-export interface SetupResponse {
-  symbol: string;
-  /** `ready`, or why not: `off`, `no-cli`, `no-data`, `failed`. */
-  status: string;
-  available: boolean;
-  judgement: SetupJudgement | null;
-  note?: string;
 }
 
 export interface NewsBriefResponse {
@@ -465,11 +410,9 @@ export interface CompanyProfile {
 }
 
 /**
- * TradingView's ratios and statements.
- *
- * The slow half of the panel. These ride the same row the info strip already
- * fetches, so they cost nothing — which is the only reason they are here.
- * None of them decides whether a trade is possible.
+ * TradingView's ratios and statements — the slow half of the panel. They ride
+ * the same row the info strip already fetches, so they cost nothing, which is
+ * the only reason they are here.
  */
 export interface BusinessStats {
   industry: string;
@@ -509,12 +452,9 @@ export interface FundamentalsResponse {
   business: BusinessStats | null;
 }
 
-// The four market-cap-tiered scanners, mirroring
-// backend/app/domain/scanner.py's SCANNER_TIERS. Labels are duplicated here
-// (not fetched) so a tier's header renders correctly before the first WS
-// `scanner` frame lands — the same tolerance for small, stable literal
-// duplication already exists between the backend's SCAN_CODES and its
-// e2e-fixture copy.
+// The four market-cap-tiered scanners, mirroring backend/app/domain/scanner.py's
+// SCANNER_TIERS. Labels are duplicated rather than fetched so a tier's header
+// renders before the first WS `scanner` frame lands.
 export const SCANNER_TIER_IDS = [
   "small_cap",
   "mid_cap",
@@ -636,10 +576,9 @@ export interface OrderRow {
 /**
  * Whether this terminal can trade, and on what terms.
  *
- * The button amounts come from here rather than being hard-coded, so changing
- * them is a settings change on one side. `paper` is read from the TWS port;
- * `read_only` latches once TWS has rejected an order for its own read-only
- * checkbox, which is not knowable until the first order is tried.
+ * The button amounts come from here rather than being hard-coded. `paper` is
+ * read from the TWS port; `read_only` latches once TWS has rejected an order
+ * for its own checkbox, which is not knowable until the first order is tried.
  */
 export interface TradingState {
   enabled: boolean;

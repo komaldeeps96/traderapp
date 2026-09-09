@@ -1,20 +1,16 @@
 """Ratios and valuation, derived from the statements.
 
-Nothing here reads XBRL. It consumes what `financials.build_statements`
-already resolved, so a concept chain or a derived quarter is fixed in one
-place and every ratio built on it follows.
+Nothing here reads XBRL: it consumes what `financials.build_statements` already
+resolved, so a concept chain or derived quarter is fixed in one place.
 
-Two rules run through the whole file.
+Two rules run through the file:
 
-**A ratio is only as good as both its sides.** Every one is computed from the
-same period on both numerator and denominator, and returns nothing at all if
-either side is missing — a margin against a blank revenue is not a small
-number, it is not a number.
+**A ratio is only as good as both its sides.** Every one takes the same period
+on numerator and denominator and returns nothing if either is missing.
 
-**Division by a negative denominator is refused, not reported.** A price/
-earnings on a loss, a debt/equity on negative book value, a coverage ratio on
-negative operating income: each is arithmetically fine and financially
-meaningless, and printing "-14.2x" invites it to be read as cheap.
+**Division by a negative denominator is refused, not reported.** A P/E on a
+loss or a debt/equity on negative book value is arithmetically fine and
+financially meaningless, and "-14.2x" invites being read as cheap.
 """
 
 from __future__ import annotations
@@ -50,8 +46,7 @@ def _growth(series: Sequence[float | None], index: int) -> float | None:
     """Change against the same period a year earlier.
 
     Periods run newest first, so the comparison is the *next* entry along.
-    Growth from a negative base is refused: revenue rising from -2 to 1 is
-    not "150% growth", it is a sign change.
+    Growth from a negative base is refused: -2 to 1 is a sign change, not 150%.
     """
     if index + 1 >= len(series):
         return None
@@ -110,12 +105,11 @@ def _per_period(values: dict[str, list[float | None]], count: int) -> dict[str, 
         capex = col("capex", index)
         cash_flow = col("operating_cash_flow", index)
         cash = col("cash", index)
-        # Long-term debt only, and the label says so. Summing this with the
-        # short-term line to reach "total debt" was tried and measured worse:
-        # `LongTermDebt` already includes the current portion for some filers
-        # and `LongTermDebtNoncurrent` does not, so adding double-counts
-        # Apple (1.23 against a quoted 0.78) while still understating
-        # Microsoft. Reconciling the two needs work this has not had.
+        # Long-term debt only, and the label says so. Summing with the
+        # short-term line to reach "total debt" measures worse: `LongTermDebt`
+        # already includes the current portion for some filers and
+        # `LongTermDebtNoncurrent` does not, so adding double-counts some and
+        # understates others.
         debt = col("long_term_debt", index)
         free_cash = None if cash_flow is None or capex is None else cash_flow - capex
 
@@ -153,8 +147,7 @@ def _trailing(values: dict[str, list[float | None]], key: str, annual: bool) -> 
     """A year of a flow: the latest year, or the last four quarters.
 
     Three quarters and a gap is not a year, so a missing quarter refuses the
-    whole figure rather than quietly understating it — which on a valuation
-    multiple would read as *cheaper* than the company is.
+    whole figure — understating it would read as cheaper than the company is.
     """
     series = values.get(key) or []
     if not series:
@@ -188,16 +181,12 @@ def build_metrics(
 ) -> dict:
     """Ratios per period, plus valuation against the current market cap.
 
-    A caller that has already built and converted the statements passes them
-    in, so a foreign filer is not parsed twice and — more to the point — is
-    not converted twice.
+    A caller that has already built and converted the statements passes them in,
+    so a foreign filer is not parsed or converted twice.
 
-    `trailing` is the *quarterly* set, and it is what the multiples are built
-    from whenever it is complete enough. Every other screen quotes a trailing
-    twelve months, and a fiscal-year P/E disagrees with all of them: Apple's
-    was 41.65 against the 36.65 the market was quoting, and Crocs' operating
-    margin read 3.70% on a fiscal year carrying a goodwill impairment against
-    24.22% on the twelve months actually behind it.
+    `trailing` is the *quarterly* set, and the multiples are built from it
+    whenever it is complete enough: every other screen quotes a trailing twelve
+    months, and a fiscal-year P/E disagrees with all of them.
     """
     if statements is None:
         statements = build_statements(facts, annual=annual, limit=limit)
@@ -244,14 +233,12 @@ def build_metrics(
 def _valuation_from_stats(stats: dict, market_cap: float | None) -> dict | None:
     """The trailing multiples a filer never gave us the quarters to compute.
 
-    A foreign private issuer files no 10-Q, so there is nothing to trail —
-    but the reference row this terminal already fetches for every symbol
-    carries a trailing twelve months, normalised to dollars. Alibaba's
-    fiscal-year P/E of 19.79 is not the 28.01 the market is quoting, and the
-    market's is the one worth showing.
+    A foreign private issuer files no 10-Q, so there is nothing to trail — but
+    the reference row already fetched for every symbol carries a trailing twelve
+    months, normalised to dollars.
 
-    Borrowed rather than derived, and labelled as such: this is somebody
-    else's arithmetic and the strip says so.
+    Borrowed rather than derived, and labelled as such: this is somebody else's
+    arithmetic and the strip says so.
     """
     revenue = stats.get("revenue_ttm")
     enterprise = stats.get("enterprise_value")
@@ -301,13 +288,10 @@ def _valuation_on_best_basis(
 ) -> dict:
     """Multiples on a trailing twelve months where the quarters allow it.
 
-    They do not always: a foreign private issuer files no 10-Q, so there are
-    no quarters to trail and the fiscal year is the only basis there is. The
-    strip says which was used rather than leaving it to be inferred.
+    Not always: a foreign private issuer files no 10-Q, so the fiscal year is
+    the only basis. The strip says which was used.
 
-    With no quarterly set supplied at all, the caller's own basis stands — a
-    caller asking for quarterly figures and getting an annual valuation would
-    be a surprise, not a default.
+    With no quarterly set supplied the caller's own basis stands.
     """
     trailing_values = _line_values(trailing)
     if trailing_values and _trailing(trailing_values, "revenue", annual=False) is not None:
@@ -330,16 +314,13 @@ def _valuation(
 ) -> dict:
     """Multiples against what the market is asking today.
 
-    Market cap comes from the quote side rather than the filings: a book
-    value is as of a quarter end, and dividing today's price by a figure
-    three months stale is the whole point of the exercise.
+    Market cap comes from the quote side rather than the filings: a book value
+    is as of a quarter end, and dividing today's price by it is the point.
 
-    That is also why a foreign private issuer gets no multiples. Market cap
-    for a US listing is quoted in USD while the statements behind it are in
-    the filer's own currency, so every multiple would be wrong by the
-    exchange rate — and wrong quietly, since a P/E of 12 where the truth is
-    17 looks like nothing at all. Converting needs an FX rate the terminal
-    does not have, so it declines and says why.
+    That is also why a foreign private issuer gets no multiples: market cap for
+    a US listing is quoted in USD while its statements are in the filer's own
+    currency, so every multiple would be quietly wrong by the exchange rate.
+    Converting needs an FX rate the terminal does not have, so it declines.
     """
     mismatched = currency != "USD" and market_cap is not None
     revenue = _trailing(values, "revenue", annual)

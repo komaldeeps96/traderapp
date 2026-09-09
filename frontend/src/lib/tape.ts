@@ -1,11 +1,8 @@
 /**
  * The time-and-sales window: what a row means, and what can be filtered out.
  *
- * The tape is read for one thing — is somebody lifting offers, or is this a
- * stack of prints hitting the bid — and the colour carries it. The five
- * verdicts and their two greens and two reds are the convention every
- * direct-access platform uses, so a trader who has read a Lightspeed or DAS
- * tape reads this one without being told:
+ * Five verdicts, in the two-greens-two-reds convention every direct-access
+ * platform uses:
  *
  *     above   somebody paid through the offer          strong green
  *     ask     a buyer lifted the offer                 green
@@ -13,23 +10,18 @@
  *     bid     a seller hit the bid                     red
  *     below   somebody sold through the bid            strong red
  *
- * The verdict itself is the server's — see `backend/app/domain/tape.py`, which
- * also explains why nobody's feed simply tells you.
+ * The verdict is the server's — see `backend/app/domain/tape.py`.
  *
- * The filters are the standard set, chosen for a $2 runner rather than for
- * completeness: a size floor, a block threshold that emphasises rather than
- * hides, a switch for the irregular prints, same-price aggregation, and a
- * freeze. Everything here is pure so the tests can assert on the rules rather
- * than on pixels.
+ * The filters are a size floor, a block threshold that emphasises rather than
+ * hides, a switch for irregular prints, same-price aggregation, and a freeze.
+ * Everything here is pure so tests assert on rules rather than pixels.
  */
 
 import type { Aggressor, TapePrint } from '@/types/protocol';
 
 /**
- * Prints kept in the store, per symbol.
- *
- * Deep enough to scroll back through the burst after a halt lifts. The server
- * holds more (`tape.buffer`), and hands over what it has on subscribe.
+ * Prints kept in the store, per symbol — deep enough to scroll back through the
+ * burst after a halt lifts. The server holds more (`tape.buffer`).
  */
 export const TAPE_KEPT = 400;
 
@@ -42,10 +34,9 @@ export const TAPE_RENDERED = 200;
 /**
  * How far apart two prints can be and still merge into one aggregated row.
  *
- * One order sliced across five venues lands inside a few milliseconds; a
- * second at the same price half a minute later is a different event, and
- * merging them would invent a block that never traded. A second is wide
- * enough for the first and far too narrow for the second.
+ * One order sliced across five venues lands inside milliseconds; a second at
+ * the same price half a minute later is a different event, and merging them
+ * would invent a block that never traded.
  */
 export const TAPE_AGGREGATE_WINDOW_MS = 1_000;
 
@@ -97,17 +88,14 @@ export function isIrregular(print: TapePrint): boolean {
 }
 
 /**
- * What the window shows, newest first.
+ * What the window shows, newest first. The order is load-bearing:
  *
- * Order matters and is not arbitrary:
- *
- * 1. **Irregulars go first**, so a late report at a stale price can never be
- *    merged into a group of live ones.
- * 2. **Then aggregation**, which is what turns fifty 100-share prints at 2.50
- *    into one 5,000-share row — the thing being looked for.
- * 3. **Then the size floor**, so it measures the row as displayed. With
- *    aggregation on, a 500-share floor keeps that 5,000-share group; filtering
- *    first would have thrown away every print it was built from.
+ * 1. **Irregulars first**, so a late report at a stale price cannot merge into
+ *    a group of live ones.
+ * 2. **Then aggregation**, turning fifty 100-share prints at 2.50 into one
+ *    5,000-share row.
+ * 3. **Then the size floor**, measuring the row as displayed — filtering first
+ *    would throw away every print the group was built from.
  */
 export function visiblePrints(
   prints: readonly TapePrint[],
@@ -121,11 +109,9 @@ export function visiblePrints(
 }
 
 /**
- * Merge runs of same-price, same-side prints that landed together.
- *
- * Input is newest first, so a group's representative is its newest print —
- * the row keeps the time and sequence the group appeared at, and the size is
- * the total that went through at that price.
+ * Merge runs of same-price, same-side prints that landed together. Input is
+ * newest first, so the group's representative is its newest print and the size
+ * is the total that went through at that price.
  */
 function aggregate(prints: readonly TapePrint[]): TapeRow[] {
   const rows: TapeRow[] = [];
@@ -184,12 +170,8 @@ export interface TapeBalance {
 }
 
 /**
- * Which way the visible tape leans.
- *
- * "Are buyers in control" is the question the colours are being scanned for,
- * and one strip answers it faster than the eye reads a few hundred rows.
- * Computed over exactly what is on screen — filters included — so it can
- * never disagree with the rows above it.
+ * Which way the visible tape leans. Computed over exactly what is on screen,
+ * filters included, so it cannot disagree with the rows above it.
  */
 export function balance(rows: readonly TapeRow[]): TapeBalance {
   let buy = 0;
@@ -207,11 +189,9 @@ export function balance(rows: readonly TapeRow[]): TapeBalance {
 /**
  * Fold a batch off the wire into the list the window renders.
  *
- * The list is newest first; the wire sends oldest first. Sequences at or below
- * what is already held are dropped, which is what absorbs the deliberate
- * overlap between a subscribe's backlog and the first incremental batch —
- * the broadcaster's cursor is shared by every client and cannot rewind for a
- * late joiner.
+ * The list is newest first, the wire sends oldest first. Sequences at or below
+ * what is held are dropped, absorbing the deliberate overlap between a
+ * subscribe's backlog and the first incremental batch.
  */
 export function mergePrints(
   held: readonly TapePrint[],

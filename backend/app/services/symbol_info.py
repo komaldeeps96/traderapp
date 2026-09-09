@@ -1,21 +1,16 @@
 """The numbers above the chart: float, rotation, relative volume, halt bands.
 
-Everything here is derived from two sources — TradingView reference stats
-(float, market cap, 10-day average volume) and our own bars (today's volume,
-pre-market volume, previous close). Combining them is what produces the
-fields that matter to the momentum workflow: float rotation is cumulative
-volume over float; relative volume is today against the 10-day average.
+Derived from TradingView reference stats (float, market cap, 10-day average
+volume) and our own bars (today's volume, pre-market volume, previous close).
+Float rotation is cumulative volume over float; relative volume is today
+against the 10-day average.
 
-LULD halt bands follow the exchange rule for Tier 2 stocks: the band
-percentage is set by the *previous close* (10% above $3, 20% from $0.75–$3,
-15 cents below that) and the reference price is a rolling five-minute mean.
-Distance to the halt band is a first-class read on a runner — a break that
-can only travel seven cents before halting is not a trade.
+LULD halt bands follow the exchange rule for Tier 2 stocks: the percentage is
+set by the *previous close* (10% above $3, 20% from $0.75–$3, 15 cents below)
+and the reference price is a rolling five-minute mean.
 
-The band *width* ships alongside the levels, because it is a property of the
-name for the whole session rather than of the moment: a stock that closed at
-$2.90 has twice the room to run before the brake engages as one that closed
-at $3.10, and that is decided the night before and fixed all day.
+The band *width* ships alongside the levels: it is a property of the name for
+the whole session, fixed by the previous close, not of the moment.
 """
 
 from __future__ import annotations
@@ -96,9 +91,8 @@ class SymbolInfoService:
     async def prefetch(self, symbol: str) -> None:
         """Warm every reference cache; called at subscribe time.
 
-        Failures stay independent: a Yahoo outage must not cost the float
-        and market cap that TradingView would have answered with, and an SEC
-        outage must not cost either.
+        Failures stay independent: one source being down must not cost the
+        fields another would have answered with.
         """
         for warm in (self._warm_tv, self._warm_splits, self._warm_yahoo, self._warm_edgar):
             try:
@@ -127,10 +121,9 @@ class SymbolInfoService:
     ) -> float | None:
         """The highest price of the last ``SHELF_LOOKBACK_DAYS`` calendar days.
 
-        Both bases, because neither is enough alone. The daily store is
-        strictly historical — today's candle is folded in only on read, so it
-        would leave out the very run that moves the number — and the minute
-        base reaches back days, not months.
+        Both bases, because neither is enough: the daily store is strictly
+        historical and would leave out the run that moves the number, and the
+        minute base reaches back days rather than months.
         """
         floor = today - timedelta(days=SHELF_LOOKBACK_DAYS)
         highs = [bar.high for bar in daily_bars if ny_date(bar.time) >= floor]
@@ -140,9 +133,9 @@ class SymbolInfoService:
     def _live_shelf(self, symbol: str, read: DilutionRead | None) -> ShelfCapacity | None:
         """Baby-shelf capacity at the price the rule would actually use.
 
-        The float *share count* comes from TradingView rather than from the
-        XBRL cover figure, which is a dollar amount priced on a date months
-        gone. Reported float is passed through only for the contrast.
+        The float *share count* comes from TradingView, not the XBRL cover
+        figure, which is a dollar amount priced months ago. Reported float is
+        passed through only for contrast.
         """
         stats = self._tv.peek_stats(symbol)
         if stats is None or read is None:
@@ -159,11 +152,9 @@ class SymbolInfoService:
     def dilution(self, symbol: str) -> DilutionRead | None:
         """The dilution read from the warmed EDGAR caches, without I/O.
 
-        Memoised against the identity of the cached EDGAR documents rather
-        than a clock: ``build`` runs on every broadcast tick, and the read
-        only changes when the provider replaces those documents. The provider
-        swaps the whole payload on refresh, so identity is exactly the right
-        invalidation key.
+        Memoised against the identity of the cached EDGAR documents rather than
+        a clock: ``build`` runs on every broadcast tick and the read changes
+        only when the provider swaps the whole payload on refresh.
         """
         if self._edgar is None:
             return None
@@ -184,11 +175,9 @@ class SymbolInfoService:
     def _dilution_summary(self, symbol: str) -> dict | None:
         """The compact block the info strip's chip needs.
 
-        Only what the always-visible chip renders: the verdict, the two
-        numbers behind it, and the warrant strike the frontend compares
-        against the live price. The full read is a REST call away, and
-        shipping all forty fields on every tick to colour one chip would be
-        the wrong trade.
+        Only what the always-visible chip renders: the verdict, the two numbers
+        behind it, and the warrant strike the frontend compares against the live
+        price. The full read is a REST call away.
         """
         read = self.dilution(symbol)
         if read is None:
@@ -278,10 +267,9 @@ class SymbolInfoService:
     def _listed_days(daily_bars: list[Bar]) -> int | None:
         """Age of the daily history — a listing age, within the fetch window.
 
-        The daily fetch reaches back years; a history that starts weeks ago
-        starts there because the symbol did. Only young readings are reported:
-        near the window edge the number measures the fetch, not the listing,
-        and a long-listed name would otherwise carry a large lie.
+        The daily fetch reaches back years, so a history starting weeks ago
+        starts there because the symbol did. Only young readings are reported —
+        near the window edge the number measures the fetch, not the listing.
         """
         if not daily_bars:
             return None
@@ -294,9 +282,9 @@ class SymbolInfoService:
     ) -> tuple[float, float, float | None, list[Bar]]:
         """Today's volume, its pre-market share, last price, today's bars.
 
-        Today's bars come back in time order so the pullback measure can
-        walk them directly; the day boundary matters there too, because a
-        leg must not straddle the overnight gap.
+        Today's bars come back in time order so the pullback measure can walk
+        them directly, and the day boundary keeps a leg from straddling the
+        overnight gap.
         """
         if not minute_bars:
             return 0.0, 0.0, None, []

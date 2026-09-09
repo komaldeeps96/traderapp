@@ -1,14 +1,9 @@
 """A company against the ones it competes with.
 
-A ratio on its own is not a judgement. A 39× earnings multiple is expensive
-for a utility and cheap for a chip designer, and the only cheap way to know
-which is to put the company beside its own industry.
-
-This is why the terminal ranks against *peers* rather than against every
-filer. SEC's frames endpoint would give a market-wide percentile across some
-six thousand companies, and a gross margin in the 80th percentile of "all
-US issuers" says almost nothing — the comparison set is dominated by
-businesses with no relationship to this one.
+A ratio on its own is not a judgement: a 39× earnings multiple is expensive for
+a utility and cheap for a chip designer. Ranking against *peers* rather than
+every filer is why — a gross margin in the 80th percentile of all US issuers
+says almost nothing.
 
 Everything here rides a single TradingView query, so a peer table costs one
 request rather than one per company.
@@ -127,8 +122,8 @@ def rank(rows: list[dict], symbol: str) -> list[dict]:
     """Where the subject sits among its peers, measure by measure.
 
     A rank needs at least one company to compare against, and a measure the
-    subject does not report cannot be ranked at all — an unranked row says
-    so rather than guessing a middle.
+    subject does not report cannot be ranked — an unranked row says so rather
+    than guessing a middle.
     """
     subject = next((row for row in rows if row["symbol"] == symbol), None)
     if subject is None:

@@ -14,19 +14,12 @@ export function Divider() {
  * A labelled number.
  *
  * `whitespace-nowrap` is load-bearing: a field is the unit that wraps, so a
- * long value takes its own label with it instead of breaking in half.
+ * long value takes its own label with it rather than breaking in half.
  *
- * A field carrying an explanation says so. Every one of these has had a
- * ``title`` since the panel was built, and it went unfound — a native tooltip
- * needs about a second of hover and advertises itself not at all, so a label
- * like ROT or WRVOL just reads as jargon.
- *
- * The dotted underline is standing rather than on hover, which is the point:
- * hover-only would still require already suspecting there was something to
- * find. This way the panel says at a glance which of its terms will answer a
- * question. Kept to the label and to the faintest line that survives both
- * themes — the values are what the panel is read for, and eighteen underlined
- * numbers would be a different and much worse panel.
+ * A field carrying an explanation says so with a standing dotted underline, not
+ * one on hover — a native tooltip advertises itself not at all, so a label like
+ * ROT reads as jargon until something says it will answer. Kept to the label,
+ * in the faintest line that survives both themes.
  */
 export function Field({
   label,

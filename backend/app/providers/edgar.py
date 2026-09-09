@@ -1,13 +1,11 @@
 """SEC EDGAR: the filing trail and the XBRL facts behind it.
 
-This is the fundamentals backbone, because IBKR is not one. Every
-``reqFundamentalData`` report type on this account answers error 10358
-("Fundamentals data is not allowed"), the ratio and dividend generic ticks
-stay silent, and Wall Street Horizon answers 10276 — probed against live TWS,
-see ``tmp/ibkr-fundamentals/probe_fundamentals.py``. EDGAR needs no key, no
-account and no entitlement, and it is the only free source that carries what
-this workflow actually needs: warrants outstanding, cash against burn, shares
-authorised versus issued, public float, and the offering trail.
+The fundamentals backbone, because IBKR is not one: every
+``reqFundamentalData`` report type on this account answers error 10358, the
+ratio and dividend generic ticks stay silent, and Wall Street Horizon answers
+10276 (the table is in ``docs/dilution-desk.md``). EDGAR needs no key and
+carries what this workflow needs: warrants outstanding, cash against burn,
+shares authorised versus issued, public float, and the offering trail.
 
 Three endpoints, three cache lifetimes:
 
@@ -19,12 +17,11 @@ Three endpoints, three cache lifetimes:
                             half a day is still fresher than the source.
 
 SEC asks for a declared User-Agent carrying a contact address and rate-limits
-at ten requests a second; both are honoured here, the second through the same
-``ProviderBudget`` the market-data upstreams use, so EDGAR shows up in the
-toolbar meters beside them.
+at ten requests a second; both are honoured, the second through the same
+``ProviderBudget`` the market-data upstreams use.
 
-Like ``yahoo.py``, nothing here raises into a caller. Every failure degrades
-to ``None`` and the panel renders without that field rather than not at all.
+Like ``yahoo.py``, nothing here raises into a caller: every failure degrades to
+``None`` and the panel renders without that field.
 """
 
 from __future__ import annotations
@@ -58,12 +55,9 @@ DEFAULT_USER_AGENT = "traderapp/1.0 (contact: set edgar.user_agent in settings)"
 
 # What to say when the ticker map could not be fetched.
 #
-# This exact failure is easy to hit and used to be invisible: www.sec.gov —
-# which serves the ticker map — answers 403 to a User-Agent without a real
-# contact address, while data.sec.gov answers 200 to the same one. Without a
-# CIK nothing else can be requested, so the panel filled with nulls and told
-# the user the company files nothing, which was a lie about a configuration
-# problem.
+# www.sec.gov, which serves the ticker map, answers 403 to a User-Agent without
+# a real contact address while data.sec.gov answers 200 to the same one. Without
+# a CIK nothing else can be requested, so this must not read as "files nothing".
 UNAVAILABLE_NOTE = (
     "SEC refused the request. Set edgar.user_agent in settings.yaml to a "
     "string carrying a real contact address, e.g. "
@@ -174,8 +168,7 @@ class EdgarProvider:
         """Re-read only the filing trail, ignoring its cache.
 
         The live-alert poll uses this: facts move quarterly and must not be
-        re-fetched every minute, but a new 424B5 is exactly what is being
-        watched for.
+        re-fetched every minute, but a new 424B5 is what is being watched for.
         """
         async with self._lock:
             cik = await self._cik(symbol)
@@ -224,10 +217,10 @@ class EdgarProvider:
     async def fetch_document(self, url: str) -> str | None:
         """One filing document, as text.
 
-        Separate from `_get_json` because the ownership forms are XML, and
-        because this is the one read that is *per filing* rather than per
-        company — it goes through the same budget so a company with a long
-        Form 4 trail cannot spend the whole allowance at once.
+        Separate from `_get_json`: the ownership forms are XML, and this is the
+        one read that is *per filing* rather than per company, so it goes
+        through the same budget to stop a long Form 4 trail spending the whole
+        allowance.
         """
         try:
             if self._budget is not None:
@@ -315,9 +308,9 @@ def _parse_profile(payload: dict, cik: int) -> CompanyProfile | None:
 def _parse_filings(payload: dict, cik: int) -> list[Filing]:
     """The ``filings.recent`` column store, transposed into rows.
 
-    EDGAR ships parallel arrays rather than records, and a truncated one is
-    possible; zipping to the shortest keeps a malformed document from
-    producing rows with fields borrowed from their neighbours.
+    EDGAR ships parallel arrays rather than records, and one can be truncated;
+    zipping to the shortest stops a malformed document producing rows with
+    fields borrowed from their neighbours.
     """
     recent = (payload.get("filings") or {}).get("recent")
     if not isinstance(recent, dict):
@@ -367,10 +360,9 @@ def _parse_date(value: object) -> date | None:
 def _parse_accepted(value: object) -> int | None:
     """``2026-08-14T16:05:12.000Z`` -> epoch seconds.
 
-    EDGAR stamps acceptance in Eastern time without an offset in some older
-    rows and with a trailing ``Z`` in current ones; only the latter is
-    trusted, since guessing a zone on a timestamp used to decide whether a
-    filing landed inside the session would be worse than omitting it.
+    EDGAR stamps acceptance in Eastern time without an offset in older rows and
+    with a trailing ``Z`` in current ones. Only the latter is trusted: this
+    timestamp decides whether a filing landed inside the session.
     """
     if not isinstance(value, str) or not value.endswith("Z"):
         return None

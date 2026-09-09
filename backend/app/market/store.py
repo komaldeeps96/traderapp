@@ -1,8 +1,8 @@
 """In-memory bar storage, keyed by symbol and base timeframe.
 
-Only base timeframes (``1m`` and ``1d``) are stored. Derived timeframes are
-resampled on demand so there is exactly one copy of the truth per symbol and
-no chance of two timeframes drifting apart.
+Only base timeframes (``10s``, ``1m``, ``1d``) are stored. Derived timeframes
+are resampled on demand, so there is exactly one copy of the truth per symbol
+and no chance of two drifting apart.
 """
 
 from __future__ import annotations

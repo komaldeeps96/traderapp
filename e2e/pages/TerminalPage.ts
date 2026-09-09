@@ -130,11 +130,8 @@ export class TerminalPage {
   }
 
   /**
-   * The main chart's floating zoom/pan cluster.
-   *
-   * Scoped rather than reached by accessible name alone: the mini charts carry
-   * their own zoom buttons, so "the Zoom in button" is now a question about
-   * which chart.
+   * The main chart's floating zoom/pan cluster. Scoped rather than reached by
+   * accessible name alone, since the mini charts carry their own zoom buttons.
    */
   get chartControls(): Locator {
     return this.page.getByTestId('chart-controls');
@@ -160,16 +157,22 @@ export class TerminalPage {
     return this.page.getByTestId(`tape-row-${seq}`);
   }
 
-  /** The right-hand rail that holds them, and the other four tabs. */
+  /** The right-hand rail that holds them, and the other three tabs. */
   get dock(): Locator {
     return this.page.getByTestId('dock');
   }
 
-  dockTab(id: 'charts' | 'ai' | 'fundamentals' | 'news' | 'filings'): Locator {
+  dockTab(id: 'charts' | 'fundamentals' | 'news' | 'filings'): Locator {
     return this.page.getByTestId(`dock-tab-${id}`);
   }
 
-  dockPanel(id: 'ai' | 'fundamentals' | 'news' | 'filings'): Locator {
+  /** Every tab on the rail. A tab is well inside the visual tolerance, so
+   *  the baselines count them rather than trusting the pixels. */
+  dockTabs(): Locator {
+    return this.dock.getByRole('tablist', { name: 'Dock panels' }).getByRole('tab');
+  }
+
+  dockPanel(id: 'fundamentals' | 'news' | 'filings'): Locator {
     return this.page.getByTestId(`dock-${id}`);
   }
 
@@ -235,12 +238,10 @@ export class TerminalPage {
   /**
    * Place the crosshair on the bar at a fraction across the chart's width.
    *
-   * The chart tracks a stream of pointer moves rather than a final position.
-   * A real mouse always enters as a continuous stream, but Playwright's
-   * synthetic pointer does not reliably produce one on its first entry in
-   * Firefox and WebKit, so the move is repeated — varying the approach — until
-   * the readout confirms a bar is actually under the crosshair. Failing loudly
-   * after that beats a test that silently asserts nothing.
+   * The chart tracks a stream of pointer moves rather than a final position,
+   * and Playwright's synthetic pointer does not reliably produce one on first
+   * entry in Firefox and WebKit — so the move repeats, varying the approach,
+   * until the readout confirms a bar is under the crosshair.
    */
   async hoverChart(fractionX = 0.5, fractionY = 0.5): Promise<void> {
     const box = await this.chart.boundingBox();
@@ -300,11 +301,9 @@ export class TerminalPage {
   }
 
   /**
-   * Wait until every mini slot has drawn something.
-   *
-   * Asked of the store's own `miniTimeframes` rather than a hardcoded list, so
-   * a spec that retimes a slot — or a build that changes how many slots there
-   * are — waits for the charts that actually exist.
+   * Wait until every mini slot has drawn something. Asked of the store's own
+   * `miniTimeframes` rather than a hardcoded list, so a spec that retimes a
+   * slot waits for the charts that actually exist.
    */
   async waitForMiniCharts(): Promise<void> {
     await this.page.waitForFunction(

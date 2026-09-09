@@ -4,16 +4,15 @@ import { defineConfig, devices } from '@playwright/test';
  * Two suites, one config.
  *
  *  - `tests/mocked` runs the real frontend bundle against a scripted backend
- *    served by Playwright's network interception. Fast, deterministic, and
- *    able to force states the live stack cannot — a dropped socket, a delayed
- *    feed, a symbol with no data. Runs on all three engines.
+ *    served by Playwright's network interception: deterministic, and able to
+ *    force states the live stack cannot — a dropped socket, a delayed feed, a
+ *    symbol with no data. All three engines.
  *
- *  - `tests/fullstack` runs the real backend, real providers and real
- *    indicator maths, with only Alpaca's HTTP endpoint replaced by a fixture
- *    server. That is what proves the two halves actually agree.
+ *  - `tests/fullstack` runs the real backend, providers and indicator maths,
+ *    with only Alpaca's HTTP endpoint replaced by a fixture server, which is
+ *    what proves the two halves agree.
  *
- * Everything starts itself: `npm run test:e2e` needs no running servers, no
- * credentials, and no open market.
+ * Everything starts itself: no running servers, credentials or open market.
  */
 
 // Every e2e server lives on its own port, away from the development stack:
@@ -31,13 +30,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: isCI,
   retries: isCI ? 2 : 0,
-  // Two everywhere, not just in CI. Left undefined, Playwright picks half
-  // the cores — four on this machine — and each worker is a whole browser
-  // holding a chart. On a 16GB laptop that is enough to exhaust memory: a
-  // run at the default count took the load average past 250 and ended in a
-  // kernel panic with the VM compressor at 100% of its page limit. The
-  // suite finishes in about a minute either way; the headroom is worth far
-  // more than the seconds.
+  // Two everywhere, not just in CI. Left undefined, Playwright picks half the
+  // cores — four on this machine — and each worker is a whole browser holding a
+  // chart, which exhausts memory on a 16GB laptop and kernel-panics it. The
+  // suite finishes in about a minute either way.
   workers: 2,
   timeout: 45_000,
   expect: { timeout: 10_000 },
@@ -159,13 +155,12 @@ export default defineConfig({
         // filings panels reach data.sec.gov, and nothing in a test run may
         // leave the machine. The mocked suite serves those routes itself.
         TRADERAPP_EDGAR__ENABLED: 'false',
-        // And both AI panels, which spawn a `claude` process that reaches
+        // And the news summary, which spawns a `claude` process that reaches
         // Anthropic — the same rule, one process further out. The mocked
-        // suite serves their routes itself; a fullstack run gets the
-        // "switched off in settings" line, which is a real state of the
-        // panels and worth rendering.
+        // suite serves its route itself; a fullstack run gets the "switched
+        // off in settings" line, which is a real state of the panel and
+        // worth rendering.
         TRADERAPP_NEWS_AI__ENABLED: 'false',
-        TRADERAPP_SETUP_AI__ENABLED: 'false',
         TRADERAPP_STATE_FILE: '/tmp/traderapp-e2e-state.yaml',
         TRADERAPP_LOG_LEVEL: 'WARNING',
       },

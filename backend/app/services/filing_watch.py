@@ -1,19 +1,15 @@
 """Watches the focused symbol's EDGAR trail for an offering landing mid-session.
 
-This is the payoff of having the filing trail at all. A shelf takedown priced
-into a spike you are long is the most expensive surprise in this style of
-trading, and it is public the moment EDGAR accepts it — usually well before it
-reaches a headline. Polling one company's submissions document once a minute
-costs a single request against a ten-per-second allowance.
+A shelf takedown priced into a spike is public the moment EDGAR accepts it,
+usually well before it reaches a headline. Polling one company's submissions
+document once a minute costs a single request against a ten-per-second
+allowance.
 
-Only dilution and distress filings raise an alert. A Form 4 and a routine 8-K
-are worth a row in the panel and nothing more; waking a trader mid-trade for
-an insider's tax withholding would train them to ignore the thing that
-matters.
+Only dilution and distress filings raise an alert; a Form 4 or routine 8-K is
+worth a row and nothing more.
 
 The first poll after a symbol is opened establishes the baseline rather than
-alerting. Everything in the trail is by definition already filed, and opening
-a chart on a company that raised last week must not fire an alarm about it.
+alerting, so opening a chart on a company that raised last week is silent.
 """
 
 from __future__ import annotations

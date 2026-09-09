@@ -8,14 +8,13 @@ import type { WatchlistRow } from '@/types/protocol';
 /**
  * The symbols this desk is watching. Nothing else.
  *
- * No folders, no groups, no sort. The order is the order things were added,
- * because that order is itself information: the name put here this morning is
- * usually the one being worked, and a list that re-sorts itself under the
- * cursor costs more than the tidiness is worth.
+ * No folders, no groups, no sort — the order things were added is itself
+ * information, and a list that re-sorts under the cursor costs more than the
+ * tidiness is worth.
  *
- * The list lives on the server, so both windows and a page reload see the
- * same one. Edits are sent and not applied locally — the broadcast that comes
- * back is what renders, which is what keeps two open terminals in step.
+ * The list lives on the server, so both windows and a reload see the same one.
+ * Edits are sent rather than applied locally: the broadcast that comes back is
+ * what renders, which keeps two open terminals in step.
  */
 export function WatchlistPanel({ onSelect }: { onSelect: (symbol: string) => void }) {
   const symbols = useTerminalStore((state) => state.watchlist);
@@ -194,11 +193,9 @@ function Row({
 }
 
 /**
- * The name, and the size — on hover rather than in a column.
- *
- * Market capitalisation does not change while the panel is open, so it earns
- * no width in a 320px sidebar that has to fit seven live numbers. It is still
- * a fact worth having about a name you are watching, so it goes here.
+ * The name, and the size — on hover rather than in a column. Market cap does
+ * not change while the panel is open, so it earns no width in a 320px sidebar
+ * fitting seven live numbers.
  */
 function rowTitle(row: WatchlistRow): string {
   if (!row.name) return 'No quote for this symbol';
@@ -223,10 +220,8 @@ function Earnings({ epoch }: { epoch: number | null }) {
 }
 
 /**
- * Red below zero, `whenUp` above it — and neither when there is no number.
- *
- * A dash tinted green reads as a small gain rather than as nothing known,
- * which on a delisted symbol is the opposite of the truth.
+ * Red below zero, `whenUp` above it, neither when there is no number: a dash
+ * tinted green reads as a small gain rather than as nothing known.
  */
 function tint(value: number | null, whenUp: string): string {
   if (value == null || !Number.isFinite(value)) return 'text-ink-3';

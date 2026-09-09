@@ -27,7 +27,6 @@ from app.domain.news_ai import (
     band,
     build_prompt,
     digest,
-    parse_output,
     previous_session,
     select_session,
     session_for,
@@ -335,28 +334,6 @@ def envelope(**overrides) -> str:
     }
     body.update(overrides)
     return json.dumps(body)
-
-
-def test_parses_the_structured_output():
-    assert parse_output(envelope())["score"] == 7
-
-
-def test_falls_back_to_the_text_result():
-    """The CLI puts the object in one field or the other; both are answers."""
-    raw_text = json.loads(envelope())
-    raw_text.pop("structured_output")
-    assert parse_output(json.dumps(raw_text))["score"] == 7
-
-
-def test_an_error_envelope_is_reported_not_parsed():
-    with pytest.raises(BriefError, match="ran out"):
-        parse_output(json.dumps({"is_error": True, "result": "the budget ran out"}))
-
-
-@pytest.mark.parametrize("text", ["", "   ", "not json at all", "[1, 2, 3]"])
-def test_unusable_output_raises(text):
-    with pytest.raises(BriefError):
-        parse_output(text)
 
 
 def selection_for(day_rows=None):

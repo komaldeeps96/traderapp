@@ -1,12 +1,9 @@
 """Tracks who is watching what.
 
-Each connection has its own subscription. The union of those subscriptions
-decides which symbols are streamed upstream, and a symbol is dropped from
-memory as soon as the last client watching it goes away.
-
-This per-connection model is a deliberate change from broadcasting a single
-globally-active symbol to everyone: two browser windows — or two parallel
-test workers — can watch different symbols without fighting over one slot.
+Each connection has its own subscription. The union of those decides which
+symbols are streamed upstream, and a symbol is dropped from memory as soon as
+the last client watching it goes away, so two windows — or two parallel test
+workers — can watch different symbols without fighting over one slot.
 """
 
 from __future__ import annotations
@@ -59,15 +56,13 @@ class SubscriptionHub:
     ) -> list[Snapshot]:
         """Point a client at a symbol and return its opening snapshots.
 
-        The primary chart's snapshot comes first, followed by one per extra
-        timeframe — the mini charts. An empty list means the load produced
-        nothing, or the client moved on to a different symbol while the
-        history was still downloading.
+        The primary chart's snapshot comes first, then one per extra timeframe.
+        An empty list means the load produced nothing, or the client moved on
+        while history was still downloading.
 
-        An extra's snapshot can legitimately carry no bars: a 10-second load
-        has no minute base until the background pass lands. The backfill
-        handler re-sends every pair when it does, so the mini fills a beat
-        later rather than never.
+        An extra's snapshot can carry no bars: a 10-second load has no minute
+        base until the background pass lands, and the backfill handler re-sends
+        every pair when it does.
         """
         connection.symbol = symbol
         connection.timeframe = timeframe

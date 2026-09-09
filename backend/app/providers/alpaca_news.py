@@ -1,28 +1,22 @@
 """Live Benzinga headlines, pushed as they are published.
 
-The measurement that justifies this: four headlines arrived on this socket
-about 1.9 seconds *ahead* of their own ``created_at`` stamps. Alpaca's
-``delayed_sip`` entitlement governs the price tape and nothing else — news is
-a separate product and is not delayed.
+Real time: ``delayed_sip`` governs the price tape and nothing else, and
+headlines arrive on this socket about 1.9 seconds *ahead* of their own
+``created_at`` stamps.
 
-It matters because IBKR's live headlines ride generic tick 292, which only
-follows the chart that is open. This socket carries the whole market, so a
-headline on a watchlist name reaches the terminal while that name is nowhere
-on screen — and it does so with no TWS running at all.
+IBKR's live headlines ride generic tick 292, which only follows the chart that
+is open. This socket carries the whole market, so a headline on a watchlist
+name arrives while that name is nowhere on screen, with no TWS running.
 
-Subscribing to everything rather than to a symbol list is deliberate. The
-market-wide rate is one or two headlines a minute, which is nothing, and it
-removes the resubscribe churn that following a chart around would cost.
-Routing is done where the interest is known, not here.
+Subscribing to everything rather than a symbol list costs nothing at one or two
+headlines a minute and removes the resubscribe churn of following a chart.
+Routing happens where the interest is known, not here.
 
-**Alpaca allows one news connection per account.** A second one does not
-queue or share — it takes the socket, and the loser sees a close with no
-close frame. This was found by running a probe beside a live terminal and
-watching the probe get thrown off. So a second copy of this application, or
-any other tool holding these keys, will fight this one; the reconnect loop
-below then turns that into two clients trading the connection back and forth.
-If headlines stop arriving and the log shows repeated drops, look for the
-other client before looking here.
+**Alpaca allows one news connection per account.** A second does not queue or
+share — it takes the socket, and the loser sees a close with no close frame, so
+two copies of this app trade the connection through their reconnect loops. If
+headlines stop arriving and the log shows repeated drops, look for the other
+client first.
 """
 
 from __future__ import annotations

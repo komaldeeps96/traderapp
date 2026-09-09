@@ -1,9 +1,8 @@
 """The WebSocket endpoint.
 
 One connection owns one chart subscription. Everything a client sends is
-validated against the command union before it reaches a service, and any
-rejection comes back as an ``error`` message rather than closing the socket —
-a mistyped symbol should not cost the user their connection.
+validated against the command union before it reaches a service, and a
+rejection comes back as an ``error`` message rather than closing the socket.
 """
 
 from __future__ import annotations
@@ -119,15 +118,13 @@ async def _trade(
 ) -> None:
     """Place or cancel, then tell everyone what the account looks like.
 
-    The command carries a dollar amount or a fraction and never a share
-    count — ``_Command`` forbids extra fields, so a client cannot even smuggle
-    one in. The sizing happens in TradingService against the freshest quote
-    and IBKR's own position.
+    The command carries a dollar amount or a fraction, never a share count —
+    ``_Command`` forbids extra fields. Sizing happens in TradingService against
+    the freshest quote and IBKR's own position.
 
-    A refusal comes back as an ``error`` on the asking connection *and* leaves
-    a note on the broadcast state, because during a move nobody is reading a
-    log and an order that silently did not go is the failure the whole panel
-    exists to remove.
+    A refusal comes back as an ``error`` on the asking connection *and* leaves a
+    note on the broadcast state: an order that silently did not go is the
+    failure this panel exists to remove.
     """
     if command.action == "trade.buy":
         result = await container.trading.buy(command.symbol, command.dollars)
@@ -147,8 +144,7 @@ async def _edit_watchlist(
     """Add or drop one symbol, then tell every client the whole list.
 
     The list lives in one file, not per connection, so a name added on one
-    window has to appear on the others — and broadcasting the full list is
-    what makes that free.
+    window appears on the others.
     """
     if command.action == "watchlist.add":
         await container.watchlist.add(command.symbol)
@@ -232,13 +228,11 @@ async def _save_indicator_visibility(
     """Persist one timeframe's indicator toggles, as deltas.
 
     The client sends the whole picture; only what differs from the config is
-    written. That is what lets a changed default in `indicators.yaml` reach
-    charts the user never touched, and it keeps the state file to the handful
-    of lines a person actually changed rather than a copy of every default.
+    written, so a changed default in `indicators.yaml` reaches charts the user
+    never touched.
 
-    Ids the config no longer defines are dropped here, where the specs are —
-    the same reason a removed indicator cannot be resurrected by a stale
-    saved value.
+    Ids the config no longer defines are dropped here, where the specs are, so a
+    removed indicator cannot be resurrected by a stale saved value.
     """
     timeframe = command.parsed_timeframe
     defaults = {

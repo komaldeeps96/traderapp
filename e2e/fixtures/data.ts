@@ -75,10 +75,9 @@ function line(
 /**
  * The levels that stack above a faded runner.
  *
- * The real config carries 29 key levels; the slice below carries eight, which
- * is enough for most assertions but never puts more than a band or two over
- * the last price. These exist so the "price buried under overhead supply"
- * case — the one that makes the panel unreadable — can be reproduced.
+ * The real config carries 29 key levels and the default slice carries eight,
+ * which never puts more than a band or two over the last price. These reproduce
+ * the "price buried under overhead supply" case.
  */
 export const OVERHEAD_LEVELS = [
   'prev_week_high',
@@ -571,12 +570,9 @@ export interface TapePrintFixture {
 }
 
 /**
- * A tape with one row of every kind.
- *
- * Deliberately not a plausible-looking stream: the specs assert on which tint
- * each verdict draws and on what the filters keep, so every side, a block, a
- * small print and an irregular one all have to be in there. Oldest first, as
- * the wire sends them.
+ * A tape with one row of every kind — a truth table, not a plausible stream:
+ * the specs assert on which tint each verdict draws and what the filters keep.
+ * Oldest first, as the wire sends them.
  */
 export function makeTapePrints(overrides: Partial<TapePrintFixture>[] = []): TapePrintFixture[] {
   const base = SESSION_START * 1000 + 240 * 10_000;
@@ -833,12 +829,9 @@ export function makeArticle(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 /**
- * One day, read and scored — the shape `/api/news/{symbol}/brief` answers with.
- *
- * Deliberately the awkward case rather than a clean one: a real FDA clearance
- * with an offering bolted to it, which is what the rubric exists to catch and
- * what a substring classifier cannot. The score is low *because* the good
- * news is there, which is the whole argument for the panel.
+ * One session, read and scored — the shape `/api/news/{symbol}/brief` answers
+ * with. Deliberately the awkward case: an FDA clearance with an offering bolted
+ * to it, where the score is low *because* the good news is there.
  */
 export function makeBrief(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -867,46 +860,6 @@ export function makeBrief(symbol = 'AAPL', overrides: Partial<Record<string, unk
       headline_count: 3,
       generated_at: SESSION_START + 300 * 10,
       model: 'sonnet',
-      ...overrides,
-    },
-  };
-}
-
-/**
- * The setup, judged — the shape `/api/setup/{symbol}` answers with.
- *
- * A B rather than an A on purpose: the interesting case for a panel is the
- * one carrying a real veto beside real strength, because that is the
- * configuration a checklist gets wrong and the reason the tab exists.
- */
-export function makeSetup(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
-  return {
-    symbol,
-    status: 'ready',
-    available: true,
-    judgement: {
-      symbol,
-      score: 6,
-      grade: 'B' as const,
-      headline: 'Good tape on a 2.1M float — but easy to borrow',
-      judgement:
-        'WRVOL 61x on a corroborated 2.10M float is carrying this, and +72% ranks it top-three of the seven names up 50% today. The float is easy to borrow, which on a claimed 2M float usually means the float is not 2M — shorts will press the first pullback. Quarter size at most, and only above VWAP at 3.11.',
-      pillars: [
-        { name: 'price', state: 'ok', note: '$3.42' },
-        { name: 'change', state: 'strong', note: '+72.7%' },
-        { name: 'rvol', state: 'strong', note: 'WRVOL 61x' },
-        { name: 'float', state: 'weak', note: '2.10M but ETB' },
-        { name: 'catalyst', state: 'strong', note: '8/10 placement' },
-      ],
-      vetoes: ['Easy to borrow on a claimed 2.1M float'],
-      watch: ['VWAP 3.11 is the fail line', 'PM High 3.55 is 3.8% overhead — no 2:1 beneath it'],
-      price: 3.42,
-      // Now, not the fixture clock: this is the one field the panel renders
-      // as an age, and a 2024 timestamp against a real clock reads as
-      // "1319581 ago" rather than as anything a reader would recognise.
-      generated_at: Math.floor(Date.now() / 1000) - 45,
-      model: 'sonnet',
-      stale: false,
       ...overrides,
     },
   };
@@ -1004,11 +957,9 @@ export function makeApiUsage(overrides: { alpaca?: number; ibkr?: number } = {})
 }
 
 /**
- * A statement set shaped like the real endpoint's.
- *
- * Two years, a subtotal, a per-share line and a hole — the hole matters:
- * a quarter a company never filed is a blank cell, not a zero, and the table
- * has to say so.
+ * A statement set shaped like the real endpoint's: two years, a subtotal, a
+ * per-share line and a hole. The hole matters — a quarter a company never filed
+ * is a blank cell, not a zero.
  */
 export function makeFinancials(
   symbol = 'AAPL',
@@ -1147,13 +1098,12 @@ export function makeSwingScreens() {
   };
 }
 
-/** Rows for one screen. Signs matter: `off_high` is negative below the high. */
 /**
  * One watchlist row, as the screener would fill it.
  *
- * A symbol not in this table still gets a row with empty numbers — that is
- * how the real service answers for a delisted or mistyped ticker, and the
- * panel has to keep showing it so it can be taken off the list.
+ * A symbol not in this table still gets a row with empty numbers, which is how
+ * the real service answers for a delisted or mistyped ticker — the panel has to
+ * keep showing it so it can be taken off the list.
  */
 const WATCHLIST_QUOTES: Record<string, Record<string, unknown>> = {
   AAPL: { name: 'Apple Inc.', close: 231.4, change: 1.24, premarket_change: 0.31, rvol: 1.1 },
@@ -1189,12 +1139,9 @@ export function makeWatchlistMessage(symbols: string[], note: string | null = nu
 }
 
 /**
- * The order-entry strip's state.
- *
- * Off by default, exactly as the real server is: `trading.enabled` is False in
- * settings and in every backend test, so the terminal's default appearance —
- * and every visual baseline — has no strip at all. A spec that wants one arms
- * it deliberately.
+ * The order-entry strip's state. Off by default, as the real server is, so the
+ * terminal's default appearance and every visual baseline has no strip. A spec
+ * that wants one arms it deliberately.
  */
 export function makeTradingMessage(overrides: Record<string, unknown> = {}) {
   const {
@@ -1350,11 +1297,9 @@ export function makeOwnership(symbol = 'AAPL', overrides: Partial<Record<string,
 }
 
 /**
- * An industry peer set.
- *
- * Percentages are fractions, as the endpoint emits them — TradingView's
- * whole percents are converted once on the backend so the ranking median
- * and the table cell cannot disagree.
+ * An industry peer set. Percentages are fractions, as the endpoint emits them:
+ * TradingView's whole percents are converted once on the backend so the ranking
+ * median and the table cell cannot disagree.
  */
 export function makePeers(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
   const row = (sym: string, extra: Record<string, unknown>) => ({

@@ -22,18 +22,11 @@ import { SCANNER_TIER_IDS } from "@/types/protocol";
 /**
  * The terminal layout.
  *
- * One dense column of market discovery on the left — four IBKR trade-rate
- * scanners, one per market-cap tier, stacked and always visible together —
- * then the key levels for whatever is loaded — the chart column in the
- * middle with the symbol strip above it, and the dock down the right (above
- * 1280px; below that the main chart takes the width). The dock opens on the
- * 1m/5m context charts and carries the pre-trade check — fundamentals, news
- * and SEC filings — behind its other tabs.
- *
- * The TradingView screener used to sit above the scanners and was removed
- * from the UI: that job is done on a second monitor by a standard screener.
- * TradingView is still the backend's source for float, market cap and the
- * regime counts, so the service stays — only the panel is gone.
+ * Left: market discovery — four IBKR trade-rate scanners, one per market-cap
+ * tier, stacked and always visible, with the key levels beneath. Middle: the
+ * chart column, symbol strip above it. Right: the dock, above 1280px only —
+ * below that the main chart takes the width. The dock opens on the context
+ * chart and tape, with fundamentals, news and SEC filings behind its tabs.
  */
 export default function App() {
   const {

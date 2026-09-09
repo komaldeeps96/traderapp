@@ -1,15 +1,13 @@
 /**
  * Confluence bands, drawn as shaded price zones.
  *
- * A shelf of levels stacked within a fraction of a percent is one area of
- * supply, not five lines — and it has a *thickness*. Collapsing it to a single
- * heavier line threw that away: the trader could see that something mattered
- * there but not where it started and stopped, which is the part a stop is
- * placed against.
+ * A shelf of levels within a fraction of a percent is one area of supply, not
+ * five lines, and it has a *thickness* — where it starts and stops is what a
+ * stop is placed against.
  *
- * Drawn as a series primitive rather than extra series so the zone spans the
- * whole pane regardless of where bar data begins or ends, and so adding or
- * removing a band never churns the chart's series list.
+ * Drawn as a series primitive rather than extra series, so the zone spans the
+ * whole pane regardless of where bar data begins and adding or removing a band
+ * never churns the chart's series list.
  */
 
 import type {

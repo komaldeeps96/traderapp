@@ -1,10 +1,9 @@
 """What insiders have actually done, from the Form 4 trail.
 
 The filing list gives the forms; the numbers are inside each one, so this
-fetches the ownership XML per filing. That is the only read in the terminal
-priced per *filing* rather than per company, which is why it is capped and
-cached hard: a serial filer can have hundreds, and the SEC allowance is
-shared with everything else.
+fetches the ownership XML per filing. The only read priced per *filing* rather
+than per company, hence capped and cached hard: a serial filer can have
+hundreds and the SEC allowance is shared.
 """
 
 from __future__ import annotations
@@ -84,9 +83,8 @@ def _role(owner) -> str:
 def parse_form4(xml: str, filed: date, url: str) -> list[InsiderTrade]:
     """Every Table 1 line of one Form 4.
 
-    Derivative transactions are deliberately skipped: an option grant and its
-    later exercise would otherwise each land as a row, double-counting one
-    piece of compensation.
+    Derivative transactions are skipped: an option grant and its later exercise
+    would each land as a row, double-counting one piece of compensation.
     """
     try:
         root = ElementTree.fromstring(xml)
@@ -141,9 +139,8 @@ def parse_form4(xml: str, filed: date, url: str) -> list[InsiderTrade]:
 def summarise(trades: list[InsiderTrade], today: date, window: int = WINDOW_DAYS) -> dict:
     """The read: open-market conviction, with the payroll set aside.
 
-    Compensation is counted but kept out of the net, because a vest and a
-    purchase are not the same act and adding them produces a number that
-    means nothing.
+    Compensation is counted but kept out of the net: a vest and a purchase are
+    not the same act, and adding them produces a meaningless number.
     """
     cutoff = today - timedelta(days=window)
     recent = [trade for trade in trades if trade.traded >= cutoff]

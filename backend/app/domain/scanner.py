@@ -27,20 +27,14 @@ VALID_SCAN_CODES = frozenset(entry["code"] for entry in SCAN_CODES)
 # where it earns its keep rather than raised across the board.
 DEFAULT_SCANNER_ROWS = 5
 
-# The four market-cap bands the terminal runs concurrently, one IBKR
-# scanner subscription each. Bands partition cleanly with no overlap: large
-# cap's ceiling is mega cap's floor. The size gate does the real filtering —
-# price and volume stay open on each tier so a low share price or a quiet
-# day doesn't discard a name the market cap has already qualified.
+# The four market-cap bands the terminal runs concurrently, one IBKR scanner
+# subscription each. Bands partition cleanly: large cap's ceiling is mega cap's
+# floor. The size gate does the real filtering — price and volume stay open so a
+# low share price or a quiet day cannot discard a name the cap has qualified.
 #
-# ``rows`` is the depth of the panel, and it is a property of the tier rather
-# than of the client for the same reason the band is: a state file written
-# before a depth changed must not pin the panel back to the old number.
-#
-# Every tier shows five. Small cap ran at ten for a while, being the tier this
-# terminal exists for, but four panels stacked in one 320px column share their
-# height with the key levels underneath, and the depth was spent on names
-# nobody scrolled to.
+# ``rows`` is a property of the tier rather than the client, like the band: a
+# state file written before a depth changed must not pin the panel to the old
+# number. Four panels share one 320px column with the key levels underneath.
 SCANNER_TIERS: tuple[dict[str, object], ...] = (
     {
         "id": "small_cap",
@@ -81,14 +75,12 @@ class ScannerConfig:
     scan_code: str
     above_price: float | None = None
     below_price: float | None = None
-    # Trades per minute, IBKR's own ``tradeRateAbove``. This replaced a
-    # cumulative-volume floor, which asks the wrong question for this
-    # workflow: volume is what a name has already done today, and by the time
-    # a runner has the volume it is often over. Trade rate is what the tape is
-    # doing *now*, which is the thing being scanned for.
+    # Trades per minute, IBKR's own ``tradeRateAbove``. Volume is what a name
+    # has already done today, and by the time a runner has it the move is often
+    # over; trade rate is what the tape is doing *now*.
     #
-    # Verified against a live TWS: on one small-cap scan, no filter and >=100
-    # both returned ten rows, >=500 returned two, and >=5000 returned none.
+    # Verified against live TWS: on one small-cap scan, no filter and >=100 both
+    # returned ten rows, >=500 returned two, >=5000 none.
     above_trade_rate: int | None = None
     # Dollars. IBKR filters on these natively via the scanner subscription.
     market_cap_above: float | None = None

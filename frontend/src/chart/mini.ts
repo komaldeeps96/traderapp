@@ -1,21 +1,13 @@
 /**
  * The context chart beside the main one.
  *
- * One chart following whatever symbol the main chart is on, on a timeframe of
- * its owner's choosing (1m by default, remembered across restarts). It exists
- * so the immediate trend stays visible while the main chart is down on the
- * 10-second tape.
+ * Follows the main chart's symbol on a timeframe of its owner's choosing (1m by
+ * default, remembered across restarts), so the immediate trend stays visible
+ * while the main chart is down on the 10-second tape.
  *
- * There were two of these. The second slot is now the time-and-sales window
- * (`components/TapePanel.tsx`), which answers a question no chart does: a
- * 5-minute candle is a summary of what the tape already said, and on a
- * small-cap runner the tape says it first. The timeframe picker survives, so
- * the one chart can be put on 5m by anyone who would rather have it.
- *
- * It is context, not a workspace: candles, EMA 9, EMA 20 and volume, and
- * nothing else. No key levels, no VWAP, no MACD, no dollar gridlines — at this
- * size those stop being information and become texture. The sidebar's
- * indicator toggles deliberately do not reach it.
+ * Context, not a workspace: candles, EMA 9, EMA 20 and volume, and nothing
+ * else. At this size key levels, VWAP, MACD and dollar gridlines stop being
+ * information, so the sidebar's indicator toggles do not reach it.
  *
  * Every number worth adjusting lives here.
  */
@@ -60,18 +52,15 @@ export const MINI_COLUMN_WIDTH = 420;
 /**
  * The chart's share of the charts tab, as a flex weight against the tape's.
  *
- * The tape gets the larger half. A chart at this width is read for its shape,
- * which survives being short; a tape is read for how many rows are on screen,
- * and twenty is where it stops being a trickle.
+ * The tape gets the larger half: a chart at this width is read for its shape,
+ * which survives being short, while a tape is read for rows on screen.
  */
 export const MINI_CHART_FLEX = 4;
 export const TAPE_FLEX = 6;
 
 /**
- * Below this the column is not rendered at all.
- *
- * Not a CSS `hidden`: a display:none container is zero-height, and building a
- * chart engine on one means asking lightweight-charts to give a pane a height
- * inside a chart that has none. Cheaper and safer not to build it.
+ * Below this the column is not rendered at all — not merely CSS-hidden. A
+ * display:none container is zero-height, and lightweight-charts cannot size a
+ * pane inside a chart that has none.
  */
 export const MINI_COLUMN_QUERY = '(min-width: 1280px)';

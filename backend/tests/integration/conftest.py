@@ -25,7 +25,6 @@ from app.core.settings import (
     RegimeSettings,
     ScannerSettings,
     Settings,
-    SetupAISettings,
     TradingSettings,
 )
 from app.main import create_app
@@ -39,22 +38,18 @@ ALPACA_HOST = "https://data.alpaca.markets"
 def settings(tmp_path) -> Settings:
     """Alpaca-only: the configuration a user without TWS running would have.
 
-    The TradingView screener and EDGAR are off so no test ever leaves the
-    machine; ``edgar_client`` turns EDGAR back on against a stub transport.
+    The TradingView screener and EDGAR are off so no test leaves the machine;
+    ``edgar_client`` turns EDGAR back on against a stub transport.
 
-    ``news_stream`` is off for the same reason and needs saying out loud: it
-    is a *websocket*, so respx does not intercept it and a live one would dial
-    Alpaca for real from a unit run. The REST news path is stubbed instead.
+    Three switches are written out explicitly rather than left to their
+    defaults, because respx cannot intercept any of them and a default can be
+    changed by someone who has not read this file:
 
-    ``trading`` is off, and is written here rather than left to the default
-    for the same reason: it is a raw socket to TWS on this machine, respx
-    cannot see it, and the thing on the other end of it places real orders
-    against a real account. A default is a thing that can be changed by
-    someone who does not read this file. See docs/order-entry.md.
-
-    ``news_ai`` and ``setup_ai`` are off for the third variant of the same
-    reason: both spawn a ``claude`` process that reaches Anthropic, which
-    respx cannot see either. They are tested against a fake binary instead.
+    - ``news_stream`` is a websocket, and a live one dials Alpaca for real.
+    - ``trading`` is a raw socket to TWS that places real orders against a real
+      account. See docs/order-entry.md.
+    - ``news_ai`` spawns a ``claude`` process that reaches Anthropic; it is
+      tested against a fake binary instead.
     """
     return Settings(
         alpaca=AlpacaSettings(
@@ -69,7 +64,6 @@ def settings(tmp_path) -> Settings:
         edgar=EdgarSettings(enabled=False),
         trading=TradingSettings(enabled=False),
         news_ai=NewsAISettings(enabled=False),
-        setup_ai=SetupAISettings(enabled=False),
         state_file=tmp_path / "state.yaml",
         indicators_file=CONFIG_DIR / "indicators.yaml",
         log_level="WARNING",
@@ -240,10 +234,10 @@ def stub_watchlist_quotes(client):
 def ws(client):
     """A connected client that has consumed the eight opening frames.
 
-    The count is deliberately exact rather than "drain whatever arrives": a
-    frame added to the handshake and not added here leaves a stale one at the
-    head of the queue, where the next ``receive_until`` finds it and asserts
-    against the wrong message. Keep this in step with ``api/ws.py``.
+    The count is exact rather than "drain whatever arrives": a frame added to
+    the handshake and not here leaves a stale one at the head of the queue,
+    where the next ``receive_until`` asserts against the wrong message. Keep in
+    step with ``api/ws.py``.
     """
     with client.websocket_connect("/ws") as socket:
         socket.receive_json()  # status

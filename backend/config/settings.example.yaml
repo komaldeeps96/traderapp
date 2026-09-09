@@ -157,8 +157,8 @@ news_ai:
   command: claude
   # An alias ('sonnet', 'opus') or a full model id. `sonnet` resolves to the
   # newest Sonnet — Sonnet 5 today — and reads a press release as well as
-  # anything for about a cent a reading. Both panels should carry the same
-  # value: the setup judge takes this one's score as an input.
+  # anything for about a cent a reading. An alias rather than a pinned id, so
+  # the panel picks up a better reader without an edit here.
   model: sonnet
   # Measured at 5-20s depending on how many article bodies came back. This is
   # the ceiling before the panel gives up and prints why.
@@ -170,25 +170,6 @@ news_ai:
   # one would otherwise launch a process; the panel marks the reading
   # "behind" in the meantime, and its refresh button overrides this.
   min_interval_seconds: 120
-
-# The dock's AI tab: the whole screen judged out of ten against Ross Cameron's
-# five pillars, weighed jointly rather than counted. Same reader and same
-# flags as the news summary above; what differs is the prompt, and that this
-# one is asked for rather than following a feed — a setup is a moving target,
-# so a judgement is dated instead of cached and the panel says when the tape
-# has moved past it. See docs/setup-judgement.md.
-setup_ai:
-  enabled: true
-  command: claude
-  # Must match news_ai.model — see the note there.
-  model: sonnet
-  # Measured at 60-120s: a much larger prompt than the news one — five
-  # pillars, a level ladder, the tape and the news score — and a considered
-  # judgement rather than a summary. The ceiling is well clear of the slow
-  # end, because a reading that times out has spent the money and thrown the
-  # answer away.
-  timeout_seconds: 240
-  max_budget_usd: 0.35
 
 trading:
   # ORDER ENTRY. This is the one part of the app that spends money, and it is

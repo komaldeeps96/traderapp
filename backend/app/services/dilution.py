@@ -1,29 +1,24 @@
 """How much stock can hit the tape, how soon, and does the company need money.
 
-This is what "fundamentals" means for a sub-$300M name held for minutes. A
-P/E ratio never stopped a trade; a shelf takedown priced at a discount into
-the spike you are long has stopped plenty. Everything computed here answers
-one of three questions:
+What "fundamentals" means for a sub-$300M name held for minutes. Everything
+here answers one of three questions:
 
     SUPPLY      warrants, preferred, converts and unissued authorised shares
-                — the stock that exists but is not yet on the tape
+                — stock that exists but is not yet on the tape
     NEED        cash against burn — how long before they must sell
-    HABIT       the offering trail and the share count over a year — whether
-                they have done it before, because they will do it again
+    HABIT       the offering trail and the share count over a year
 
-Two rules govern the maths.
+Two rules govern the maths:
 
-Every figure carries the date it was reported for. XBRL is quarterly and
-arrives late; a company delinquent on its 10-Q may have its most recent cash
-figure be three quarters old, and *that is itself the signal*. A number
-rendered without its as-of date is a lie with a timestamp missing, so
-``Dated`` is the only way a value leaves this module.
+**Every figure carries the date it was reported for.** XBRL is quarterly and
+arrives late, so a delinquent filer's newest cash figure may be three quarters
+old — and that is itself the signal. ``Dated`` is the only way a value leaves
+this module.
 
-Nothing is assumed that is not reported. Preferred stock is counted and shown
-but deliberately excluded from the fully-diluted share count: conversion
-ratios are set per series in the charter and are not in the XBRL facts, so
-folding it in at 1:1 would invent a number. The honest fully-diluted figure
-is common plus warrants, with preferred and converts reported beside it.
+**Nothing is assumed that is not reported.** Preferred stock is counted and
+shown but excluded from the fully-diluted share count: conversion ratios are
+set per series in the charter and are not in the XBRL facts. Fully diluted is
+common plus warrants, with preferred and converts reported beside it.
 """
 
 from __future__ import annotations
@@ -41,17 +36,14 @@ from ..domain.filings import OFFERING_FORMS, OFFERING_ITEMS, Filing
 BABY_SHELF_FLOAT = 75_000_000.0
 BABY_SHELF_FRACTION = 1.0 / 3.0
 
-# ...but the float in that XBRL field is measured once a year, on the cover of
-# the 10-K. The rule re-measures on the *date of every sale*, against a share
-# price taken from a 60-day look-back — and the guidance points at the highest
-# price in that window rather than the last one.
+# ...but the float in that XBRL field is measured once a year, on the 10-K
+# cover. The rule re-measures on the *date of every sale*, against a 60-day
+# look-back, and the guidance points at the highest price in that window.
 #
-# Which turns the cap inside out. A stock that triples has just tripled the
-# dollars its issuer may sell, and if the run carries float through $75M the
-# cap stops applying at all until the next measurement date. The spike is not
-# merely an opportunity to dilute into; it is the legal precondition for
-# diluting at that size. A read that prices the cap off last year's cover page
-# understates it on exactly the names where it matters.
+# So a stock that triples has tripled the dollars its issuer may sell, and a run
+# that carries float through $75M stops the cap applying at all until the next
+# measurement date. Pricing the cap off last year's cover page understates it on
+# exactly the names where it matters.
 SHELF_LOOKBACK_DAYS = 60
 
 # The two halves of that story, as the verdict tells it. Which one stands is
@@ -150,15 +142,13 @@ class DilutionRead:
     def with_live_shelf(self, shelf: ShelfCapacity | None) -> DilutionRead:
         """The same read, carrying a shelf capacity priced off the tape.
 
-        Kept off ``measure`` on purpose: everything that function returns is
-        a property of the filings, and this one moves with the stock.
+        Kept off ``measure``: everything that function returns is a property of
+        the filings, and this moves with the stock.
 
-        One reason is rewritten here rather than in ``measure``, because only
-        here is it knowable. The verdict is built from the last cover page,
-        so on a name whose run has carried float through $75M it would go on
-        asserting that the cap applies while the panel beside it says the cap
-        is gone. Uncapped is the worse fact of the two, and it should read
-        that way.
+        One reason is rewritten here because only here is it knowable. The
+        verdict is built from the last cover page, so on a name whose run has
+        carried float through $75M it would assert the cap applies while the
+        panel beside it says it is gone.
         """
         if shelf is None or shelf.capped:
             return replace(self, live_shelf=shelf)
@@ -235,9 +225,8 @@ _PUBLIC_FLOAT = (("dei", "EntityPublicFloat"),)
 class ShelfCapacity:
     """What an effective S-3 permits, measured at today's prices.
 
-    Says nothing about whether a shelf exists — that is the filing trail's
-    job. This is the ceiling *if* one does, which is the number that decides
-    how much of a run can be sold into.
+    Says nothing about whether a shelf exists — that is the filing trail's job.
+    This is the ceiling *if* one does.
     """
 
     price: float
@@ -269,9 +258,8 @@ def shelf_capacity(
     """Baby-shelf capacity at the price the rule would actually use.
 
     ``lookback_high`` is the highest price of the last ``SHELF_LOOKBACK_DAYS``
-    calendar days; ``reported_float`` is the dollar figure off the last 10-K
-    cover, for contrast. ``None`` whenever the float share count or the price
-    is missing — a capacity computed from half its inputs is worse than none.
+    calendar days; ``reported_float`` is the last 10-K cover figure, for
+    contrast. ``None`` whenever the float share count or the price is missing.
     """
     if not float_shares or not lookback_high or float_shares <= 0 or lookback_high <= 0:
         return None
@@ -296,9 +284,8 @@ def measure(
     ``facts`` is EDGAR's raw ``companyfacts`` payload.
 
     Nothing here depends on the tape. Whether the warrants are in the money is
-    the one read that does, and it belongs to the frontend: the strike is
-    carried on the read, the price changes every tick, and recomputing this
-    whole thing per tick to answer one comparison would be absurd.
+    the one read that does, and it belongs to the frontend: the strike rides on
+    the read and the price changes every tick.
     """
     filings = filings or []
     if not facts and not filings:
@@ -405,10 +392,9 @@ def _latest_instant(
 ) -> Dated | None:
     """The most recently reported point value.
 
-    Instant facts (a balance, a share count) carry an ``end`` and no
-    ``start``. The same period is often restated by a later filing, so ties on
-    ``end`` are broken by ``filed`` — the newer statement of the same quarter
-    is the one to believe.
+    Instant facts (a balance, a share count) carry an ``end`` and no ``start``.
+    Ties on ``end`` break by ``filed``: the newer statement of a restated
+    quarter is the one to believe.
     """
     for taxonomy, concept in concepts:
         best: tuple[str, str, dict] | None = None
@@ -438,11 +424,10 @@ def _annual_flow(
 ) -> Dated | None:
     """A twelve-month flow, annualising a shorter one when that is all there is.
 
-    Cash-flow facts are cumulative from the fiscal year start, so the year's
-    figure appears as one ``start``-to-``end`` span rather than four quarters
-    to be summed — summing the reported periods would count Q1 four times.
-    A full-year span is preferred; failing that the longest year-to-date span
-    is scaled up, which is an estimate and is only ever used for the runway.
+    Cash-flow facts are cumulative from the fiscal year start, so the year is
+    one ``start``-to-``end`` span and summing the reported periods would count
+    Q1 four times. A full-year span is preferred; failing that the longest
+    year-to-date span is scaled up, an estimate used only for the runway.
     """
     for taxonomy, concept in concepts:
         spans: list[tuple[date, date, dict]] = []
@@ -479,11 +464,10 @@ def _annual_flow(
 def _share_growth(facts: dict | None) -> float | None:
     """Change in the reported share count over the trailing year.
 
-    The window ends at the newest report rather than at today, so this reads
-    "growth over the year up to the last filing" — with a delinquent filer,
-    anchoring on today would silently stretch the window to whatever the gap
-    happens to be. A company public for less than a year has nothing to
-    compare against and reports ``None`` rather than a rate off a stub.
+    The window ends at the newest report rather than today: with a delinquent
+    filer, anchoring on today would stretch it to whatever the gap happens to
+    be. A company public under a year reports ``None`` rather than a rate off a
+    stub.
     """
     points: list[tuple[date, float]] = []
     for taxonomy, concept in _SHARES_OUTSTANDING:
@@ -567,8 +551,8 @@ def _verdict(
 ) -> tuple[DilutionTone, tuple[str, ...]]:
     """Tone plus the plain-language reasons behind it.
 
-    The reasons are the point. A grade a trader has to trust is worth less
-    than three facts they can check, so every tone above ``clean`` ships the
+    The reasons are the point: a grade a trader has to trust is worth less than
+    three facts they can check, so every tone above ``clean`` ships the
     sentences that produced it.
     """
     reasons = _reasons(

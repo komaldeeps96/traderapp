@@ -37,8 +37,8 @@ def ema(values: Sequence[float], span: int) -> list[Number]:
     """Exponential moving average, seeded with an SMA of the first ``span``
     samples — the convention TradingView's ``ta.ema`` uses.
 
-    Seeding matters: recursing straight from the first sample makes the early
-    values track price almost exactly and drift for hundreds of bars.
+    Recursing straight from the first sample instead makes early values track
+    price almost exactly and drift for hundreds of bars.
     """
     out: list[Number] = [None] * len(values)
     if span <= 0 or len(values) < span:
@@ -61,9 +61,8 @@ def macd(
 ) -> tuple[list[Number], list[Number], list[Number]]:
     """MACD line, signal line, histogram — platform-default 12/26/9 on close.
 
-    The settings are deliberately not configurable per user: the whole point
-    of the indicator here is that everyone sees the same crossovers, so it is
-    computed exactly the way charting platforms default to.
+    Not configurable per user: the point of the indicator is that everyone sees
+    the same crossovers.
     """
     fast_line = ema(values, fast)
     slow_line = ema(values, slow)
@@ -132,25 +131,17 @@ def typical_price(bar: Bar) -> float:
 def session_vwap(bars: Sequence[Bar]) -> list[Number]:
     """Volume-weighted average price, anchored to the 04:00-20:00 NY session.
 
-    Resetting on the New York date rather than the UTC date matters: UTC
-    midnight falls in the middle of the US after-hours session, which would
-    split a single trading day's VWAP in two.
+    Resets on the New York date, not the UTC date: UTC midnight falls inside the
+    US after-hours session and would split one day's VWAP in two.
 
-    Anchoring at 04:00 rather than NY midnight matters just as much, and for
-    a different reason. VWAP earns its place through *polarity* — price above
-    it is bullish, below it bearish — and that only works if our line is the
-    same line every other participant is watching. A print at 02:00 folded
-    into the average makes it a different quantity wearing the same name.
-    Trades outside the session are therefore excluded rather than seeding it,
+    Anchored at 04:00 rather than NY midnight so the line is the one every other
+    participant watches — VWAP earns its place through polarity, which only
+    holds if it is the same quantity. Trades outside the session are excluded
     and carry no value of their own.
 
-    Computed from the charted bars alone, never seeded from another
-    timeframe. Seeding was tried, from the minute base, and produced a
-    staircase: the minute store is Alpaca's, which counts odd-lot volume,
-    while the 10-second bars are IBKR's, which do not — so the seed was
-    inflated, and it drifted as the minute bars were progressively
-    overwritten by the 10-second resample. The 12-hour 10s window reaches
-    04:00 through the session that matters, which is what makes this safe.
+    Computed from the charted bars alone, never seeded from another timeframe:
+    the minute base counts odd-lot volume and the 10-second bars do not, so a
+    seed would be inflated and drift as minutes are overwritten by the resample.
     """
     out: list[Number] = [None] * len(bars)
     current_date = None
@@ -176,12 +167,9 @@ def session_vwap(bars: Sequence[Bar]) -> list[Number]:
 def session_bounds(bars: Sequence[Bar]) -> tuple[list[Number], list[Number]]:
     """Running high and low of the session so far, 04:00-20:00 NY.
 
-    Unlike the daily key levels in ``levels.py`` these *move* as the day
-    trades, and that is the point. The high of day is the momentum scanner's
-    own premise, the level the crowd converges on, and the usual profit
-    target — a "retest of the high of day" is meaningless against a value
-    frozen at yesterday's close. The pre-market high is drawn separately and
-    stays settled; this one tracks the tape.
+    Unlike the daily key levels in ``levels.py`` these *move* as the day trades:
+    a "retest of the high of day" is meaningless against a frozen value. The
+    pre-market high is drawn separately and stays settled.
     """
     highs: list[Number] = [None] * len(bars)
     lows: list[Number] = [None] * len(bars)
@@ -209,9 +197,9 @@ def session_bounds(bars: Sequence[Bar]) -> tuple[list[Number], list[Number]]:
 class SessionLevel:
     """A single price for the day, and the moment it became knowable.
 
-    The second half is what stops these repainting. The regular-session open
-    is not a level at 09:00 — it does not exist yet — so drawing it across
-    the pre-market would show a line nobody could have traded against.
+    The moment is what stops these repainting: the regular-session open does not
+    exist at 09:00, so drawing it across the pre-market would show a line nobody
+    could have traded against.
     """
 
     value: Number = None
@@ -223,8 +211,8 @@ class SessionLevels:
     """Prices anchored to session boundaries rather than to a daily bar.
 
     Built from the minute base rather than the displayed timeframe: the
-    after-hours high belongs to the *previous* session, twenty hours back,
-    which the 10-second window does not reach.
+    after-hours high belongs to the *previous* session, which the 10-second
+    window does not reach.
     """
 
     pm_open: SessionLevel = SessionLevel()
@@ -287,9 +275,8 @@ def session_level_series(bars: Sequence[Bar], level: SessionLevel) -> list[Numbe
 def premarket_bounds(bars: Sequence[Bar]) -> tuple[list[Number], list[Number]]:
     """Pre-market high and low for each bar's day.
 
-    The settled value is broadcast across the *whole* day, not just the
-    pre-market bars — it is a level traders reference all session, so it has
-    to be present on the 14:00 bar too.
+    Broadcast across the whole day, not just the pre-market bars: it is a level
+    referenced all session, so it must be present on the 14:00 bar too.
     """
     highs: dict[object, float] = {}
     lows: dict[object, float] = {}
@@ -314,9 +301,8 @@ def compress_steps(points: Sequence[tuple[int, Number]]) -> list[tuple[int, floa
     """Collapse runs of equal values to just their first and last point.
 
     Daily levels hold one value for a whole session, so a 1-minute chart would
-    otherwise repeat the same number ~960 times per level per day. Keeping the
-    endpoints of each run draws an identical horizontal line from a fraction
-    of the points.
+    repeat the same number ~960 times per level per day. The endpoints of each
+    run draw an identical horizontal line.
     """
     out: list[tuple[int, float]] = []
     run_start: int | None = None
@@ -360,10 +346,9 @@ def to_series(
 
 # ── single-value variants ──────────────────────────────────────────────
 #
-# The live update loop only needs each indicator's *current* value, once a
+# The live update loop needs each indicator's *current* value only, once a
 # second per subscribed chart. Building whole arrays to read the last element
-# is the difference between a few microseconds and a few milliseconds per
-# indicator, so these compute just the tail.
+# costs milliseconds rather than microseconds, so these compute just the tail.
 
 
 def sma_last(values: Sequence[float], window: int) -> Number:
@@ -474,12 +459,10 @@ def _arith_day(epoch: float) -> int:
 def _daily_bar_day(epoch: float) -> int:
     """The arithmetic day index of a daily bar.
 
-    Daily bars anchor to New York *midnight* (``market/resample.py``), which
-    is outside the 4:00-20:00 window the offset arithmetic is valid over —
-    under EDT it lands on the previous day and the two bases would disagree
-    about which session they mean for eight months of the year. Nudging by
-    twelve hours puts the stamp at New York noon, unambiguously mid-session
-    under either offset.
+    Daily bars anchor to New York *midnight* (``market/resample.py``), outside
+    the 04:00-20:00 window the offset arithmetic is valid over: under EDT it
+    lands on the previous day. Nudging by twelve hours puts the stamp at New
+    York noon, unambiguously mid-session under either offset.
     """
     return _arith_day(epoch + 43_200)
 
@@ -523,40 +506,28 @@ def windowed_rvol(
 ) -> list[Number]:
     """Time-matched relative volume, stamped onto each chart bar.
 
-    Today's cumulative volume from the 4am open through the bar, over a
-    typical day's cumulative volume at the same time of day — "is this pace
-    hot for 10:15am", where a whole-day RVOL only answers "is it hot against
-    an average day". Today's leg is read off the 1-minute base, so on a
-    10-second chart the value steps once a minute; the sub-minute lag was
-    accepted in exchange for a history the 10s window cannot hold.
+    Today's cumulative volume from the 04:00 open through the bar, over a
+    typical day's cumulative at the same time of day — "is this pace hot for
+    10:15am". Today's leg reads off the 1-minute base, so on a 10-second chart
+    the value steps once a minute.
 
-    The denominator has two sources, and the split is the point:
+    The denominator has two sources:
 
-    * The minute base gives the *exact* cumulative for the handful of
-      sessions it covers — five days, because a wider 1-minute fetch would
-      cost several Alpaca pages on every ticker switch instead of one.
-    * The daily base, already loaded years deep for the same symbol, gives
-      the *level* of every session back to ``_WRVOL_LOOKBACK_SESSIONS``. A
-      day's total volume is projected onto this time of day using the median
-      shape — the fraction of the session's volume done by now — measured
-      over the days where both bases exist.
+    * The minute base gives the *exact* cumulative for the five sessions it
+      covers; a wider 1-minute fetch would cost several Alpaca pages per switch.
+    * The daily base, already loaded years deep, gives the *level* of every
+      session back to ``_WRVOL_LOOKBACK_SESSIONS``, projected onto this time of
+      day by the median shape measured where both bases exist.
 
-    That split follows what actually varies. Between two sessions the total
-    volume moves by orders of magnitude and the shape of the curve barely
-    moves, so estimating the large term from deep history and the small one
-    from shallow history is the right way round. Projection is skipped
-    entirely when no day carries both bases, because there is then nothing
-    to calibrate the shape against.
+    That split follows what varies: between sessions total volume moves by
+    orders of magnitude while the shape of the curve barely does. Projection is
+    skipped when no day carries both bases, leaving nothing to calibrate against.
 
-    The pooled estimates are reduced by **median**, not mean. One prior
-    session that ran 50x poisons a mean denominator and quietly halves every
-    reading for days afterwards — the same contamination that makes the
-    screener's own 50-day average punish a stock for having recently been
-    interesting.
+    Reduced by **median**, not mean — one prior session that ran 50x would
+    poison a mean denominator and halve every reading for days.
 
-    ``None`` is the honest answer wherever a comparison does not exist: the
-    oldest day in history, a bar whose day the minute base has not covered,
-    or a chart with no full prior session behind it.
+    ``None`` wherever a comparison does not exist: the oldest day in history, a
+    bar whose day the minute base has not covered, or no full prior session.
     """
     days = _volume_days(minute_bars)
     by_day = {entry.day: index for index, entry in enumerate(days)}

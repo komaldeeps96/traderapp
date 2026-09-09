@@ -6,36 +6,24 @@ import { useTerminalStore } from '@/store/useTerminalStore';
 import type { NewsBrief as Brief, NewsVerdict } from '@/types/protocol';
 
 /**
- * The news panel's top half: one day, read and scored, so the list below can
+ * The news panel's top half: one session, read and scored, so the list below can
  * be skimmed rather than opened.
  *
- * The server runs the `claude` CLI already installed on this machine — no
- * tools, no session, a JSON schema — against the day's headlines and the
- * bodies behind them. The rubric is Ross Cameron's treatment of catalysts,
- * which is why the score is worth reading at all: it knows that a registered
- * direct is not good news however the press release is worded, and that a
- * partnership with no counterparty and no figure is a sentence anyone can
- * write for free.
+ * The server runs the `claude` CLI installed on this machine — no tools, no
+ * session, a JSON schema — against the session's headlines and their bodies,
+ * against Ross Cameron's catalyst rubric.
  *
- * Three things about it are deliberate.
+ * **It reads one session, not thirty days.** The window runs from the previous
+ * close to now, because a release at 16:05 is tomorrow's gap. Session and
+ * window are both on the header, being different facts.
  *
- * **It reads one session, not thirty days.** The window runs from the
- * previous close to now, because a press release at 16:05 is not today's
- * news — it is tomorrow's gap, and a rule keyed on the calendar date filed
- * it under the wrong day. The session and the window are both on the header,
- * because they are different facts: on a Sunday it reads "for Monday, since
- * Friday 16:00", which is the honest description and the useful one.
+ * **The score is catalyst quality, not a trade signal.** The reader sees
+ * headlines and nothing else — no float, gap, relative volume or regime — so a
+ * 2 means the news is not a reason to be long, never that the stock is
+ * untradeable. The chip's tooltip says so.
  *
- * **The score is catalyst quality, not a trade signal.** The reader sees the
- * headlines and nothing else — no float, no gap, no relative volume, no
- * regime — so a 2 means the news is not a reason to be long, never that the
- * stock is untradeable. The tooltip on the chip says so, because a number in
- * a box invites being read as a verdict on the trade.
- *
- * **It costs about a cent and a dozen seconds**, which is why the toolbar
- * carries a switch and why a reading is cached against the article ids it
- * covers. Switching away and back is free; a live headline that collapsed
- * into a story already on screen starts nothing.
+ * **It costs about a cent and a dozen seconds**, hence the toolbar switch and
+ * the cache keyed on the article ids covered.
  */
 const VERDICT_CLASS: Record<NewsVerdict, string> = {
   strong: 'bg-up/20 text-up',
@@ -172,14 +160,12 @@ function Body({ brief }: { brief: Brief }) {
 }
 
 /**
- * Ask the server to read the day, and again when the day's headlines change.
+ * Ask the server to read the session, and again when its headlines change.
  *
- * The dependency is the article ids, not the array identity: the store
- * replaces `news` on every live push, and half of those are the starred
- * bulletin collapsing into a press release already on screen — which changes
- * nothing the reader would read and must not start a process. The server
- * keys its own cache the same way and holds a cooldown behind that, so the
- * two agree about what counts as new.
+ * The dependency is the article ids, not the array identity: the store replaces
+ * `news` on every live push, and a headline collapsing into a story already on
+ * screen changes nothing the reader would read. The server keys its own cache
+ * the same way, so the two agree about what counts as new.
  */
 function useBrief(
   symbol: string,

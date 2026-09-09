@@ -1,8 +1,7 @@
 """SEC filing forms, read for what they mean to a momentum trade.
 
-A small cap's filing trail is its dilution history written down. The forms
-that matter are not the ones an investor reads — nobody is trading a 10-K
-here — but the ones that register, price or announce new stock:
+A small cap's filing trail is its dilution history written down. The forms that
+matter are the ones that register, price or announce new stock:
 
     S-1 / S-3      shares registered for sale; the shelf being built
     EFFECT         that registration went effective — the shelf is now live
@@ -17,13 +16,10 @@ usually comes from next:
     8-K item 3.01  notice of failure to satisfy a listing rule
     8-K item 4.02  previously issued financials can no longer be relied on
 
-Everything else is classified so it can be pushed below a fold rather than
-dropped: an insider Form 4 is not a catalyst, but it is worth a row.
+Everything else is classified so it can go below a fold rather than be dropped.
 
-Forms are matched exactly. EDGAR's ``form`` field is a controlled vocabulary,
-so a prefix match would put ``S-1`` and ``S-1MEF`` in one bucket while also
-catching ``SC 13D`` with a sloppy pattern; the explicit table is both safer
-and self-documenting.
+Forms are matched exactly: EDGAR's ``form`` field is a controlled vocabulary, so
+a prefix match would put ``S-1`` and ``S-1MEF`` in one bucket.
 """
 
 from __future__ import annotations
@@ -155,10 +151,9 @@ OFFERING_ITEMS = frozenset({"3.02"})
 def classify(form: str, items: str = "") -> tuple[FilingKind, str]:
     """The kind and the trader-facing note for one filing.
 
-    ``items`` is EDGAR's comma-separated 8-K item list. An 8-K is only as
-    interesting as its items, so a filing carrying both a routine and a
-    dilution item is reported as the dilution one — the reason it is worth
-    looking at is the worst thing in it, not the first.
+    ``items`` is EDGAR's comma-separated 8-K item list. A filing carrying both
+    a routine and a dilution item is reported as the dilution one: the reason to
+    look is the worst thing in it, not the first.
     """
     if form in _EIGHT_K_FORMS:
         return _classify_eight_k(form, items)

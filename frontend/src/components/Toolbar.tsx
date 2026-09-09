@@ -61,18 +61,14 @@ export function Toolbar({ onSubscribe, onTimeframe, onToggleTheme }: ToolbarProp
 }
 
 /**
- * Whether the news panel reads the day for you.
+ * Whether the news panel reads the session for you.
  *
- * On, the dock's news tab carries a summary of today's headlines above the
- * feed, scored out of ten against Ross Cameron's catalyst rubric by the
- * `claude` CLI on this machine. Off, nothing is requested and no process is
- * spawned — which is the point of having a switch at all: a reading costs
- * about a cent and a dozen seconds, and there are sessions where the feed is
- * four halt notices and reading them is not worth either.
+ * On, the dock's news tab carries a scored summary above the feed. Off, nothing
+ * is requested and no process spawned — a reading costs about a cent and a
+ * dozen seconds.
  *
- * It lives here rather than inside the panel because the panel is three
- * clicks away behind a dock tab, and a switch you cannot find while the thing
- * it controls is running is not a switch.
+ * It lives here rather than in the panel, which is three clicks away behind a
+ * dock tab.
  */
 function NewsAiToggle() {
   const enabled = useTerminalStore((state) => state.newsAi);
@@ -104,11 +100,9 @@ function NewsAiToggle() {
 /**
  * Who the ticker in the box actually is.
  *
- * Truncating rather than wrapping is deliberate: this is the one field on the
- * header whose length is set by a data provider rather than by a format
- * function, so it is the one field that must not be allowed to move anything
- * else. It takes the leftover width and gives it back the moment the status
- * cluster needs it.
+ * Truncated rather than wrapped: this is the one header field whose length is
+ * set by a data provider rather than a format function, so it takes the
+ * leftover width and gives it back when the status cluster needs it.
  */
 function Instrument() {
   const info = useTerminalStore((state) => state.info);
@@ -147,12 +141,9 @@ function Instrument() {
 }
 
 /**
- * Put the chart's symbol on the watchlist, or take it off.
- *
- * The panel's own input is the deliberate way in; this is the other one, for
- * the far more common case — the name is already on screen because something
- * about it was interesting, and reaching for a text box to retype it is how a
- * watchlist ends up empty.
+ * Put the chart's symbol on the watchlist, or take it off. The panel's input is
+ * the deliberate way in; this is the common case, where the name is already on
+ * screen.
  */
 function WatchStar({ symbol }: { symbol: string }) {
   const watched = useTerminalStore((state) => state.watchlist.includes(symbol));
@@ -263,10 +254,9 @@ function TimeframeTabs({
 /**
  * How many names are running today.
  *
- * The count of stocks up 50% and 100% is the market-regime read: setup
- * quality holds in a hot tape and degrades badly in a cold one, so the same
- * chart is worth trading on one day and not the next. It used to live on the
- * screener panel; that panel is gone but the number is not tied to it.
+ * The count of stocks up 50% and 100% is the market-regime read: setup quality
+ * holds in a hot tape and degrades in a cold one, so the same chart is worth
+ * trading on one day and not the next.
  */
 function Regime() {
   const regime = useTerminalStore((state) => state.regime);

@@ -34,22 +34,16 @@ def _ny_week_start_epoch(epoch: float) -> int:
 def bucket_start(epoch: float, timeframe: Timeframe) -> int:
     """The opening timestamp of the period ``epoch`` falls into.
 
-    Every period aligns to the New York wall clock, which is the clock the
-    session runs on. For a size that divides an hour that is the same thing
-    as aligning to epoch boundaries — US offsets are whole hours — so those
-    keep the integer division and the timezone lookup it saves, over the
-    thousands of bars a resample walks.
+    Every period aligns to the New York wall clock. For a size that divides an
+    hour that is the same as aligning to epoch boundaries — US offsets are whole
+    hours — so those keep the integer division and skip the timezone lookup.
 
-    Four-hour bars are the case that needs the wall clock spelled out. Epoch
-    boundaries would put them at 04:00 New York through the summer and 03:00
-    through the winter, so the bar that opens the pre-market would move twice
-    a year. Anchored to the local day they always run 00:00/04:00/08:00/
-    12:00/16:00/20:00 — pre-market, the open, midday, the close, and the
-    after-hours session, each in its own bar.
+    Four-hour bars need the wall clock: epoch boundaries would put them at 04:00
+    New York in summer and 03:00 in winter, moving the pre-market bar twice a
+    year. Anchored to the local day they run 00:00/04:00/08:00/12:00/16:00/20:00.
 
-    Daily and weekly periods anchor to New York midnight for the same
-    reason: a bar is never split across the 00:00 UTC boundary, which falls
-    mid-after-hours.
+    Daily and weekly anchor to New York midnight so a bar is never split across
+    the 00:00 UTC boundary, which falls mid-after-hours.
     """
     if timeframe is Timeframe.D1:
         return _ny_midnight_epoch(epoch)

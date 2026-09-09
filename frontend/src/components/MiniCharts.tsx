@@ -13,24 +13,19 @@ import { ChartButton } from './ChartButton';
 /**
  * The context chart — the top half of the dock's first tab.
  *
- * One minute by default, on whatever symbol the main chart is showing. The
- * main chart usually sits on the 10-second tape, which is the wrong distance
- * to judge a trend from; this keeps the other clock in view without costing a
- * timeframe switch. The picker takes it to any timeframe, so someone who
- * would rather read 5m here simply sets it.
+ * One minute by default, on whatever symbol the main chart shows, so the other
+ * clock stays in view while the main chart sits on the 10-second tape. The
+ * picker takes it to any timeframe.
  *
- * There were two of these, and the second slot is now the time-and-sales
- * window below (`TapePanel`). The plural survives in the component and in the
- * store's `miniTimeframes` because the slot machinery — per-slot engines,
- * per-slot subscriptions, per-slot saved timeframes — is what makes `Dock`
- * and `useTerminal` indifferent to how many there are. `MINI_SLOT_COUNT` is
- * the one number that decides.
+ * Plural throughout — the component, the store's `miniTimeframes` — because the
+ * slot machinery (per-slot engines, subscriptions and saved timeframes) is what
+ * makes `Dock` and `useTerminal` indifferent to how many there are.
+ * `MINI_SLOT_COUNT` is the one number that decides.
  *
- * It is read-only in every sense: no crosshair callback, so hovering it
- * cannot disturb the main chart's OHLCV readout, and no toolbar of its own.
+ * Read-only in every sense: no crosshair callback, so hovering cannot disturb
+ * the main chart's OHLCV readout, and no toolbar of its own.
  *
- * The rail, its width and the breakpoint below which none of this is built
- * belong to `Dock`; this renders only the chart inside it.
+ * The rail, its width and the breakpoint belong to `Dock`.
  */
 export function MiniCharts({
   onTimeframeChange,
@@ -60,11 +55,9 @@ export function MiniCharts({
 }
 
 /**
- * One mini chart.
- *
- * Mirrors `Chart.tsx`: the component owns the DOM node and the engine's
- * lifetime, and registers the engine under its timeframe so the WebSocket
- * wiring can reach it. No bar passes through React.
+ * One mini chart. Mirrors `Chart.tsx`: the component owns the DOM node and the
+ * engine's lifetime and registers the engine under its timeframe, so the
+ * WebSocket wiring can reach it. No bar passes through React.
  */
 function MiniChart({
   slot,

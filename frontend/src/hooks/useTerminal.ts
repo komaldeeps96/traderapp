@@ -43,10 +43,9 @@ type ScannerOverrides = Omit<
 /**
  * Fold any toggles left in browser storage into the server's overrides.
  *
- * Visibility used to be a browser preference. Whatever the server already
- * knows wins — it is the newer of the two — and each migrated timeframe is
- * pushed up so the next machine to open the terminal sees it too. The local
- * copy is consumed in the process, so this happens exactly once.
+ * Whatever the server already knows wins, being newer, and each migrated
+ * timeframe is pushed up so the next machine sees it. The local copy is
+ * consumed, so this happens once.
  */
 function migrateLegacyVisibility(
   specs: IndicatorSpec[],
@@ -381,9 +380,9 @@ export function handleMessage(message: ServerMessage): void {
 /**
  * Show or hide one key level on the chart.
  *
- * Every level but one is a streamed series the engine can simply hide. The
- * all-time high is a price line the engine draws from a scalar off the info
- * stream, so its eye has to put the number back rather than flip a flag.
+ * Every level but one is a streamed series the engine can hide. The all-time
+ * high is a price line drawn from a scalar off the info stream, so its eye puts
+ * the number back rather than flipping a flag.
  */
 function applyLevelVisibility(id: string, visible: boolean): void {
   const engine = getEngine();
@@ -417,10 +416,9 @@ function miniExtras(): Timeframe[] {
 /**
  * The mini charts a message feeds, possibly none.
  *
- * They follow the main chart's symbol and nothing else, so a message for a
- * symbol the user has navigated away from is dropped exactly as it is for the
- * main chart. Slots are matched by their chosen timeframe; two slots on the
- * same timeframe both draw the one message.
+ * They follow the main chart's symbol, so a message for a symbol navigated away
+ * from is dropped as it is for the main chart. Slots match by chosen timeframe,
+ * and two slots on the same one both draw the message.
  */
 function minisFor(symbol: string, timeframe: string): ChartEngine[] {
   const state = useTerminalStore.getState();
@@ -437,11 +435,10 @@ function minisFor(symbol: string, timeframe: string): ChartEngine[] {
 /**
  * The most recent snapshot per timeframe, so a mini can be rebuilt from it.
  *
- * The minis are fed by the wire, and the wire sends a snapshot once per
- * subscription. A mini engine that is created *after* that snapshot arrived —
- * the dock returning to its charts tab, or the window crossing the
- * breakpoint — would otherwise sit empty until the next symbol switch. Keyed
- * by symbol as well as timeframe so a stale entry cannot repopulate a chart
+ * The wire sends a snapshot once per subscription, so a mini engine created
+ * after it arrived — the dock returning to its charts tab, or the window
+ * crossing the breakpoint — would sit empty until the next symbol switch. Keyed
+ * by symbol as well as timeframe, so a stale entry cannot repopulate a chart
  * with the previous instrument's candles.
  */
 const lastMiniSnapshots = new Map<string, SnapshotMessage>();
@@ -459,10 +456,8 @@ function miniKey(symbol: string, timeframe: string): string {
 }
 
 /**
- * Fill a freshly mounted mini from the last snapshot its timeframe received.
- *
- * A no-op when nothing has arrived yet, which is the ordinary first-load
- * case: the snapshot is still in flight and will paint the engine on arrival.
+ * Fill a freshly mounted mini from the last snapshot its timeframe received. A
+ * no-op on first load, where the snapshot is still in flight.
  */
 export function hydrateMini(slot: number, timeframe: Timeframe): void {
   const { symbol } = useTerminalStore.getState();

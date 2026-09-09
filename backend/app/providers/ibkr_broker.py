@@ -1,32 +1,26 @@
 """Order entry through IBKR — the one part of this app that spends money.
 
-**A second TWS connection, on its own client id.** The market-data provider
-next door is ``readonly=True`` and that is a safety property worth keeping;
-it is also the client that runs four scanner subscriptions, tick-by-tick
-streams and pacing-limited history through a reconnect loop, so it is the one
-that goes down and comes back. Order flow does not belong on it. This client
-does almost nothing — one contract qualification per symbol, an order now and
-then, three event subscriptions — so it stays connected, and a history storm
-next door cannot disturb order state. IBKR allows 32 concurrent API clients.
+**A second TWS connection, on its own client id.** The market-data client next
+door is ``readonly=True`` and runs scanners, tick-by-tick streams and
+pacing-limited history through a reconnect loop, so it is the one that drops
+and returns. This client does almost nothing, so it stays connected and a
+history storm next door cannot disturb order state. IBKR allows 32 clients.
 
-**It never connects with ``trading.enabled`` false**, which is the default and
-is set explicitly in every test settings object, the same way
-``alpaca.news_stream`` is.
+**It never connects with ``trading.enabled`` false**, the default, set
+explicitly in every test settings object like ``alpaca.news_stream``.
 
-Two things about IBKR that are not obvious and cost real money to rediscover:
+Two IBKR behaviours that cost real money to rediscover:
 
 - **``readonly`` is a TWS checkbox, not a library argument.** ``ib_async``'s
   ``readonly=`` only skips the client's own open-order fetch (``ib.py:2057``).
-  What actually rejects orders is Global Configuration → API → Settings →
-  "Read-Only API". With that ticked, everything here fails at the last step.
-  ``read_only_note`` is what the panel shows when TWS says so.
-- **Orders are visible per client id.** This client sees the orders it placed
-  and nobody else's, so an order entered by hand in TWS does not appear here
-  and — importantly — is not something ``cancel_all`` can reach. Binding
-  manual orders would mean ``clientId 0`` (``ib.py:2046``), which would also
-  put every manual order within reach of this app's cancel button. Positions
-  are account-wide and always visible, which is why the position this panel
-  sells from is IBKR's number and never our own fill arithmetic.
+  Global Configuration → API → Settings → "Read-Only API" is what rejects
+  orders; ``read_only_note`` is what the panel shows when TWS says so.
+- **Orders are visible per client id.** This client sees only the orders it
+  placed, so an order entered by hand in TWS is out of ``cancel_all``'s reach.
+  Binding manual orders would mean ``clientId 0`` (``ib.py:2046``), putting
+  every manual order within reach of this app's cancel button. Positions are
+  account-wide, which is why the position sold from is IBKR's number and never
+  our own fill arithmetic.
 """
 
 from __future__ import annotations
@@ -161,16 +155,13 @@ class IBKRBroker:
         """Connected **and** set up — both, deliberately.
 
         ``ib_async`` marks the socket connected partway through
-        ``connectAsync``, while it is still fetching positions and orders. That
-        leaves a window — measured at ~300ms against live TWS — in which
-        ``isConnected()`` is True but our event handlers are not attached, the
-        account has not resolved, and no position snapshot has arrived.
+        ``connectAsync``, while it is still fetching positions and orders — a
+        ~300ms window in which ``isConnected()`` is True but handlers are not
+        attached, the account has not resolved and no position has arrived.
 
-        An order sent in that window would go out with no account and, worse,
-        with nothing listening for its fills; and the strip would draw FLAT on
-        an account that is long. The window opens exactly when TWS comes back
-        mid-session, which is precisely when somebody hits a sell button. So
-        the panel is told "not connected" until the setup has actually run.
+        An order sent then goes out with no account and nothing listening for
+        its fills, and the strip draws FLAT on an account that is long. The
+        window opens exactly when TWS comes back mid-session.
         """
         return bool(self._ib is not None and self._ib.isConnected() and self._ready)
 
@@ -192,9 +183,9 @@ class IBKRBroker:
     def read_only(self) -> bool:
         """True once TWS has rejected an order for its read-only setting.
 
-        Not knowable at connect time — TWS accepts the connection either way
-        and only objects when an order arrives — so this latches on the first
-        rejection and the panel explains what to untick.
+        Not knowable at connect time: TWS accepts the connection either way and
+        only objects when an order arrives, so this latches on the first
+        rejection.
         """
         return self._read_only
 
@@ -253,7 +244,7 @@ class IBKRBroker:
         """Resolve the account, attach the handlers, adopt the positions.
 
         Idempotent, and the only thing that sets ``_ready``: the connect loop
-        calls it both on a clean connect and on finding a socket that came up
+        calls it on a clean connect and on finding a socket that came up
         without it.
         """
         if self._ready:
@@ -306,8 +297,8 @@ class IBKRBroker:
         """Adopt whatever ib_async already collected on connect.
 
         ``reqPositionsAsync`` runs inside ``connectAsync`` regardless of the
-        readonly flag (``ib.py:2056``), so the opening snapshot is already
-        paid for by the time this runs.
+        readonly flag (``ib.py:2056``), so the opening snapshot is already paid
+        for.
         """
         for position in self._ib.positions(self._account or ""):
             self._absorb_position(position.contract, position.position, position.avgCost)
@@ -395,9 +386,9 @@ class IBKRBroker:
     async def place(self, *, symbol: str, side: str, shares: int, limit: float) -> dict:
         """Send one marketable limit order. Returns what was sent, or a fault.
 
-        No sizing and no price arithmetic happens here — this takes a plan
-        that ``services/trading.py`` has already checked against the cap and
-        against the position, and puts it on the wire.
+        No sizing or price arithmetic here: this puts a plan
+        ``services/trading.py`` has already checked against the cap and the
+        position on the wire.
         """
         if not self._settings.enabled:
             return {"ok": False, "message": "Trading is disabled."}
@@ -440,9 +431,8 @@ class IBKRBroker:
     async def cancel_all(self) -> int:
         """Cancel every order this client has working. Returns how many.
 
-        Only this client's orders — an order entered by hand in TWS is on a
-        different client id and is deliberately out of reach. See the module
-        docstring.
+        Only this client's orders; one entered by hand in TWS is on a different
+        client id and out of reach. See the module docstring.
         """
         if not self.is_available:
             return 0
@@ -490,9 +480,8 @@ class IBKRBroker:
     def _on_error(self, req_id, code, message, _contract) -> None:
         """TWS's error channel, which also carries connection notices.
 
-        A rejection has to reach the strip: during a move nobody is reading a
-        log, and an order that silently did not go is the failure this whole
-        panel is built to avoid.
+        A rejection has to reach the strip: an order that silently did not go is
+        the failure this panel is built to avoid.
         """
         if code in INFO_CODES or code in CANCEL_RACE_CODES:
             return

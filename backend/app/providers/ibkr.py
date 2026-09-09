@@ -30,27 +30,14 @@ from .base import MarketDataProvider
 
 logger = logging.getLogger(__name__)
 
-# "Last" is IBKR's last-sale-eligible slice of the tape; "AllLast" is the
-# whole thing. We take the slice, because IBKR's own bars are built from it
-# and those bars are this app's baseline.
+# "Last" is IBKR's last-sale-eligible slice of the tape; "AllLast" is the whole
+# thing. The slice, because IBKR's own bars are built from it and those bars are
+# this app's baseline — matching it live keeps 10s and 1m indicators consistent.
+# It is also ~5x cheaper in messages.
 #
-# Measured on a small-cap gapper: recording the full tape alongside
-# reqRealTimeBars(5), IBKR's bars reproduce the tape *minus odd lots* to
-# within 0.1% (1.001) while the whole tape overshoots volume by 26.6%
-# (1.266). Its 5s bars, its historical bars and this stream therefore all
-# agree, and so does the TWS window beside us. Since the 10s history *is*
-# IBKR bars and the minute base is resampled from it, matching that slice
-# live is what keeps 10s and 1m indicators consistent across the whole 10s
-# window rather than only where one source reaches.
-#
-# It is also markedly cheaper: over equal windows "Last" delivered 744 prints
-# against "AllLast"'s 3,781 — roughly a fifth of the messages to parse,
-# classify and fold, per symbol.
-#
-# The cost, accepted knowingly: odd lots are ~21-26% of shares on a small-cap
-# gapper, so volume — and therefore RVOL and float rotation — sits that far
-# below any SIP-based screener. app/market/conditions.py holds the Alpaca
-# side of the same decision.
+# The cost: odd lots are ~21-26% of shares on a small-cap gapper, so volume, and
+# therefore RVOL and float rotation, sit that far below a SIP-based screener.
+# app/market/conditions.py holds the Alpaca side of the same decision.
 TICK_TYPE = "Last"
 
 _BAR_SIZE = {
@@ -82,24 +69,20 @@ ScannerHandler = Callable[[list[ScannerRow]], Awaitable[None]]
 # (symbol, raw headline row) for a live headline off generic tick 292.
 NewsHandler = Callable[[str, dict], Awaitable[None]]
 
-# One market-data stream can serve every scanner tier that wants the
-# symbol. ib_async's own client-side ticker cache is keyed by contract hash
-# alone (wrapper.startTicker), and a second reqMktData call on a contract
-# already tracked *overwrites* the reqId a later cancelMktData would act on
-# — cancelling whichever tier subscribed most recently rather than the one
-# that asked to stop, and leaking the other's line on the TWS side forever.
-# Refcounting ownership here, rather than letting each tier open its own
-# line, is what keeps a symbol near a market-cap boundary — briefly visible
-# to two tiers at once — from tripping that.
+# One market-data stream serves every scanner tier that wants the symbol.
+# ib_async's ticker cache is keyed by contract hash alone (wrapper.startTicker),
+# so a second reqMktData on a tracked contract overwrites the reqId a later
+# cancelMktData acts on — cancelling the wrong tier and leaking the other's line
+# on the TWS side. Refcounting ownership here is what keeps a symbol straddling
+# two tiers' market-cap bands from tripping that.
 
 
 class _CancelAckFilter(logging.Filter):
     """Drop TWS's acknowledgement of scanner cancels *we* requested.
 
-    Every scanner restart cancels the previous subscription first; TWS
-    confirms with error code 162 reading "API scanner subscription
-    cancelled", which ib_async logs at ERROR level. That is an ack, not a
-    failure — and every other 162 (real historical-data errors) still logs.
+    A scanner restart cancels the previous subscription first, and TWS confirms
+    with error 162 "API scanner subscription cancelled", which ib_async logs at
+    ERROR. That is an ack; every other 162 still logs.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -118,10 +101,8 @@ def _import_ib():
 def _duration_string(span: int) -> str:
     """TWS duration string for a window of ``span`` seconds.
 
-    Days stop being the right unit once a window runs to years: the daily
-    base now asks for four decades so that one Alpaca page comes back full,
-    and TWS rejects a duration of fourteen thousand days where it accepts
-    the same window written in years.
+    Days stop being the right unit once a window runs to years: TWS rejects a
+    duration of fourteen thousand days but accepts the same window in years.
     """
     if span <= 86_400:
         return f"{span} S"
@@ -281,9 +262,9 @@ class IBKRProvider(MarketDataProvider):
     def is_starting_up(self) -> bool:
         """True while the first connection may still be moments away.
 
-        A server restart races its own history loads against the TWS
-        handshake; inside this window it is worth waiting a beat for the
-        real-time source instead of silently loading delayed data.
+        A server restart races its own history loads against the TWS handshake;
+        inside this window, wait a beat for the real-time source rather than
+        silently loading delayed data.
         """
         return (
             self._should_run
@@ -309,8 +290,8 @@ class IBKRProvider(MarketDataProvider):
     def _schedule(self, coro) -> None:
         """Run a coroutine on the main loop from any thread.
 
-        ib_async delivers most events on the event loop, but not all of its
-        callbacks are guaranteed to, so this tolerates both cases.
+        Not all ib_async callbacks are guaranteed to arrive on the event loop,
+        so this tolerates both cases.
         """
         loop = self._loop
         if loop is None or loop.is_closed():
@@ -517,10 +498,9 @@ class IBKRProvider(MarketDataProvider):
 
     # ── news ───────────────────────────────────────────────────────────
     #
-    # The one research feed this login is entitled to. Eight providers
-    # (Briefing.com and Dow Jones), thirty days of history, live headlines on
-    # generic tick 292 and full article bodies — while every fundamentals
-    # request on the same connection answers error 10358.
+    # The one research feed this login is entitled to: eight providers, thirty
+    # days of history, live headlines on generic tick 292 and full bodies.
+    # Fundamentals on the same connection answer error 10358.
 
     def on_news(self, handler: NewsHandler) -> None:
         """Register for live headlines. Called once, at wiring time."""
@@ -544,9 +524,8 @@ class IBKRProvider(MarketDataProvider):
         """Recent headlines for a symbol, from every entitled provider.
 
         ``reqHistoricalNews`` wants the provider codes joined with ``+`` and
-        answers nothing at all for an empty list, so a login with no news
-        subscription returns early rather than making a request that cannot
-        succeed.
+        answers nothing for an empty list, so a login with no news subscription
+        returns early.
         """
         providers = await self.fetch_news_providers()
         if not providers or not self.is_available:
@@ -587,14 +566,11 @@ class IBKRProvider(MarketDataProvider):
     def _on_news_tick(self, news_tick) -> None:
         """A live headline from tick 292.
 
-        Attribution is the awkward part. ``NewsTick`` carries no contract —
-        ib_async's wrapper receives the request id and drops it — so the only
-        thing on the wire tying a headline to a company is the trailing
-        ``>CELU`` marker. Failing that, a single streamed symbol is
-        unambiguous: the headline arrived on that line and there is nowhere
-        else it could belong. With several symbols streaming and no marker the
-        headline is dropped rather than guessed onto the wrong chart; the
-        thirty-day backfill picks it up on the next panel load.
+        ``NewsTick`` carries no contract — ib_async's wrapper receives the
+        request id and drops it — so the only thing tying a headline to a
+        company is the trailing ``>CELU`` marker. Failing that, a single
+        streamed symbol is unambiguous. With several streaming and no marker the
+        headline is dropped rather than guessed; the backfill picks it up.
         """
         headline = getattr(news_tick, "headline", "") or ""
         symbol = self._news_symbol(headline)
@@ -666,11 +642,10 @@ class IBKRProvider(MarketDataProvider):
             size = float(getattr(tick, "size", 0) or 0)
             if price <= 0 or size <= 0:
                 continue
-            # IBKR has already applied last-sale eligibility on "Last", so
-            # this is defence in depth rather than the primary filter — but
-            # it costs one set intersection and it is the same rule the
-            # Alpaca stream runs, so a failover cannot change the meaning of
-            # a bar. IBKR packs conditions as one string of single characters.
+            # Defence in depth: IBKR already applied last-sale eligibility on
+            # "Last", but running the same rule as the Alpaca stream means a
+            # failover cannot change the meaning of a bar. IBKR packs conditions
+            # as one string of single characters.
             special = str(getattr(tick, "specialConditions", "") or "").strip()
             kind = classify_conditions(special)
             if kind is TradeKind.SKIP:
@@ -756,15 +731,11 @@ class IBKRProvider(MarketDataProvider):
         if config.above_trade_rate is not None:
             filter_options.append(_tag_value("tradeRateAbove", str(config.above_trade_rate)))
 
-        # Stock type must go through the filter list too. `ScannerSubscription`
-        # has a `stockTypeFilter` attribute and setting it does nothing at all
-        # — measured: a 2x leveraged ETF stayed at rank 1 with the field set,
-        # and disappeared the moment the same value was passed as `stkTypes`.
-        # The failure is silent, which is why the codes are validated on the
-        # way in (see ScannerSettings.exclude_stock_types).
-        #
-        # One tag carrying a comma-separated list. Repeating the tag once per
-        # type silently loses all but one of them.
+        # Stock type must go through the filter list: `ScannerSubscription`'s
+        # `stockTypeFilter` attribute is silently ignored and only `stkTypes`
+        # takes effect, which is why the codes are validated on the way in (see
+        # ScannerSettings.exclude_stock_types). One tag carrying a
+        # comma-separated list — repeating the tag loses all but one.
         excluded = self._scanner_settings.exclude_stock_types
         if excluded:
             filter_options.append(
@@ -845,10 +816,10 @@ class IBKRProvider(MarketDataProvider):
     async def _scanner_refresh_loop(self, scanner_id: str) -> None:
         """Re-read the per-row tickers between IBKR's ranking pushes.
 
-        The scan decides membership roughly twice a minute; prices, rates
-        and the trade-rate sort live on the market-data lines, which stream
-        continuously. Without this loop the columns of a fresh scan sit
-        blank until the *next* ranking arrives.
+        The scan decides membership roughly twice a minute; prices, rates and
+        the trade-rate sort stream continuously on the market-data lines.
+        Without this loop a fresh scan's columns sit blank until the next
+        ranking.
         """
         interval = self._scanner_settings.min_refresh_seconds
         while True:
@@ -878,10 +849,8 @@ class IBKRProvider(MarketDataProvider):
             contract = entry.contractDetails.contract
             symbol = contract.symbol
             # A scan can return one symbol under two contracts. Everything
-            # downstream is keyed per symbol — the stream table above, the
-            # rank-velocity map, the frontend's table rows — and both entries
-            # read the same ticker anyway, so the second is the same row at a
-            # worse rank. Emitting it doubled symbols on the scanner panel.
+            # downstream is keyed per symbol and both entries read the same
+            # ticker, so the second is the same row at a worse rank.
             if symbol in seen:
                 continue
             seen.add(symbol)
@@ -922,11 +891,10 @@ class IBKRProvider(MarketDataProvider):
             window_1m = [t for t in trades if now - t[0] <= TRADE_WINDOW_1M]
             window_5m = [t for t in trades if now - t[0] <= TRADE_WINDOW_5M]
 
-            # IBKR's own per-minute rates (ticks 294/295) are authoritative —
-            # they match TWS's Trades/Min column. Counting RTVolume prints
-            # undercounts badly on a hot tape, because the market data line
-            # conflates trades inside each ~250ms update; the window count
-            # survives only as the warm-up fallback.
+            # IBKR's per-minute rates (ticks 294/295) are authoritative and
+            # match TWS's Trades/Min. Counting RTVolume prints undercounts on a
+            # hot tape — the market-data line conflates trades inside each
+            # ~250ms update — so the window count is only the warm-up fallback.
             trades_1m = int(trade_rate) if trade_rate is not None else len(window_1m)
             if volume_rate is not None and price is not None:
                 dollar_vol_1m = volume_rate * price
@@ -950,11 +918,10 @@ class IBKRProvider(MarketDataProvider):
                 )
             )
 
-        # A sane default order only. The real ranking needs history this
-        # provider does not keep, and happens in ScannerService — which also
-        # re-sorts, so this just decides what a cold start looks like.
-        # ``trades_5m`` is deliberately not a tiebreaker: it counts prints off
-        # the market-data line, which is unreliable in both directions.
+        # A default order only; the real ranking needs history this provider
+        # does not keep and happens in ScannerService, which re-sorts. So this
+        # decides a cold start. ``trades_5m`` is not a tiebreaker: it counts
+        # prints off the market-data line, unreliable in both directions.
         rows.sort(key=lambda row: (row.trades_1m, row.dollar_vol_1m), reverse=True)
 
         started_at = self._scanner_started_at.get(scanner_id)
@@ -975,12 +942,11 @@ class IBKRProvider(MarketDataProvider):
                 logger.exception("scanner[%s] handler failed", scanner_id)
 
     def _sync_scanner_streams(self, scanner_id: str, raw_rows: list) -> None:
-        """One market data line per visible row, shared across every tier
-        that currently wants the symbol (see the module comment by
-        ScannerHandler for why streams aren't one-per-tier).
+        """One market data line per visible row, shared across every tier that
+        wants the symbol (see the ScannerHandler module comment).
 
-        Rows that survive a refresh keep their trade buffer — that continuity
-        is the whole point of a sliding window.
+        Rows surviving a refresh keep their trade buffer, which is the point of
+        a sliding window.
         """
         wanted = {
             entry.contractDetails.contract.symbol: entry.contractDetails.contract
@@ -1037,10 +1003,8 @@ class IBKRProvider(MarketDataProvider):
     def _release_scanner_stream(self, scanner_id: str, symbol: str) -> None:
         """Drop one tier's claim on a symbol's market-data line.
 
-        Only actually cancels once every owning tier has let go — the
-        refcounting that keeps a symbol straddling two tiers' market-cap
-        bands from each fighting the other over reqMktData/cancelMktData on
-        the same contract.
+        Only cancels once every owning tier has let go, so a symbol straddling
+        two tiers' bands cannot have one cancel the other's line.
         """
         stream = self._scanner_streams.get(symbol)
         if stream is None:
@@ -1093,9 +1057,9 @@ def _news_row(row) -> dict:
 def _news_epoch(value: object) -> int:
     """Epoch seconds from whatever the news path hands over.
 
-    Historical news carries a ``datetime``; the live 292 tick carries epoch
-    milliseconds as a string. Both arrive here, and a headline with no usable
-    time sorts to the bottom rather than to 1970 in the middle of the list.
+    Historical news carries a ``datetime``, the live 292 tick epoch
+    milliseconds as a string. A headline with no usable time sorts to the bottom
+    rather than to 1970 mid-list.
     """
     if isinstance(value, datetime):
         stamped = value if value.tzinfo is not None else value.replace(tzinfo=UTC)

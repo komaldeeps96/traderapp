@@ -12,21 +12,13 @@ import type {
 /**
  * The income statement, balance sheet and cash flow, as filed.
  *
- * Read left to right, newest first, the way a chart is read — the most
- * recent close sits at the right edge of the price pane and the most recent
- * period sits at the left of this table, because a table is scanned from its
- * label outwards rather than from its far edge inwards.
+ * Newest period at the left: a table is scanned from its label outwards.
  *
- * Two things are shown that a statement normally hides.
- *
- * The **period end** sits under every column heading. "FY2026" is a
- * convention and companies with the same January year-end disagree about it,
- * so the close is printed as the fact and the label as the shorthand.
- *
- * The **XBRL tags** are on each row, behind a hover. Which concept answered
- * is part of reading the number: a revenue line stitched across an ASC 606
- * change is two tags, and a reader comparing to a filing needs to know which
- * one they are looking at.
+ * Two things a statement normally hides are shown. The **period end** sits
+ * under every column heading, because "FY2026" is a convention companies with
+ * the same January year-end disagree about. The **XBRL tags** are on each row
+ * behind a hover — a revenue line stitched across an ASC 606 change is two
+ * tags, and which one answered is part of reading the number.
  */
 
 const PERIODS: Array<{ id: FinancialPeriodKind; label: string }> = [

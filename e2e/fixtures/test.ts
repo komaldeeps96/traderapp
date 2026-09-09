@@ -53,14 +53,13 @@ export const liveTest = base.extend<{ terminal: TerminalPage }>({
 export { expect };
 
 /**
- * Collapse every CSS transition, which the app already does under
+ * Collapse every CSS transition, as the app already does under
  * `prefers-reduced-motion`.
  *
- * The accessibility scan needs it: axe reads computed colours, so a scan that
- * lands mid-theme-switch sees blended values and reports contrast failures
- * against colours no user ever sees. Set here rather than in the config's
- * `use` block, where it is silently dropped — verified by reading
- * `matchMedia` from the page.
+ * The accessibility scan needs it: axe reads computed colours, so a scan
+ * landing mid-theme-switch sees blended values and reports contrast failures
+ * against colours no user sees. Set here rather than in the config's `use`
+ * block, where it is silently dropped.
  */
 async function reduceMotion(page: Page): Promise<void> {
   await page.emulateMedia({ reducedMotion: 'reduce' });

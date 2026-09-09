@@ -1,21 +1,18 @@
 """A plain list of symbols, with a price beside each.
 
 No folders, no groups, no sorting rules — a list, in the order things were
-added to it. The order is information: the name put there this morning is
-usually the one being worked.
+added. The order is information: the name put there this morning is usually the
+one being worked.
 
-Quotes come from the same TradingView row the rest of the terminal uses, in
-one request for the whole list. A watchlist is glanced at, not scalped off,
-so a price a few seconds old is worth far more than a stream per symbol.
+Quotes come from the same TradingView row the rest of the terminal uses, one
+request for the whole list. A watchlist is glanced at, so a price a few seconds
+old beats a stream per symbol.
 
-It does **not** reuse the screeners' universe filter, and that is the whole
-point of this module. A screener has to decide what deserves to be in a
-ranked list nobody asked for, so it keeps to primary listings of US common
-stock. A watchlist has no such question to answer: somebody typed the symbol.
-Running the screener's filter over it silently blanked three whole classes of
-instrument — Canopy Growth, whose primary listing is the TSX; every ADR, since
-Alibaba is typed `dr` and not `stock`; and every ETF, which the client library
-excludes by default in a filter of its own.
+It does **not** reuse the screeners' universe filter. A screener keeps to
+primary listings of US common stock because it decides what deserves to be in a
+ranked list nobody asked for; here somebody typed the symbol. Running that
+filter over a watchlist blanks secondary listings, ADRs (typed `dr`, not
+`stock`) and ETFs, the last excluded by a default filter in the client library.
 """
 
 from __future__ import annotations
@@ -113,9 +110,8 @@ class WatchlistService:
     async def rows(self) -> list[dict]:
         """One row per symbol, in the list's own order.
 
-        A symbol the screener does not know still gets a row — a delisted or
-        mistyped ticker must be visible so it can be removed, not silently
-        dropped from the list it is still in.
+        A symbol the screener does not know still gets a row: a delisted or
+        mistyped ticker must be visible so it can be removed.
         """
         symbols = self.symbols()
         if not symbols:

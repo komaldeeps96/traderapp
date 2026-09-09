@@ -2,8 +2,8 @@
 
 Trades and quotes arrive far faster than a chart can usefully redraw, so
 updates are coalesced: the loop wakes on an interval and sends at most one
-message per watched chart — and one quote per watched symbol — and only when
-that data actually changed since the last send.
+message per watched chart, and one quote per watched symbol, only when that
+data changed since the last send.
 """
 
 from __future__ import annotations
@@ -113,9 +113,8 @@ class ChartBroadcaster:
     def _tick_api(self) -> int:
         """Budget meters: sent whenever the window contents change.
 
-        The counts move both when a request lands and when one ages out of
-        the window, so this compares the whole snapshot rather than keying
-        on a revision.
+        The counts move both when a request lands and when one ages out, so
+        this compares the whole snapshot rather than keying on a revision.
         """
         if self._api_budget is None:
             return 0
@@ -149,10 +148,9 @@ class ChartBroadcaster:
         """Prints that landed since the last tick, per symbol.
 
         The cursor is per symbol and shared by every client on it, so a client
-        that subscribed between two ticks is sent rows it already has in its
-        opening backlog. That overlap is the cheap half of the trade: the
-        client drops anything at or below the sequence it holds, and the
-        alternative is a cursor per connection.
+        that subscribed between two ticks is sent rows it already holds. It
+        drops anything at or below its own sequence; the alternative is a cursor
+        per connection.
         """
         if self._tape is None:
             return 0

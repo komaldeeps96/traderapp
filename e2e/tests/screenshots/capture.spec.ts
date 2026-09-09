@@ -5,25 +5,19 @@ import { makePosition, makeScannerRows, type TapePrintFixture } from '../../fixt
 import { expect, test } from '../../fixtures/test';
 
 /**
- * The screenshots in the README, captured rather than taken by hand.
+ * The screenshots in the README, captured rather than taken by hand. They come
+ * out of the same seeded fixtures and frozen clock the visual baselines use, so
+ * `npm run screenshots` regenerates the lot against what the code renders now.
  *
- * A README image is documentation with no test behind it: the UI moves, the
- * PNG does not, and nobody notices until a reader is looking at a screenshot
- * of a terminal that no longer exists. These come out of the same seeded
- * fixtures and frozen clock the visual baselines use, so `npm run screenshots`
- * regenerates the lot against whatever the code currently renders.
- *
- * Skipped unless asked for. It writes into the repository rather than into
- * `test-results/`, and a full `playwright test` sweep should not leave the
- * working tree dirty — so the capture runs only under `npm run screenshots`.
+ * Skipped unless asked for: it writes into the repository rather than
+ * `test-results/`, and a full sweep should not leave the tree dirty.
  */
 const CAPTURING = Boolean(process.env.TRADERAPP_CAPTURE);
 
 /**
- * Where the README reads them from. Resolved against *this file* rather than
- * written as a relative path: Playwright resolves a relative screenshot path
- * against the working directory, which is `e2e/`, and "../../../docs" from
- * there lands outside the repository entirely.
+ * Where the README reads them from. Resolved against *this file*: Playwright
+ * resolves a relative screenshot path against the working directory, `e2e/`,
+ * from which "../../../docs" lands outside the repository.
  */
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../docs/screenshots');
 
@@ -33,12 +27,10 @@ const FROZEN = new Date('2024-03-05T15:15:04Z');
 /**
  * The terminal as it looks when everything it talks to is up.
  *
- * Both of these are off in the fixtures by default, and correctly so — the
- * scanner needs a running TWS and the order strip is not rendered at all
- * until the server says trading is armed, which is the state every other
- * suite asserts against. A screenshot of that default is four "requires IBKR"
- * notices down the left rail and no strip, which is a true picture of an
- * unconfigured machine and a poor picture of the application.
+ * Both are off in the fixtures by default — the scanner needs a running TWS and
+ * the order strip is not rendered until the server says trading is armed, which
+ * is what every other suite asserts against. That default screenshots as four
+ * "requires IBKR" notices and no strip.
  */
 const ARMED = {
   enabled: true,
@@ -55,13 +47,10 @@ const ARMED = {
 const RUNNING = { scannerAvailable: true, source: 'ibkr' as const, trading: ARMED };
 
 /**
- * A tape long enough to look like one.
- *
- * The shared fixture is deliberately one row of each verdict — the specs
- * assert on tints and filters, so it is a truth table rather than a stream.
- * That reads as a nearly empty window in a screenshot, so this fills the
- * pane with a plausible burst instead. Fixed arithmetic, no randomness: the
- * image has to come out the same on the next capture.
+ * A tape long enough to look like one. The shared fixture is one row of each
+ * verdict — a truth table for the tint and filter specs — which screenshots as
+ * a nearly empty window. Fixed arithmetic, no randomness, so the image comes
+ * out the same on the next capture.
  */
 function burst(count = 26): TapePrintFixture[] {
   const base = 1_709_651_400_000; // 09:30 NY on the fixtures' session.
@@ -79,10 +68,8 @@ function burst(count = 26): TapePrintFixture[] {
 }
 
 /**
- * Fill the four market-cap scanners.
- *
- * `scannerAvailable` only removes the "requires IBKR" notice; the rows
- * themselves arrive as pushed frames, exactly as they do from a live TWS.
+ * Fill the four market-cap scanners. `scannerAvailable` only removes the
+ * "requires IBKR" notice; the rows arrive as pushed frames, as from a live TWS.
  */
 async function fillScanners(backend: {
   pushScanner: (id: 'small_cap' | 'mid_cap' | 'large_cap' | 'mega_cap',
@@ -95,12 +82,9 @@ async function fillScanners(backend: {
 }
 
 /**
- * The dock, cropped to where its content actually ends.
- *
- * The dock is full window height whatever is in it, so a panel that fills the
- * top third screenshots as two thirds empty background. Clipping to the last
- * element that rendered keeps the image about the panel rather than about the
- * column it lives in.
+ * The dock, cropped to where its content ends. It is full window height
+ * whatever is in it, so a panel filling the top third would screenshot as two
+ * thirds empty background.
  */
 async function shootDock(
   terminal: { page: import('@playwright/test').Page; dock: import('@playwright/test').Locator },
@@ -150,15 +134,6 @@ test.describe('screenshots', () => {
     await settle(terminal);
     await terminal.moveMouseAway();
     await terminal.page.screenshot({ path: `${OUT}/terminal-light.png` });
-  });
-
-  test('the AI tab', async ({ terminal }) => {
-    await terminal.waitForChart();
-    await terminal.dockTab('ai').click();
-    await expect(terminal.page.getByTestId('ai-score')).toBeVisible();
-    await settle(terminal);
-    await terminal.moveMouseAway();
-    await shootDock(terminal, terminal.page.getByTestId('ai-watch'), 'ai-tab');
   });
 
   test('the news tab, read and scored', async ({ terminal }) => {

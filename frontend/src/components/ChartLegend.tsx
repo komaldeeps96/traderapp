@@ -10,21 +10,16 @@ interface ChartLegendProps {
 }
 
 /**
- * The indicator legend, over the top-left of the chart.
+ * The indicator legend, over the top-left of the chart — where the lines are,
+ * rather than in a sidebar the eye has to carry a colour across.
  *
- * It reads where it is drawn. Every other terminal puts the legend on the
- * chart because that is where the lines are: naming a hue in a sidebar three
- * hundred pixels away asks the eye to carry a colour across the screen and
- * back, and the row that says which blue is which was the furthest thing from
- * the blue it described.
+ * The wash makes it legible without a panel: candles reach the top-left
+ * whenever price is near the window high, and 10px type over a bright candle
+ * body disappears. A translucent skim of the chart's own surface keeps the text
+ * readable with the bars visible through it.
  *
- * The wash is what makes it legible without a panel around it. Candles reach
- * the top-left whenever price is near the high of the window, and 10px type
- * over a bright candle body disappears; a translucent skim of the chart's own
- * surface keeps the text readable while the bars stay visible through it.
- *
- * Only the rows take pointer events — the gaps between them stay live for
- * panning and the crosshair, so the legend costs no chart surface.
+ * Only the rows take pointer events, so the gaps stay live for panning and the
+ * crosshair and the legend costs no chart surface.
  */
 export function ChartLegend({ onToggle }: ChartLegendProps) {
   const specs = useTerminalStore((state) => state.specs);

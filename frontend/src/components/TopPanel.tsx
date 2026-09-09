@@ -63,11 +63,9 @@ const PULLBACK_CLASS: Record<PullbackTone, string> = {
 /**
  * The reopen chip's tones.
  *
- * `aligned` gets the up colour because it is the condition that measured
- * strongly positive. `extended` gets the red the failed leg uses, because it
- * is the only bucket in the study that measured *negative* — an already-run
- * name coming back is the case worth stopping at. `late` is neither: outside
- * the cohort is not evidence of anything, so it stays quiet.
+ * `aligned` is the up colour, the condition that measured strongly positive.
+ * `extended` takes the failed leg's red, being the only bucket that measured
+ * negative. `late` is neither — outside the cohort is not evidence.
  */
 const REOPEN_CLASS: Record<ReopenTone, string> = {
   aligned: 'text-up',
@@ -93,23 +91,11 @@ function bandTierTitle(info: InfoView): string {
 }
 
 /**
- * The headroom chip's tones.
+ * How close a scheduled report is, and how loudly to say so: red inside a week,
+ * amber inside a fortnight, quiet beyond.
  *
- * `blue-sky` is the up colour because it is the condition that licenses
- * holding and laddering rather than scalping — no overhead means no level
- * the crowd has pre-committed to stop at. `capped` is red: a target closer
- * than its own execution cost is not a trade, however good the setup looks.
- */
-/**
- * How close a scheduled report is, and how loudly to say so.
- *
- * A swing position held through earnings is a different trade from the one
- * that was opened, and the usual way that happens is not knowing. Inside a
- * week it is red, inside a fortnight amber, and beyond that quiet — visible
- * for planning, not shouting.
- *
- * Past dates are dropped: TradingView keeps serving the last scheduled date
- * for a while after the event, and "ERN -3d" reads as a date to avoid.
+ * Past dates are dropped — TradingView keeps serving the last scheduled date
+ * after the event, and "ERN -3d" reads as a date to avoid.
  */
 const EARNINGS_URGENT_DAYS = 7;
 const EARNINGS_NEAR_DAYS = 14;
@@ -126,6 +112,13 @@ function earningsLabel(days: number): string {
   return `ERN ${days}d`;
 }
 
+/**
+ * The headroom chip's tones.
+ *
+ * `blue-sky` is the up colour: no overhead means no level the crowd has
+ * pre-committed to stop at, which licenses holding rather than scalping.
+ * `capped` is red — a target closer than its own execution cost is not a trade.
+ */
 const HEADROOM_CLASS: Record<HeadroomTone, string> = {
   'blue-sky': 'bg-up/15 text-up',
   clear: 'text-ink-2',
@@ -136,11 +129,9 @@ const HEADROOM_CLASS: Record<HeadroomTone, string> = {
  * Distance to a halt band.
  *
  * The arrow carries the direction, so a positive distance needs no sign. A
- * *negative* one is not a distance at all — it is the price having already
- * traded through the band, which the five-minute reference makes routine on
- * a fast mover. Rendering that as "−6.8%" beside a "+9.2%" reads as nine
- * percent of room in one direction and seven in the other, when what it
- * means is that one side is already gone.
+ * *negative* one is not a distance — it is price already through the band,
+ * which the five-minute reference makes routine on a fast mover, and rendering
+ * it as "−6.8%" would read as room rather than as one side being gone.
  */
 function formatBandDistance(percent: number | null): string {
   if (percent == null) return '—';
@@ -156,11 +147,8 @@ const REOPEN_TITLE: Record<ReopenTone, string> = {
 };
 
 /**
- * The dilution chip's tones.
- *
- * `clean` never renders, so it has no entry: an ordinary large cap should
- * cost the strip no width at all. The other three escalate from a quiet note
- * to the same red the untradeable spread and the failed leg use.
+ * The dilution chip's tones. `clean` never renders, so it has no entry; the
+ * other three escalate to the red the untradeable spread and failed leg use.
  */
 const DILUTION_CLASS: Record<Exclude<DilutionTone, 'clean'>, string> = {
   watch: 'text-ink-3',
@@ -178,29 +166,19 @@ const PULLBACK_TITLE: Record<PullbackTone, string> = {
 /**
  * The strip above the chart: everything about the symbol that is not a bar.
  *
- * Three rows, each answering one question, in the order a candidate is
- * disqualified in:
+ * Three rows, in the order a candidate is disqualified in:
  *
- *   TAPE      can I trade it right now — price, quote, spread, and the
- *             conditions that stop a trade dead (halt, borrow, failed leg)
- *   SESSION   what has the day done — volume, rotation, the supply it has
- *             to chew through
+ *   TAPE      can I trade it now — price, quote, spread, and the conditions
+ *             that stop a trade dead (halt, borrow, failed leg)
+ *   SESSION   what the day has done — volume, rotation, supply to chew through
  *   BAR       what is under the crosshair — the OHLCV readout
  *
- * Two rules hold the layout still. Nothing is pushed to the right edge with
- * `ml-auto`: that is what used to make a long value shunt the whole readout
- * onto a line of its own, so the panel changed shape depending on the
- * ticker. And every value goes through a formatter with a bounded width, so
- * a bad number from a provider costs a few characters rather than a row.
+ * Two rules hold the layout still: nothing is right-aligned with `ml-auto`, so
+ * a long value cannot shunt the readout onto its own line, and every value goes
+ * through a formatter with a bounded width.
  *
- * The session row follows the crosshair: hover a breakout candle and the
- * day's volume, rotation and current market cap rewind to what they were at
- * that moment. That is why the day is stated once here rather than twice,
- * live and at-bar, the way it used to be.
- *
- * The instrument's name and its exchange live on the header above rather
- * than here, beside the input that already carries the ticker; the all-time
- * high lives in the key levels ladder, where a price belongs.
+ * The session row follows the crosshair — hovering a candle rewinds volume,
+ * rotation and market cap to that moment — so the day is stated once, not twice.
  */
 export function TopPanel() {
   const symbol = useTerminalStore((state) => state.symbol);
@@ -448,13 +426,8 @@ export function TopPanel() {
 }
 
 /**
- * The day, as of whatever bar is being read.
- *
- * Every figure here used to appear twice — once from the info stream as
- * "today", once derived from the chart's own bars as "at this bar" — which
- * on a live chart is the same number printed in two places. It is stated
- * once now: the provider's own figure while the crosshair is off, the
- * chart's cumulative sum the moment it rewinds the day.
+ * The day, as of whatever bar is being read: the provider's own figure while
+ * the crosshair is off, the chart's cumulative sum once it rewinds the day.
  */
 function SessionRow({
   info,
@@ -604,11 +577,9 @@ function FloatField({ info }: { info: InfoView | null }) {
 }
 
 /**
- * One line of the panel.
- *
- * Wrapping is allowed but nothing inside is right-aligned, so an overlong
- * value can only ever push the tail of its own row down — never rearrange
- * the panel around it.
+ * One line of the panel. Wrapping is allowed but nothing inside is
+ * right-aligned, so an overlong value pushes the tail of its own row down
+ * rather than rearranging the panel.
  */
 function Row({
   children,

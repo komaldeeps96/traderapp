@@ -12,32 +12,26 @@ import { useTerminalStore } from "@/store/useTerminalStore";
 import type { BlockedReason, PositionRow } from "@/types/protocol";
 
 /**
- * Order entry — the strip under the chart.
+ * Order entry — the strip under the chart. See docs/order-entry.md.
  *
- * WHY IT IS HERE AND NOT SOMEWHERE ELSE. The decision to click is made at the
- * chart's right edge and the bid/ask readout, so the chart's bottom edge is
- * the nearest fixed anchor to a live price that moves vertically. It sits
- * *outside* the tab panel, so a position stays visible while a balance sheet
- * is being read. It is deliberately far from the symbol input in the toolbar:
- * buy buttons up there are one mistyped ticker away from an unintended order.
- * And it costs height rather than width, which the right dock already owns.
- * See docs/order-entry.md.
+ * **Where it sits.** The chart's bottom edge is the nearest fixed anchor to a
+ * live price that moves vertically, and *outside* the tab panel, so a position
+ * stays visible while a balance sheet is read. Far from the toolbar's symbol
+ * input, where buy buttons would be one mistyped ticker from an unintended
+ * order. It costs height rather than width, which the right dock owns.
  *
- * WHAT THE LAYOUT IS DOING. The ticker is the leftmost thing on the strip and
- * the largest — buying the symbol you were looking at a moment ago is the
- * single worst failure mode of a six-button trading UI, so it is spelled out
- * where the click starts. Buys ascend from the left, sells ascend to the
- * right, with dead space between: the two innermost neighbours are `$50` and
- * `25%`, the cheapest mis-click pair available, and `ALL` sits at the far edge
- * furthest from every buy button. Widths are fixed and figures tabular, so a
- * share count going from 9 to 10 does not shift the row under a finger that
- * is already moving.
+ * **What the layout does.** The ticker is leftmost and largest: buying the
+ * symbol you were looking at a moment ago is the worst failure mode of a
+ * six-button trading UI. Buys ascend from the left, sells to the right, with
+ * dead space between — the innermost pair is `$50` and `25%`, the cheapest
+ * mis-click available, and `ALL` sits furthest from every buy button. Widths
+ * are fixed and figures tabular, so a share count going 9 to 10 does not shift
+ * the row under a moving finger.
  *
- * THERE IS NO CONFIRMATION DIALOG, on purpose — it would defeat a one-click
- * momentum entry, which is the entire feature. The protection is elsewhere: a
- * master switch that is off by default, a hard server-side cap, a long-only
- * clamp on the quantity, and the in-flight guard that turns a double-click
- * into one order. See services/trading.py.
+ * **There is no confirmation dialog**, which would defeat a one-click momentum
+ * entry. The protection is a master switch off by default, a hard server-side
+ * cap, a long-only clamp, and an in-flight guard that turns a double-click into
+ * one order. See services/trading.py.
  */
 
 /** What a dead button says, in the space a dead button has. */

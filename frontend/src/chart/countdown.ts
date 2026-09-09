@@ -1,20 +1,14 @@
 /**
  * Time left in the current bar, drawn on the price axis.
  *
- * It used to sit in the toolbar's top-right corner, which is the wrong place
- * for it: the read on a candle firms up in its closing seconds, so the timer
- * is only useful while the eye is on the candle — and the eye is on the right
- * edge, where the live bar and its price label are. Reading it meant looking
- * away from the thing it describes.
- *
- * So it rides directly under the last-price label instead, one chart at a
- * time — each chart counts down its own timeframe.
+ * It rides directly under the last-price label, where the eye already is in a
+ * candle's closing seconds. Each chart counts down its own timeframe.
  *
  * `fixedCoordinate` rather than `coordinate`: the axis nudges ordinary labels
- * apart to stop them colliding, which would let this one drift off the price
- * label it belongs to. Fixed labels are drawn exactly where they ask to be,
- * and the docs require a large negative `coordinate` alongside so the
- * auto-placement does not also reserve a gap for it.
+ * apart to stop collisions, which would drift this one off the price label it
+ * belongs to. Fixed labels are drawn exactly where they ask, and the docs
+ * require a large negative `coordinate` alongside so auto-placement does not
+ * also reserve a gap.
  */
 
 import type {
@@ -122,12 +116,9 @@ export class BarCountdown implements ISeriesPrimitive {
   }
 
   /**
-   * Set the countdown, or clear it with `null`.
-   *
-   * Redraws only when something visible actually changed. The clock is polled
-   * several times a second so the displayed second is never stale, but the
-   * text only turns over once a second — repainting on every poll would be
-   * three charts redrawing for nothing.
+   * Set the countdown, or clear it with `null`. Redraws only when something
+   * visible changed: the clock is polled several times a second so the shown
+   * second is never stale, but the text turns over only once a second.
    */
   set(state: CountdownState | null): void {
     if (!changed(this.state, state)) {

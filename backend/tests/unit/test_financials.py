@@ -170,10 +170,9 @@ class TestDerivedQuarters:
     def test_an_average_is_never_derived(self):
         """A weighted average is not a flow and does not difference.
 
-        Taking a nine-month average share count from a twelve-month one gives
-        a negative number of shares, which is what the terminal drew before
-        this: "-47.0M diluted shares" in Apple's fourth quarter. A blank is
-        the honest answer — that quarter's average is in no filing.
+        Differencing a nine-month average share count from a twelve-month one
+        gives a negative share count. A blank is the honest answer: that
+        quarter's average is in no filing.
         """
         data = facts(
             usd(REVENUE, REVENUE_ROWS),
@@ -381,10 +380,9 @@ def facts_ifrs(*concept_maps: dict) -> dict:
 class TestForeignPrivateIssuers:
     """A 40-F or 20-F filer tags under `ifrs-full`, not `us-gaap`.
 
-    Its facts sit in the same free `companyfacts` payload the terminal
-    already fetches for every symbol — the tabs were empty only because the
-    parser looked in one taxonomy. This is most of the Canadian small-cap
-    universe.
+    Its facts sit in the same `companyfacts` payload already fetched for every
+    symbol, so a parser reading one taxonomy blanks most of the Canadian
+    small-cap universe.
     """
 
     def test_reads_a_statement_tagged_under_ifrs(self):
@@ -512,10 +510,9 @@ class TestCurrencyDetection:
 class TestFiftyTwoWeekCalendars:
     """A fiscal year that closes in the first days of January.
 
-    Johnson & Johnson's FY2020 ends 2021-01-03. Naming it for the calendar
-    year the date falls in makes it "FY2021", which then collides with the
-    year that really is 2021 — two identically-labelled columns in one table.
-    Caught by the audit, which asserts period keys are distinct.
+    A 52/53-week filer can close FY2020 on 2021-01-03. Naming it for the
+    calendar year the date falls in makes it "FY2021" and collides with the year
+    that really is 2021 — two identically-labelled columns in one table.
     """
 
     @pytest.mark.parametrize(
@@ -546,10 +543,9 @@ class TestFiftyTwoWeekCalendars:
 class TestDerivedLiabilities:
     """A total the filer stopped tagging.
 
-    AT&T tagged `Liabilities` until 2015 and files only the components since,
-    so the line is empty across every year anyone would look at. The number
-    is still on the balance sheet: it is what remains once everything with a
-    claim after creditors is removed.
+    A filer can tag `Liabilities` for early years and file only the components
+    since, leaving the line empty where it matters. The number is still on the
+    sheet: what remains once every claim after creditors is removed.
     """
 
     def _sheet(self, equity_concept: str, extra: dict | None = None) -> dict:

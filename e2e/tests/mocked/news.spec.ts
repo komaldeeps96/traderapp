@@ -2,14 +2,10 @@ import { expect, test } from '../../fixtures/test';
 import { makeBrief, makeHeadline, makeNews, makeNewsMessage } from '../../fixtures/data';
 
 /**
- * The news tab.
- *
- * IBKR is the one research feed this account is entitled to, so this is the
- * half of the dock that does not come from EDGAR. What earns a browser test:
- * that a headline can be read without leaving the terminal, that the catalyst
- * tint reaches the DOM (an offering has to be the loudest row on screen), and
- * that a live headline pushed over the WebSocket merges into the list the
- * backfill produced rather than appearing twice or not at all.
+ * The news tab. What earns a browser test: that a headline can be read without
+ * leaving the terminal, that the catalyst tint reaches the DOM (an offering has
+ * to be the loudest row), and that a live headline over the WebSocket merges
+ * into the backfilled list rather than appearing twice or not at all.
  */
 test.describe('news tab', () => {
   test('lists the headlines newest first', async ({ terminal }) => {
@@ -164,12 +160,9 @@ test.describe('news tab', () => {
 
 
 /**
- * The second source.
- *
- * IBKR's eight feeds are good on most names and silent on some of exactly the
- * companies this terminal is for — WETO returned its own halt and its own
- * resume and nothing else. Benzinga rides in on Alpaca's connection, which
- * also means it is the only source that answers with no TWS running.
+ * The second source. IBKR's eight feeds go silent on some of exactly the
+ * companies this terminal is for; Benzinga rides in on Alpaca's connection,
+ * which also makes it the only source that answers with no TWS running.
  */
 test.describe('Benzinga headlines', () => {
   test.beforeEach(async ({ terminal }) => {
@@ -284,20 +277,15 @@ test.describe('a live headline off the Benzinga socket', () => {
 
 
 /**
- * The panel's top half: one day, read and scored.
+ * The panel's top half: one session, read and scored. The reading happens on
+ * the server; what a browser test holds is the contract around it —
  *
- * The reading itself happens on the server, in a `claude` process; what a
- * browser test can hold is the contract around it. Three things earn one.
- *
- * That the score reaches the DOM as a number *and* a band, because the whole
- * argument for the panel is the case the substring classifier cannot make —
- * an FDA clearance with an offering bolted to it is a 2, not an upside row.
- *
- * That the risks are rendered apart from the summary, because a trader
- * mid-run must not have to read a paragraph to find the offering in it.
- *
- * And that the toolbar switch actually stops the request, rather than merely
- * hiding a panel whose process has already been paid for.
+ * - the score reaches the DOM as a number *and* a band, since the argument for
+ *   the panel is the case a substring classifier cannot make;
+ * - the risks render apart from the summary, so a trader mid-run does not read
+ *   a paragraph to find the offering in it;
+ * - the toolbar switch stops the request rather than hiding a panel whose
+ *   process has already been paid for.
  */
 test.describe('the AI news summary', () => {
   test('scores the day above the feed', async ({ terminal }) => {

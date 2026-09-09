@@ -92,14 +92,12 @@ export function applyTheme(theme: Theme): void {
 type VisibilityStore = Record<string, Record<string, boolean>>;
 
 /**
- * Indicator visibility is remembered per timeframe: the levels you want on a
- * 1-minute chart are rarely the ones you want on a daily.
+ * Indicator visibility is remembered per timeframe: the levels wanted on a
+ * 1-minute chart are rarely the ones wanted on a daily.
  *
- * The saved half now lives on the server, in `state.yaml`, and arrives as
- * *overrides* — only what the user changed. Applying them over the config's
- * own defaults is what lets a changed default in `indicators.yaml` reach a
- * chart the user never touched, instead of being masked forever by a saved
- * copy of the old value.
+ * The saved half lives on the server in `state.yaml` and arrives as *overrides*
+ * — only what the user changed — so a changed default in `indicators.yaml`
+ * reaches a chart the user never touched.
  */
 export function loadVisibility(
   specs: IndicatorSpec[],
@@ -120,9 +118,8 @@ export function loadVisibility(
 /**
  * What the user had toggled back when this was a browser preference.
  *
- * Read once and deleted, so the upgrade keeps the toggles someone had built
- * up rather than silently resetting their charts to the defaults. Anything
- * the server already knows about wins — it is the newer of the two.
+ * Read once and deleted, so an upgrade keeps the toggles rather than resetting
+ * to defaults. Anything the server already knows wins, being newer.
  */
 export function takeLegacyVisibility(): VisibilityStore {
   const saved = readJson<VisibilityStore>(VISIBILITY_KEY, {});
@@ -179,11 +176,9 @@ export function saveMiniTimeframes(timeframes: readonly Timeframe[]): void {
 /**
  * Which dock tab was last open, and how wide the rail was dragged.
  *
- * A tab removed from a later build falls back to the charts rather than
- * leaving the dock showing nothing, and a width from a build with different
- * bounds is clamped into the current ones instead of being discarded — the
- * user's intent was "wide", and the nearest legal wide is closer to it than
- * the default.
+ * A tab a later build removed falls back to the charts rather than leaving the
+ * dock blank, and a width from different bounds is clamped rather than
+ * discarded: the intent was "wide", and the nearest legal wide is closer.
  */
 export function loadDockTab(): DockTabId {
   try {
@@ -222,11 +217,9 @@ export function saveDockWidth(width: number): void {
 /**
  * How the time-and-sales window is filtered.
  *
- * Field by field, so a value from an older build — or one hand-edited to
- * nonsense — costs that one filter its saved setting rather than resetting
- * the window. `paused` is deliberately not restored: coming back to a
- * terminal to find a frozen tape that looks like a dead feed is worse than
- * losing the freeze.
+ * Field by field, so a value from an older build costs that one filter its
+ * saved setting rather than resetting the window. `paused` is not restored: a
+ * frozen tape on open reads as a dead feed.
  */
 export function loadTapeFilters(): TapeFilters {
   const saved = readJson<Partial<Record<keyof TapeFilters, unknown>>>(TAPE_FILTERS_KEY, {});
@@ -325,11 +318,8 @@ export function saveScannerTab(tab: ScannerTabId): void {
 }
 
 /**
- * Whether the news panel asks Claude to read the day.
- *
- * Defaults on — it is the point of the top half — and remembered off,
- * because the reason to turn it off is that a reading costs a cent and a
- * dozen seconds, and nobody wants to make that decision twice a session.
+ * Whether the news panel asks Claude to read the day. Defaults on, and
+ * remembered off: a reading costs a cent and a dozen seconds.
  */
 export function loadNewsAi(): boolean {
   try {

@@ -1,14 +1,12 @@
 """Shared machinery for the audit: our numbers, and the auditors'.
 
-Everything here reaches the network, which is why the whole directory sits
-behind the `audit` marker and is excluded from `pytest tests` by default.
+Everything here reaches the network, so the directory sits behind the `audit`
+marker and is excluded from `pytest tests` by default.
 
 The two auditors are chosen for what they disagree about. **yfinance** reports
-in the filer's own currency and names it, so it checks the parse itself —
-whether we read the right concept, in the right period, before any conversion.
-**TradingView** normalises to USD, so it checks the conversion. A number that
-satisfies both has been read correctly and restated correctly, and those are
-different claims.
+in the filer's own currency, so it checks the parse: the right concept, in the
+right period, before any conversion. **TradingView** normalises to USD, so it
+checks the conversion. Those are different claims.
 """
 
 from __future__ import annotations
@@ -143,16 +141,14 @@ def our_statements(edgar_facts):
 def daily_bars():
     """Daily bars per symbol, over the window the terminal itself loads.
 
-    The chart half has no published truth the way the statements do — nobody
-    else computes a moving average over *our* bars. What can be checked is
-    that our bars agree with everyone else's, and that our arithmetic over
-    them lands where theirs does.
+    The chart half has no published truth — nobody else computes a moving
+    average over *our* bars — so what is checked is that our bars agree with
+    everyone else's and our arithmetic lands where theirs does.
 
-    The window matters and is taken from the app's own setting rather than
-    picked here. An exponential average never fully forgets its seed: over
-    three years a 200-day EMA is still 0.27% from where it settles, which
-    would look like an arithmetic error and is not one. Over the forty years
-    the terminal actually loads it agrees to the fourth decimal.
+    The window is taken from the app's own setting rather than picked here: an
+    exponential average never fully forgets its seed, so over three years a
+    200-day EMA is still 0.27% from where it settles, which looks like an
+    arithmetic error and is not one.
     """
     from app.core.settings import get_settings
     from app.domain.timeframes import Timeframe

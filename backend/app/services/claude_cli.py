@@ -1,38 +1,26 @@
 """The reader: Claude Code, run as a child process with nothing attached.
 
-Two panels ask a model to read something — the news tab's session summary and
-the AI tab's setup judgement — and both do it by spawning the ``claude`` CLI
-already installed and authenticated on this machine. That is a deliberate
-choice over calling the API directly: no second key to hold, no SDK to pin,
-nothing new in the settings file that could leak, and it is the same reader
-the user works with, so a prompt can be run by hand and argued with.
+Spawns the ``claude`` CLI already installed and authenticated on this machine
+rather than calling the API directly: no second key to hold, no SDK to pin, and
+the same reader a prompt can be run against by hand.
 
     printf '%s' "$prompt" | claude -p --model sonnet --output-format json \\
       --json-schema "$schema" --system-prompt "$rubric" --tools "" \\
       --safe-mode --strict-mcp-config --no-session-persistence \\
       --permission-prompts none --max-budget-usd 0.25
 
-This module exists so those flags are written once. They are not decoration
-and they are exactly the sort of thing a later edit tidies away:
+The flags are the sandbox, written once here:
 
-``--tools ""``          no Bash, no Read, no WebFetch. Text in, object out. A
-                        press release cannot reach the filesystem however it
-                        is worded.
-``--safe-mode``         no CLAUDE.md, skills, plugins, hooks or MCP servers.
-                        This project's own instructions are about *writing*
-                        the terminal and have no business inside a scoring
-                        prompt. Auth still works, which is why this rather
-                        than ``--bare`` — that one demands ANTHROPIC_API_KEY
-                        and never reads the OAuth this machine actually has.
+``--tools ""``          no Bash, Read or WebFetch. Text in, object out.
+``--safe-mode``         no CLAUDE.md, skills, plugins, hooks or MCP servers,
+                        with auth still working — ``--bare`` demands
+                        ANTHROPIC_API_KEY and ignores this machine's OAuth.
 ``--strict-mcp-config`` belt and braces on the same point.
 ``--json-schema``       a validated object, not prose to be regex'd.
-``--max-budget-usd``    a per-reading ceiling. A run costs about a cent.
+``--max-budget-usd``    per-reading ceiling; a run costs about a cent.
 
-The prompt goes down **stdin**, not into argv: wire copy runs to thousands of
-characters and carries every quoting character there is, and an argument list
-has a length limit a busy news day would eventually find. The process runs
-with ``cwd`` set to the home directory — a reader with no tools has no
-business having the source tree as its working directory either.
+The prompt goes down **stdin**, not argv: wire copy runs to thousands of
+characters and argv has a length limit. ``cwd`` is the home directory.
 """
 
 from __future__ import annotations
@@ -52,12 +40,9 @@ logger = logging.getLogger(__name__)
 class ReaderSettings(Protocol):
     """What a panel's settings block has to carry to drive a reading.
 
-    The two panels have separate settings models with separate defaults — the
-    news reader's ceiling is 90 seconds against the setup judge's 240, because
-    one reads a handful of press releases and the other weighs a whole screen —
-    and neither inherits from the other. This is the surface they agree on,
-    written down so the shape is a checked contract rather than something a
-    reader of this file has to reconstruct from the attribute accesses below.
+    A structural type because the runner is ignorant of what is being read: a
+    second panel brings its own model and defaults rather than inheriting
+    these.
     """
 
     enabled: bool
@@ -67,10 +52,9 @@ class ReaderSettings(Protocol):
     max_budget_usd: float
 
 
-# Where the CLI installs itself when it is not on the server's PATH. A
-# terminal launched from a desktop icon or a LaunchAgent inherits a much
-# thinner PATH than the shell that installed Claude Code, and "not found" is
-# a poor answer when the binary is sitting in the obvious place.
+# Where the CLI installs itself when it is not on the server's PATH: a process
+# launched from a desktop icon or LaunchAgent inherits a much thinner PATH than
+# the shell that installed Claude Code.
 _EXTRA_BIN_DIRS = (
     Path.home() / ".local" / "bin",
     Path("/opt/homebrew/bin"),
@@ -100,9 +84,8 @@ class ClaudeReader:
     def resolve_binary(self) -> str | None:
         """The ``claude`` executable, or None when it is not installed.
 
-        Looked up once and remembered. A settings value carrying a separator
-        is taken as a path and used as given, so a non-standard install needs
-        no code change.
+        Looked up once and remembered. A settings value carrying a separator is
+        taken as a path and used as given.
         """
         if self._binary is not False:
             return self._binary  # type: ignore[return-value]
@@ -169,11 +152,9 @@ class ClaudeReader:
             )
         except TimeoutError as exc:
             process.kill()
-            # Reaped with a bound rather than awaited outright. A killed
-            # process whose own children still hold its pipes can take as
-            # long again to release them, and not waiting is the entire
-            # point of a timeout; the shielded wait carries on in the
-            # background so the child is still collected.
+            # Reaped with a bound rather than awaited outright: a killed
+            # process whose children still hold its pipes can take as long again
+            # to release them. The shielded wait still collects the child.
             with contextlib.suppress(ProcessLookupError, TimeoutError):
                 await asyncio.wait_for(asyncio.shield(process.wait()), timeout=1.0)
             raise ReaderError(
@@ -190,12 +171,9 @@ class ClaudeReader:
 def parse_output(stdout: str) -> dict:
     """The model's answer, out of the CLI's ``--output-format json`` envelope.
 
-    Two routes to the same object. ``structured_output`` is the parsed tool
-    call and is what a successful run carries; ``result`` is the assistant's
-    text, which holds the same JSON when the schema was honoured through the
-    text path instead. Both are tried before giving up, because the failure
-    the caller sees should be "the model said nothing usable", not "the CLI
-    put it in the other field".
+    ``structured_output`` is the parsed tool call a successful run carries;
+    ``result`` is the assistant's text, holding the same JSON when the schema
+    was honoured through the text path. Both are tried before giving up.
     """
     text = (stdout or "").strip()
     if not text:

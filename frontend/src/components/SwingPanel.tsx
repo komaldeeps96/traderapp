@@ -7,14 +7,11 @@ import type { SwingRow, SwingScreen } from '@/types/protocol';
 /**
  * Multi-day setups, from daily structure.
  *
- * Each screen states what it is looking for in a line, because a setup
- * nobody can read is a setup nobody will act on — and because two of these
- * differ only in how far off the high they want, which is not something a
- * name can carry.
+ * Each screen states what it looks for in a line, since two of these differ
+ * only in how far off the high they want — not something a name can carry.
  *
- * The distance from the 52-week high is the column that decides most of
- * these, so it is always shown and always signed: at the high is 0.0%, and
- * everything else is how far under.
+ * Distance from the 52-week high decides most of them, so it is always shown
+ * and always signed: at the high is 0.0%, everything else is how far under.
  */
 
 const REFRESH_MS = 60_000;
@@ -188,11 +185,9 @@ export function SwingPanel({ onSelect }: { onSelect: (symbol: string) => void })
 }
 
 /**
- * How near the next report is.
- *
- * A breakout entered three days before earnings is a different trade, so the
- * cell shouts inside a week and stays quiet beyond it. A date already past —
- * the source keeps serving one for a while — is nothing at all.
+ * How near the next report is. A breakout entered three days before earnings is
+ * a different trade, so the cell shouts inside a week and stays quiet beyond.
+ * A date already past — the source keeps serving one — is nothing at all.
  */
 function Earnings({ epoch }: { epoch: number | null }) {
   const days = daysUntil(epoch, Date.now() / 1000);

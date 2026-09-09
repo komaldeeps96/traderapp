@@ -1,18 +1,14 @@
 """Reverse splits, the serial-diluter tell.
 
-A reverse split on a small cap is rarely housekeeping: it is how a company
-that has diluted its way under listing compliance buys another year of
-listing. On the momentum cohort a recent one reads as "this management
-sells stock into strength", which is exactly the information a long wants
-before paying up. The corporate-actions endpoint is the only place to see
-it — our own history is fetched split-*adjusted*, so the discontinuity is
-invisible in the bars by construction.
+A reverse split on a small cap is rarely housekeeping: it is how a company that
+has diluted under listing compliance buys another year. The corporate-actions
+endpoint is the only place to see it — our own history is fetched
+split-*adjusted*, so the discontinuity is invisible in the bars.
 
-Same shape as the TradingView stats service: an async ``prefetch`` warmed at
-subscribe time, a sync ``peek`` read on the broadcast path, and a TTL long
-enough that one fetch a day per symbol is the steady state. Misses are
-cached too — most symbols have no splits, and refetching an empty answer
-every broadcast would burn the request budget on nothing.
+Same shape as the TradingView stats service: async ``prefetch`` at subscribe
+time, sync ``peek`` on the broadcast path, and a TTL long enough that one fetch
+a day per symbol is the steady state. Misses are cached too, since most symbols
+have no splits.
 """
 
 from __future__ import annotations

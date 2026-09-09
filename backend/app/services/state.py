@@ -95,10 +95,9 @@ class StateStore:
     def indicator_overrides(self) -> dict[str, dict[str, bool]]:
         """Which indicators the user has switched away from their default.
 
-        Only the differences are stored, so an indicator the user never
-        touched keeps following `indicators.yaml` — changing a default there
-        reaches every chart that has not explicitly overridden it, instead of
-        being masked forever by a saved copy of the old value.
+        Only the differences are stored, so an indicator the user never touched
+        keeps following `indicators.yaml` rather than being masked by a saved
+        copy of an old default.
         """
         overrides = self._cache.get("indicators")
         if not isinstance(overrides, dict):

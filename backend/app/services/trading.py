@@ -1,28 +1,23 @@
 """Order entry, between the buttons and the broker.
 
-Everything that decides *whether* an order happens lives here, and nothing
-that decides it lives in the client. The panel sends a dollar amount or a
-fraction — never a quantity — so a browser tab that has been asleep for a
-minute cannot put a stale size on the wire. This recomputes the shares from
-the freshest quote and IBKR's own position at the instant of the click, and
-what it computes is what is sent.
+Everything that decides *whether* an order happens lives here, and nothing in
+the client. The panel sends a dollar amount or a fraction, never a quantity, so
+a tab asleep for a minute cannot put a stale size on the wire; the shares are
+recomputed from the freshest quote and IBKR's own position at the click.
 
 Four guards, in the order they run:
 
-1. **The switch.** ``trading.enabled`` is False by default and False in every
-   test settings object. With it off there is no broker connection and this
-   service refuses everything.
+1. **The switch.** ``trading.enabled`` is False by default and in every test
+   settings object; off, there is no broker connection and this refuses
+   everything.
 2. **The cap.** ``max_order_dollars`` bounds one order's notional, measured at
-   the limit rather than at the ask, so it bounds the worst case. It defaults
-   to a hair above the largest button, which means no arithmetic fault
-   anywhere in the stack can produce an order larger than the one clicked.
+   the limit rather than the ask, so it bounds the worst case. It defaults to a
+   hair above the largest button.
 3. **Long only.** A sell is clamped to the position IBKR reports, so it can
-   never exceed what is held and therefore can never open a short. Enforced
-   in ``domain/orders.plan_sell`` rather than by a disabled button, because a
-   disabled button is a display and this is a rule.
-4. **One click, one order.** A symbol with an order in flight refuses the
-   next until the first is acknowledged. A double-click on a $50 button is
-   the most likely way to spend $100 by accident.
+   never open a short. Enforced in ``domain/orders.plan_sell`` rather than by a
+   disabled button, which is a display rather than a rule.
+4. **One click, one order.** A symbol with an order in flight refuses the next
+   until the first is acknowledged.
 """
 
 from __future__ import annotations
@@ -133,10 +128,9 @@ class TradingService:
     async def buy(self, symbol: str, dollars: float) -> dict:
         """Buy ``dollars`` worth of ``symbol``, sized here and now.
 
-        The requested amount is checked against the cap *before* it is sized,
-        as well as after: a button configured larger than the ceiling should
-        be refused for what it asked for, not for what it happened to round
-        down to.
+        The requested amount is checked against the cap before sizing as well as
+        after: a button configured larger than the ceiling is refused for what
+        it asked for, not what it rounded down to.
         """
         if dollars > self._settings.max_order_dollars:
             return self._refuse(
@@ -194,9 +188,8 @@ class TradingService:
     def _refuse(self, message: str) -> dict:
         """Record a refusal where the strip will show it, and report it.
 
-        Refusals are loud on purpose. During a move nobody is reading a log,
-        and an order that silently did not go is exactly the failure this
-        panel exists to remove.
+        Refusals are loud on purpose: an order that silently did not go is the
+        failure this panel exists to remove.
         """
         self._note = message
         logger.info("Order refused: %s", message)

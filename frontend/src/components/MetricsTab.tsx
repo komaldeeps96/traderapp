@@ -8,17 +8,14 @@ import type { FinancialPeriodKind, MetricsResponse } from '@/types/protocol';
 /**
  * What the statements mean, and what the market is asking for them.
  *
- * The valuation strip sits on top because it is the one part that moves
- * intraday — it is priced off the live market cap, while everything below it
- * changes four times a year. Its basis is stated rather than assumed: a
- * multiple on a trailing twelve months and one on a fiscal year are
- * different numbers, and which is on screen is a question a reader should
- * never have to work out.
+ * The valuation strip is on top as the one part that moves intraday, priced off
+ * the live market cap while everything below changes quarterly. Its basis is
+ * stated rather than assumed: a trailing-twelve-month multiple and a
+ * fiscal-year one are different numbers.
  *
- * A dash is a refusal, not a zero. The backend declines to divide by a
- * negative denominator — P/E on a loss, debt/equity on negative book value —
- * because those render perfectly well and read as the opposite of what they
- * mean.
+ * A dash is a refusal, not a zero — the backend declines to divide by a
+ * negative denominator, which renders fine and reads as the opposite of what
+ * it means.
  */
 
 const PERIODS: Array<{ id: FinancialPeriodKind; label: string }> = [

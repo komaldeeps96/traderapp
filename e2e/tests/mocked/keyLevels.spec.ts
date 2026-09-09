@@ -291,13 +291,10 @@ test.describe('sub-dollar tickers', () => {
 });
 
 /**
- * Finding the price in a long list.
- *
- * On a gapper with a quarter's and a year's highs stacked overhead, the last
- * price sits far enough down the table that the panel opens on levels nobody
- * is trading against. The viewport here is short on purpose: it is the state
- * a real screen reaches by having more levels, not fewer pixels, and it is
- * the only way to force the overflow deterministically.
+ * Finding the price in a long list. On a gapper with a quarter's and a year's
+ * highs overhead, the last price sits far enough down that the panel opens on
+ * levels nobody is trading against. The short viewport is the only way to force
+ * that overflow deterministically.
  */
 test.describe('keeping the price in view', () => {
   // Six longer-period highs stacked overhead, as a faded runner carries. The
@@ -357,14 +354,10 @@ test.describe('keeping the price in view', () => {
 /**
  * Who owns the price axis when a level and the last trade collide.
  *
- * Three boxes end up competing for the same few pixels — the level's value,
- * the price, and the countdown pinned under it — and the library's answer is
- * to shuffle them apart, which pushes the price label off the price it names.
- *
- * The level yields instead. Its axis box is only a number; the text that says
- * *which* level it is sits in the chart area and does not move, and the line
- * itself is still drawn. The price and the seconds left on the bar are what
- * the eye is on at exactly the moment they meet.
+ * Three boxes compete for the same few pixels — the level's value, the price,
+ * and the countdown pinned under it — and the library shuffles them apart,
+ * pushing the price label off the price it names. The level yields instead: its
+ * name is drawn in the chart area and its line is still there.
  */
 test.describe('price label priority', () => {
   test('leaves level labels alone when nothing is near the price', async ({ terminal }) => {
@@ -424,12 +417,9 @@ test.describe('price label priority', () => {
 
 
 /**
- * Headroom.
- *
- * The ladder makes the next level readable; the chip states it, because part
- * of the decision is taken before the entry. A moving average sitting just
- * above turns a good setup into a base hit, and nothing overhead is the
- * condition that licenses holding and laddering instead of scalping.
+ * Headroom. The ladder makes the next level readable and the chip states it: a
+ * moving average just above turns a good setup into a base hit, and nothing
+ * overhead licenses holding rather than scalping.
  */
 test.describe('headroom', () => {
   test('names how far the next level overhead is', async ({ terminal }) => {

@@ -8,8 +8,8 @@ builds, tests pass, and something works on screen at the end of every one.
 
 ## Why this shape
 
-IBKR denies every fundamentals path on this account — probed live, see
-`tmp/ibkr-fundamentals/probe_fundamentals.py`:
+IBKR denies every fundamentals path on this account — probed live against TWS.
+The probe script has been deleted, so this table is the record:
 
 | call | result |
 | --- | --- |

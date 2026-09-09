@@ -1,23 +1,17 @@
 """Swing screens, run against TradingView.
 
-The four market-cap scanners are a day-trading instrument: they rank by trade
-rate and rotation, and they answer "what is moving *now*". A swing setup is a
-different question — "what has been working, and is it at a place worth
-buying" — and it is answered from daily structure rather than from the tape.
+The market-cap scanners rank by trade rate and answer "what is moving *now*".
+A swing setup is a different question, answered from daily structure rather
+than the tape.
 
-Two consequences shape this file.
-
-**These do not need IBKR.** The day scanners are dark whenever TWS is not
-running, which is most of the time outside a session. A swing screen is a
-daily-bar question, so it answers from TradingView and works with nothing
-else connected.
+**These do not need IBKR.** A swing screen is a daily-bar question, so it
+answers from TradingView and works with nothing else connected.
 
 **The interesting filters cannot be sent.** TradingView's query language
-compares a column against a *number*, not against another column, so "within
-10% of the 52-week high" and "sitting on the 50-day" cannot be expressed in
-the request. The coarse terms go to the server, and the proximity tests run
-here on the rows that come back — which is also why each screen asks for more
-rows than it shows.
+compares a column against a *number*, not another column, so "within 10% of the
+52-week high" and "sitting on the 50-day" cannot go in the request. The coarse
+terms go to the server and the proximity tests run here, which is why each
+screen asks for more rows than it shows.
 """
 
 from __future__ import annotations

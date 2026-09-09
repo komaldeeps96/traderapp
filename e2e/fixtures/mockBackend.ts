@@ -1,12 +1,10 @@
 /**
  * A complete backend, served from inside the browser.
  *
- * Playwright intercepts both the REST calls and the WebSocket, so the real
- * frontend bundle runs unmodified against a scripted server. That buys three
- * things the live stack cannot: determinism (identical data every run),
- * independence from market hours and credentials, and the ability to force
- * situations that are otherwise hard to reach — a dropped socket, a delayed
- * feed, a symbol with no data.
+ * Playwright intercepts the REST calls and the WebSocket, so the real frontend
+ * bundle runs unmodified against a scripted server: identical data every run,
+ * no market hours or credentials, and states the live stack cannot reach — a
+ * dropped socket, a delayed feed, a symbol with no data.
  */
 
 import type { Page, WebSocketRoute } from '@playwright/test';
@@ -33,7 +31,6 @@ import {
   makeWatchlistRow,
   makeInfo,
   makeNews,
-  makeSetup,
   makeOrder,
   makeQuote,
   makeScannerMessage,
@@ -202,7 +199,6 @@ export async function installMockBackend(
   await json(page, '**/api/news/*/article*', makeArticle());
   await json(page, '**/api/news/*/brief*', makeBrief());
   await json(page, '**/api/news/*', makeNews());
-  await json(page, '**/api/setup/*', makeSetup());
   await json(page, '**/api/scanner/tiers', {
     scan_codes: SCAN_CODES,
     tiers: SCANNER_TIERS,

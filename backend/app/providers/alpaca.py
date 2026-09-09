@@ -1,9 +1,8 @@
 """Alpaca market data: REST for history, WebSocket for live trades and bars.
 
-Talks to the HTTP and WebSocket APIs directly rather than through
-``alpaca-py``. That keeps the dependency list short and, more usefully, makes
-every request interceptable in tests — the whole provider is exercised against
-recorded responses with no network and no credentials.
+Talks to the HTTP and WebSocket APIs directly rather than through ``alpaca-py``,
+which keeps every request interceptable in tests: the whole provider runs
+against recorded responses with no network and no credentials.
 """
 
 from __future__ import annotations
@@ -162,17 +161,14 @@ class AlpacaProvider(MarketDataProvider):
     ) -> list[Bar]:
         """Rebuild 10-second bars from the trade tape.
 
-        Pages are walked newest-first so that when the page cap truncates a
-        very heavy tape, what survives is the most recent window — the part a
-        10-second chart is actually for. The oldest bar is dropped on
+        Pages are walked newest-first, so when the cap truncates a heavy tape
+        what survives is the most recent window. The oldest bar is dropped on
         truncation because its opening trades are missing.
 
-        ``max_pages`` overrides the configured cap. The prior-session slice
-        passes a smaller one: it is off-screen history fetched in the
-        background, and on a name liquid enough to exhaust the cap the
-        on-screen window is already deep enough to need nothing from it.
-        Truncating newest-first means what a small cap buys is the stretch
-        adjacent to today, which is the part that has to be contiguous.
+        ``max_pages`` overrides the configured cap; the prior-session slice
+        passes a smaller one, being off-screen background history. Truncating
+        newest-first leaves the stretch adjacent to today, which is the part
+        that has to be contiguous.
         """
         feed, end = self._resolve_feed_window(end)
         if start >= end:
@@ -221,9 +217,9 @@ class AlpacaProvider(MarketDataProvider):
     ) -> list[Bar]:
         """The 10s window's prior sessions, on the bounded page cap.
 
-        A named entry point rather than a keyword at the call site so the cap
-        that applies to off-screen history lives with the setting that
-        governs it, and the router stays out of Alpaca's paging rules.
+        A named entry point rather than a keyword at the call site, so the cap
+        for off-screen history lives with the setting that governs it and the
+        router stays out of Alpaca's paging rules.
         """
         return await self.fetch_tensec_tape(
             symbol, start, end, max_pages=self._settings.max_prior_session_pages
@@ -233,9 +229,8 @@ class AlpacaProvider(MarketDataProvider):
         """Pick the REST feed and clamp the window for delayed entitlements.
 
         ``delayed_sip`` is a streaming feed name; the bars endpoint takes
-        ``sip`` and simply refuses the most recent 15 minutes. Clamping the
-        end of the window ourselves turns that refusal into a successful,
-        slightly older response.
+        ``sip`` and refuses the most recent 15 minutes. Clamping the end of the
+        window turns that refusal into a successful, slightly older response.
         """
         feed = self._settings.feed
         if feed == "delayed_sip":
@@ -276,9 +271,8 @@ class AlpacaProvider(MarketDataProvider):
     async def fetch_reverse_splits(self, symbol: str, start: date) -> list[dict]:
         """Reverse splits for one symbol since ``start``, raw from Alpaca.
 
-        Splits cannot be read from our own bars — history is fetched with
-        ``adjustment: split``, which is exactly the transform that hides
-        them — so the corporate-actions endpoint is the only source.
+        Splits cannot be read from our own bars: history is fetched with
+        ``adjustment: split``, the transform that hides them.
         """
         if not self._settings.enabled or self._client is None:
             return []
@@ -300,15 +294,11 @@ class AlpacaProvider(MarketDataProvider):
     async def fetch_news(self, symbol: str, *, days: int, limit: int) -> list[dict]:
         """Benzinga headlines for one symbol, raw from Alpaca.
 
-        This exists because the IBKR feeds, good as they are on most names,
-        go silent on some of exactly the companies this terminal is for.
-        WETO returned two rows — its own halt and its own resume — while this
-        endpoint had ten, and AEMD's catalyst was here when IBKR had nothing
-        in thirty days.
+        Here because the IBKR feeds go silent on some of exactly the companies
+        this terminal is for.
 
-        ``include_content`` is asked for so the body arrives with the
-        headline. IBKR articles are fetched one at a time by id; these come
-        whole, so opening one costs no request at all.
+        ``include_content`` is asked for so the body arrives with the headline:
+        IBKR articles are fetched one at a time by id, these come whole.
         """
         if not self._settings.enabled or self._client is None:
             return []
@@ -509,8 +499,8 @@ def _channels(symbols: set[str]) -> dict[str, list[str]]:
     """Subscribe to trades, quotes and bars.
 
     Trades drive the in-progress bar tick by tick; the minute bar that follows
-    carries consolidated volume and replaces our running total, so the chart
-    is both live and eventually exact. Quotes feed the bid/ask/spread readout.
+    carries consolidated volume and replaces our running total. Quotes feed the
+    bid/ask/spread readout.
     """
     listed = sorted(symbols)
     return {"trades": listed, "quotes": listed, "bars": listed}
