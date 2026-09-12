@@ -41,7 +41,6 @@ import { loadZoom, saveZoom } from '@/lib/storage';
 import type { LevelStyle } from '@/store/selectors';
 import { indicatorLabel, type IndicatorSpec, type SeriesMap, type Timeframe, type WireBar } from '@/types/protocol';
 
-import { ConfluenceBands, type PriceBand } from './bands';
 import { MeasureTool, measureStats, type MeasurePoint } from './measure';
 import { BarCountdown } from './countdown';
 import type { MiniConfig } from './mini';
@@ -148,7 +147,6 @@ export class ChartEngine {
   private sessionVolCache: number[] | null = null;
   private theme: ThemeName;
   private palette: ChartPalette;
-  private readonly bands = new ConfluenceBands();
   private readonly measure = new MeasureTool();
   private measureMode = false;
   private measureAnchor: MeasurePoint | null = null;
@@ -202,9 +200,6 @@ export class ChartEngine {
       0,
     );
 
-    // Zones ride on the candle series so they share its price scale, and
-    // paint underneath it — context behind price, never over it.
-    this.candles.attachPrimitive(this.bands);
     this.candles.attachPrimitive(this.measure);
     // Rides the same series so it shares the price scale the last-value label
     // is drawn on, which is what lets it sit directly underneath.
@@ -465,14 +460,6 @@ export class ChartEngine {
     for (const series of this.indicatorSeries.values()) {
       series.applyOptions({ priceFormat });
     }
-  }
-
-  /**
-   * Shade the confluence zones behind the candles. A shelf of levels has a
-   * thickness, and where it begins and ends is what a stop is placed against.
-   */
-  setBands(bands: readonly PriceBand[]): void {
-    this.bands.setBands(bands);
   }
 
   /**
@@ -1244,14 +1231,7 @@ export class ChartEngine {
       // The height the sub-panes occupy — what the floating controls are
       // positioned above, and the only handle a test has on that.
       subPaneOffset: this.subPaneOffset(),
-      // Zones are painted on the canvas, so the DOM cannot be asked whether a
-      // shelf was shaded. This is the only handle a browser test has on them.
-      bands: this.bands.bands.map((band) => ({
-        low: band.low,
-        high: band.high,
-        color: band.color,
-      })),
-      // Painted on the canvas like the bands; this is the test surface.
+      // Painted on the canvas, so this is the only handle a browser test has.
       measure: {
         active: this.measureMode,
         selection: this.measure.selection

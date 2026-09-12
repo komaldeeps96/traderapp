@@ -78,7 +78,7 @@ A full sequential pass is ~8 minutes and holds memory above 70%.
 - **Check the machine before and between runs:**
 
       pgrep -f playwright | wc -l          # want 0
-      lsof -ti :4173 :8100 | wc -l         # want 0 (preview + test backend)
+      lsof -t -i :4173 -i :8100 | wc -l    # want 0 (preview + test backend)
       memory_pressure | grep 'free percentage'
       uptime                               # load should be single digits
 

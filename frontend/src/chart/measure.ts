@@ -3,8 +3,8 @@
  * (price change and percent), how fast (bars and clock time), and on how much
  * (cumulative volume).
  *
- * Drawn as a series primitive like the confluence bands, so it needs no extra
- * DOM and repaints when the chart does. Anchors are bar time + price rather
+ * Drawn as a series primitive, so it needs no extra DOM and repaints when the
+ * chart does. Anchors are bar time + price rather
  * than pixels or logical indices: pixels go stale on every pan, and logical
  * indices shift when a backfill prepends bars mid-measurement.
  */
@@ -232,7 +232,7 @@ class MeasurePaneView implements IPrimitivePaneView {
 
   zOrder() {
     // Over the candles: a measurement is a deliberate, temporary act and
-    // wants to be read, unlike the bands living behind the price action.
+    // wants to be read.
     return 'top' as const;
   }
 

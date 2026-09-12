@@ -5,7 +5,6 @@
  * without rendering anything.
  */
 
-import type { PriceBand } from '@/chart/bands';
 import { computeChange, daysUntil, percentDistance, type Change } from '@/lib/format';
 import { sessionView } from '@/lib/session';
 import type {
@@ -326,8 +325,7 @@ function paletteFor(cluster: LevelCluster): { light: string; dark: string } {
 /**
  * Turn clusters into per-series chart styling.
  *
- * Colour marks the two actionable bands; everything else stays recessive. A
- * multi-level shelf is drawn as a shaded zone instead (see buildBands).
+ * Colour marks the two actionable bands; everything else stays recessive.
  */
 export function buildLevelStyles(
   clusters: LevelCluster[],
@@ -361,36 +359,6 @@ export function buildLevelStyles(
   }
 
   return styles;
-}
-
-/** Fill opacity for a shaded zone — enough to read as an area, not a block. */
-const BAND_ALPHA = { resistance: 0.16, support: 0.16, normal: 0.08 } as const;
-
-function withAlpha(hex: string, alpha: number): string {
-  const value = hex.replace('#', '');
-  const r = parseInt(value.slice(0, 2), 16);
-  const g = parseInt(value.slice(2, 4), 16);
-  const b = parseInt(value.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-/**
- * The shaded zones behind the lines. Only clusters of more than one level get
- * one — shading a lone level invents a thickness the data does not have.
- */
-export function buildBands(clusters: LevelCluster[], theme: 'light' | 'dark'): PriceBand[] {
-  const bands: PriceBand[] = [];
-
-  for (const cluster of clusters) {
-    if (cluster.strength < 2 || cluster.high <= cluster.low) continue;
-    bands.push({
-      low: cluster.low,
-      high: cluster.high,
-      color: withAlpha(paletteFor(cluster)[theme], BAND_ALPHA[cluster.emphasis]),
-    });
-  }
-
-  return bands;
 }
 
 export interface OhlcvView {

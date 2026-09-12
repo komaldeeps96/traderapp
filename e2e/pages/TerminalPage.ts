@@ -17,9 +17,7 @@ export interface ChartState {
   theme: string;
   paneCount: number;
   subPaneOffset: number;
-  /** Shaded confluence zones — canvas-painted, so unreachable from the DOM. */
-  bands: Array<{ low: number; high: number; color: string }>;
-  /** The measure tool — also canvas-painted. */
+  /** The measure tool — canvas-painted, so unreachable from the DOM. */
   measure: {
     active: boolean;
     selection: {

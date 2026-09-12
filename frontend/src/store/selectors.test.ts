@@ -11,7 +11,6 @@ import {
   athLevel,
   borrowStatus,
   budgetTone,
-  buildBands,
   buildDilutionView,
   buildInfoView,
   buildKeyLevels,
@@ -267,10 +266,9 @@ describe('buildLevelStyles', () => {
     return Object.values(result).find((style) => style.labelVisible)!;
   }
 
-  it('no longer counts members with line weight', () => {
-    // Depth is shown by the shaded zone (see buildBands); a thicker line said
-    // something was there without saying where it began or ended. Both sides
-    // here are the nearest band overhead, so only the member count differs.
+  it('does not count members with line weight', () => {
+    // Depth is the axis label's "+N". Both sides here are the nearest band
+    // overhead, so only the member count differs.
     const stacked = leadOf(styles({ a: 50, b: 50.01, c: 50.02 }, 40));
     const lone = styles({ a: 50, b: 80, c: 20 }, 40).a!;
     expect(stacked.lineWidth).toBe(lone.lineWidth);
@@ -848,50 +846,6 @@ describe('budgetTone', () => {
 
   it('treats a missing limit as hot', () => {
     expect(budgetTone(0, 0)).toBe('hot');
-  });
-});
-
-describe('buildBands', () => {
-  function bands(values: Record<string, number>, price: number, theme: 'light' | 'dark' = 'light') {
-    const specs = Object.keys(values).map((id) => spec({ id, label: id.toUpperCase() }));
-    const levels = buildKeyLevels(specs, values, {}, theme, price);
-    return buildBands(clusterLevels(levels, price), theme);
-  }
-
-  it('shades a shelf from its lowest member to its highest', () => {
-    const [band] = bands({ a: 50, b: 50.05, c: 50.1 }, 40);
-    expect(band).toBeDefined();
-    expect(band!.low).toBeCloseTo(50);
-    expect(band!.high).toBeCloseTo(50.1);
-  });
-
-  it('leaves a lone level unshaded', () => {
-    // One level is a line. Shading it would invent a thickness the data
-    // does not have.
-    expect(bands({ a: 50, b: 80, c: 20 }, 40)).toHaveLength(0);
-  });
-
-  it('carries the band colour with an alpha so candles read through it', () => {
-    const [band] = bands({ a: 50, b: 50.05 }, 40);
-    expect(band).toBeDefined();
-    expect(band!.color).toMatch(/^rgba\(/);
-    const alpha = Number(band!.color.split(',').pop()!.replace(')', '').trim());
-    expect(alpha).toBeGreaterThan(0);
-    expect(alpha).toBeLessThan(0.5);
-  });
-
-  it('tints the nearest band overhead violet, not a candle colour', () => {
-    const [band] = bands({ a: 50, b: 50.05 }, 40);
-    expect(band).toBeDefined();
-    expect(band!.color).toBe('rgba(130, 80, 223, 0.16)');
-  });
-
-  it('recedes a band that is neither the nearest above nor below', () => {
-    const all = bands({ a: 50, b: 50.05, c: 90, d: 90.05, e: 20 }, 40);
-    const distant = all.find((band) => band.low > 80)!;
-    const nearest = all.find((band) => band.low < 60)!;
-    const alphaOf = (c: string) => Number(c.split(',').pop()!.replace(')', '').trim());
-    expect(alphaOf(distant.color)).toBeLessThan(alphaOf(nearest.color));
   });
 });
 

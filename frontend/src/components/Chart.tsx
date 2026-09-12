@@ -4,7 +4,7 @@ import { ChartEngine } from '@/chart/ChartEngine';
 import { getEngine, setEngine } from '@/chart/engineRef';
 import { useKeyLevels } from '@/hooks/useKeyLevels';
 import { loadTheme } from '@/lib/storage';
-import { buildBands, buildLevelStyles } from '@/store/selectors';
+import { buildLevelStyles } from '@/store/selectors';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
 /**
@@ -84,13 +84,10 @@ function useLevelStyling(): void {
 
   useEffect(() => {
     const styles = buildLevelStyles(clusters, theme);
-    const bands = buildBands(clusters, theme);
-    const signature = `${snapshotEpoch}|${JSON.stringify(styles)}|${JSON.stringify(bands)}`;
+    const signature = `${snapshotEpoch}|${JSON.stringify(styles)}`;
     if (signature === appliedRef.current) return;
     appliedRef.current = signature;
-    const engine = getEngine();
-    engine?.setLevelStyles(styles);
-    engine?.setBands(bands);
+    getEngine()?.setLevelStyles(styles);
   }, [clusters, theme, snapshotEpoch]);
 }
 

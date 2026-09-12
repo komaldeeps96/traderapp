@@ -172,19 +172,6 @@ test.describe('confluence bands', () => {
     }
   });
 
-  test('shades a stacked shelf as a zone rather than one thicker line', async ({
-    terminal,
-  }) => {
-    // A shelf has a thickness, and where it starts and stops is what a stop
-    // is placed against. One heavier line said it was there and nothing more.
-    await terminal.waitForChart();
-    const state = await terminal.chartState();
-    expect(state.bands.length).toBeGreaterThan(0);
-    const band = state.bands[0];
-    expect(band.high).toBeGreaterThan(band.low);
-    expect(band.color).toMatch(/^rgba\(/);
-  });
-
   test('labels a band once instead of once per level', async ({ terminal }) => {
     // Nine colliding axis labels was the problem this solves.
     await terminal.waitForChart();

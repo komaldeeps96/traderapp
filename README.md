@@ -269,9 +269,9 @@ Two channels carry two different things, because a single one cannot say both:
   thing that would catch a pullback. Everything else stays recessive so those
   two can actually be seen. Colour follows the price, so a broken resistance
   becomes support on its own.
-- **Weight counts agreement.** A band's line thickens with the number of levels
-  in it, and it is labelled once on the price axis (`PM Low +7`) rather than
-  once per level. Eight colliding axis labels was the problem this solves.
+- **The label counts agreement.** A band is labelled once on the price axis
+  (`PM Low +7`) rather than once per level. Eight colliding axis labels was the
+  problem this solves.
 
 Only the three moving averages carry categorical hues; those were validated for
 colour-vision separation against both chart surfaces, and a fourth does not
