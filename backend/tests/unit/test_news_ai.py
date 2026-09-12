@@ -396,6 +396,13 @@ def test_a_brief_carries_its_day_and_verdict():
 # ── the service, against a fake binary ─────────────────────────────────
 
 
+@pytest.fixture(autouse=True)
+def friday_clock(monkeypatch):
+    # The service reads the wall clock, and the fixture's headlines fall out of
+    # its five-session lookback a week after FRIDAY.
+    monkeypatch.setattr("app.services.news_ai.now_epoch", lambda: FRIDAY_NOW)
+
+
 class FakeNews:
     """The two methods the service uses of the news cache."""
 
