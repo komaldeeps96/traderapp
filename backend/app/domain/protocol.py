@@ -21,7 +21,6 @@ from pydantic import BaseModel, Field, field_validator
 from .bars import Bar
 from .quotes import Quote
 from .sessions import is_extended_hours
-from .tape import Print
 from .timeframes import Timeframe
 
 # Long enough for real tickers (BRK.B, GOOGL) without being an open field.
@@ -279,34 +278,6 @@ QuoteMessage = TypedDict(
 )
 
 
-class WirePrint(TypedDict, total=False):
-    """One row of the tape. Short keys: this is the chattiest message here."""
-
-    q: int  # per-symbol sequence, strictly increasing
-    t: int  # epoch MILLISECONDS — the one place on this wire that is not seconds
-    p: float
-    s: float
-    a: str  # aggressor side; see domain/tape.Aggressor
-    x: str  # market centre, omitted when the source gave none
-    c: list[str]  # sale conditions, omitted when there are none
-    f: int  # present and 0 only when the print is not price-forming
-
-
-class TapeMessage(TypedDict):
-    """New prints for one symbol.
-
-    ``reset`` marks the opening backlog sent at subscribe time: the client
-    replaces its list rather than appending. Incremental batches overlap it,
-    since the broadcaster's cursor is shared and cannot rewind for a late
-    joiner, so the client drops anything at or below the sequence it holds.
-    """
-
-    type: Literal["tape"]
-    symbol: str
-    reset: bool
-    prints: list[WirePrint]
-
-
 class StatusMessage(TypedDict):
     type: Literal["status"]
     source: str
@@ -496,15 +467,6 @@ def scanner_message(
 
 def quote_message(symbol: str, quote: Quote) -> QuoteMessage:
     return {"type": "quote", "symbol": symbol, **quote.to_wire()}  # type: ignore[typeddict-item]
-
-
-def tape_message(symbol: str, prints: list[Print], *, reset: bool = False) -> TapeMessage:
-    return {
-        "type": "tape",
-        "symbol": symbol,
-        "reset": reset,
-        "prints": [row.to_wire() for row in prints],  # type: ignore[misc]
-    }
 
 
 def api_usage_message(snapshot: dict) -> ApiUsageMessage:

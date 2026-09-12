@@ -27,8 +27,6 @@ export interface TerminalTestHooks {
     barCount: number;
     visibility: Record<string, boolean>;
     miniTimeframes: string[];
-    /** Prints held for the open symbol, before any filtering. */
-    tapeCount: number;
   };
   ready: () => boolean;
 }
@@ -65,7 +63,6 @@ export function installTestHooks(): void {
         // for "the minis" has to ask rather than assume: the slot count and
         // the shipped timeframes have both changed once already.
         miniTimeframes: state.miniTimeframes,
-        tapeCount: state.tape.length,
       };
     },
     ready: () => useTerminalStore.getState().status === 'ready',

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 
 import { ChartEngine } from '@/chart/ChartEngine';
 import { getMiniEngine, setMiniEngine } from '@/chart/engineRef';
-import { MINI_CHART_FLEX, MINI_TIMEFRAME_CHOICES, miniConfig } from '@/chart/mini';
+import { MINI_TIMEFRAME_CHOICES, miniConfig } from '@/chart/mini';
 import type { Timeframe } from '@/types/protocol';
 import { hydrateMini } from '@/hooks/useTerminal';
 import { loadTheme } from '@/lib/storage';
@@ -11,19 +11,16 @@ import { useTerminalStore } from '@/store/useTerminalStore';
 import { ChartButton } from './ChartButton';
 
 /**
- * The context chart — the top half of the dock's first tab.
+ * The column of context charts — the dock's first tab.
  *
- * One minute by default, on whatever symbol the main chart shows, so the other
- * clock stays in view while the main chart sits on the 10-second tape. The
- * picker takes it to any timeframe.
+ * 1-minute over 5-minute by default, both on whatever symbol the main chart
+ * shows, so the other two clocks stay in view while the main chart sits on the
+ * 10-second tape. `MINI_SLOT_COUNT` is the one number that decides how many
+ * there are; the slot machinery (per-slot engines, subscriptions and saved
+ * timeframes) is what makes `Dock` and `useTerminal` indifferent to it.
  *
- * Plural throughout — the component, the store's `miniTimeframes` — because the
- * slot machinery (per-slot engines, subscriptions and saved timeframes) is what
- * makes `Dock` and `useTerminal` indifferent to how many there are.
- * `MINI_SLOT_COUNT` is the one number that decides.
- *
- * Read-only in every sense: no crosshair callback, so hovering cannot disturb
- * the main chart's OHLCV readout, and no toolbar of its own.
+ * Read-only in every sense: no crosshair callback, so hovering one cannot
+ * disturb the main chart's OHLCV readout, and no toolbar of their own.
  *
  * The rail, its width and the breakpoint belong to `Dock`.
  */
@@ -36,9 +33,7 @@ export function MiniCharts({
 
   return (
     <div
-      className="flex min-h-0 flex-col"
-      // The tape below takes the larger share; see MINI_CHART_FLEX.
-      style={{ flexGrow: MINI_CHART_FLEX, flexShrink: 1, flexBasis: 0 }}
+      className="flex min-h-0 flex-1 flex-col"
       aria-label="Context charts"
       data-testid="mini-charts"
     >

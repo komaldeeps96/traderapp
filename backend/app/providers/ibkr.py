@@ -646,8 +646,7 @@ class IBKRProvider(MarketDataProvider):
             # "Last", but running the same rule as the Alpaca stream means a
             # failover cannot change the meaning of a bar. IBKR packs conditions
             # as one string of single characters.
-            special = str(getattr(tick, "specialConditions", "") or "").strip()
-            kind = classify_conditions(special)
+            kind = classify_conditions(getattr(tick, "specialConditions", "") or "")
             if kind is TradeKind.SKIP:
                 continue
             # Past-limit and unreported are IBKR-specific flags with no SIP
@@ -666,12 +665,6 @@ class IBKRProvider(MarketDataProvider):
                         price=price,
                         size=size,
                         price_forming=price_forming,
-                        # IBKR names the venue ("NASDAQ", "ARCA", "FINRA")
-                        # where Alpaca sends one CTA character. Neither is
-                        # translated; the tape shows what the source said.
-                        exchange=str(getattr(tick, "exchange", "") or ""),
-                        # One string of single characters, unlike Alpaca's list.
-                        conditions=tuple(special) if special else (),
                     ),
                 )
             )

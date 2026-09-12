@@ -58,15 +58,14 @@ Run suites **one at a time**. Never two `playwright test` invocations at once.
     cd e2e     && npx tsc --noEmit -p . && npx eslint .
 
     # Browser tests — one project per invocation
-    cd e2e && npx playwright test --project=chromium    # ~1.9 min, 403 tests
-    cd e2e && npx playwright test --project=visual      # ~8 s,      5 tests
-    cd e2e && npx playwright test --project=fullstack   # ~20 s,    25 tests
-    cd e2e && npx playwright test --project=firefox     # ~2.6 min, 403 tests
-    cd e2e && npx playwright test --project=webkit      # ~3.3 min, 403 tests
-    cd e2e && npx playwright test --project=mobile      # ~9 s,      8 tests
+    cd e2e && npx playwright test --project=chromium    # ~1.8 min
+    cd e2e && npx playwright test --project=visual      # ~9 s
+    cd e2e && npx playwright test --project=fullstack   # ~21 s
+    cd e2e && npx playwright test --project=firefox     # ~2.6 min
+    cd e2e && npx playwright test --project=webkit      # ~3.2 min
+    cd e2e && npx playwright test --project=mobile      # ~9 s
 
-A full sequential pass is ~8 minutes and holds memory above 70%: 403 / 5 / 25
-/ 403 / 403 / 8, alongside 1668 backend and 462 frontend unit tests.
+A full sequential pass is ~8 minutes and holds memory above 70%.
 
 ### Rules that keep it upright
 
@@ -105,7 +104,7 @@ first.
 page, context or browser has been closed`, `Test timeout ... while setting up
 "backend"`, or `page.goto` timing out in a fixture, with **no failed
 assertion**, means the browser died. Re-run the spec alone on a quiet machine
-before touching source. All three engines pass 403/403 sequentially.
+before touching source. All three engines pass in full sequentially.
 
 ## Layout
 
@@ -129,31 +128,9 @@ unmounting loses the viewport. The order strip sits across the bottom
 *outside* the tab panel, so a position stays on screen while a balance sheet
 is read.
 
-**Right dock** has four tabs — Charts, Fund, News, Filings. The first is one
-1-minute context chart over the time-and-sales window. `MINI_SLOT_COUNT` in
-`chart/mini.ts` decides how many charts there are.
-
-## The tape
-
-`docs/time-and-sales.md` is the design. Three things break by accident:
-
-**No feed publishes the aggressor.** Neither SIP carries a side field, nor
-does IBKR's tick-by-tick. Every green row is `domain/tape.py` comparing the
-print against the newest quote to arrive. Tolerance is 1e-9 — representation
-error and no wider, because a print a cent through the offer is a sweep.
-
-**Odd lots never reach the tape.** It reads the same stream the bars do, and
-`TICK_TYPE = "Last"` omits them (`providers/ibkr.py`), worth 26.6% of volume.
-Changing it changes what every volume figure on the screen means.
-
-**The freeze tracks what it is holding, not the last symbol it saw.** A symbol
-switch clears the tape a beat before the new buffer arrives, so a paused
-window has one render where the tape is legitimately empty; re-arming on that
-render latches the empty list for the whole pause. `TapePanel`'s `frozenOn`
-ref stays null until the new symbol has printed, pinned by `tape.spec.ts`.
-
-**Late reports and average-price prints are shown, not dropped** — real volume
-at a price that is not a market price now, so they carry a dot and a filter.
+**Right dock** has four tabs — Charts, Fund, News, Filings. The first stacks
+1-minute over 5-minute context charts; `MINI_SLOT_COUNT` in `chart/mini.ts`
+decides how many there are.
 
 ### Two traps already paid for
 
@@ -298,7 +275,7 @@ Excluded from every normal run — `addopts` carries `-m 'not audit'`. Run it
 deliberately:
 
     cd backend && .venv/bin/pip install -e '.[audit]'
-    cd backend && .venv/bin/pytest -m audit          # ~60 s, 511 tests
+    cd backend && .venv/bin/pytest -m audit          # ~60 s
 
 `companyfacts` is cached under `tests/audit/.cache/`.
 

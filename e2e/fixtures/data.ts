@@ -556,46 +556,6 @@ export function makeQuote(symbol = 'AAPL', overrides: Partial<Record<string, num
   };
 }
 
-type Aggressor = 'above' | 'ask' | 'mid' | 'bid' | 'below' | 'unk';
-
-export interface TapePrintFixture {
-  q: number;
-  t: number;
-  p: number;
-  s: number;
-  a: Aggressor;
-  x?: string;
-  c?: string[];
-  f?: number;
-}
-
-/**
- * A tape with one row of every kind — a truth table, not a plausible stream:
- * the specs assert on which tint each verdict draws and what the filters keep.
- * Oldest first, as the wire sends them.
- */
-export function makeTapePrints(overrides: Partial<TapePrintFixture>[] = []): TapePrintFixture[] {
-  const base = SESSION_START * 1000 + 240 * 10_000;
-  const rows: TapePrintFixture[] = [
-    { q: 1, t: base, p: 10.06, s: 100, a: 'ask', x: 'Q' },
-    { q: 2, t: base + 200, p: 10.08, s: 2_500, a: 'above', x: 'K' },
-    { q: 3, t: base + 400, p: 10.04, s: 300, a: 'mid', x: 'D' },
-    { q: 4, t: base + 600, p: 10.02, s: 100, a: 'bid', x: 'Q' },
-    { q: 5, t: base + 800, p: 10.0, s: 5_000, a: 'below', x: 'P' },
-    // A late report: real volume at a price that is not the market now.
-    { q: 6, t: base + 1_000, p: 9.5, s: 400, a: 'below', c: ['Z'], f: 0 },
-  ];
-  return rows.map((row, index) => ({ ...row, ...(overrides[index] ?? {}) }));
-}
-
-export function makeTape(
-  symbol = 'AAPL',
-  prints: TapePrintFixture[] = makeTapePrints(),
-  reset = true,
-) {
-  return { type: 'tape' as const, symbol, reset, prints };
-}
-
 export function makeInfo(symbol = 'AAPL', overrides: Partial<Record<string, unknown>> = {}) {
   return {
     type: 'info' as const,

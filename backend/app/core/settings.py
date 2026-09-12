@@ -156,20 +156,6 @@ class TradingSettings(BaseModel):
         return value
 
 
-class TapeSettings(BaseModel):
-    """Time and sales — the print-by-print window beside the chart.
-
-    A separate reader on the same trade stream (app/services/tape.py); nothing
-    here reaches a bar or an indicator.
-    """
-
-    # Rows held per symbol, server side. The client keeps its own, smaller
-    # list; this is the depth a fresh subscribe is handed.
-    buffer: int = Field(default=600, ge=50, le=5_000)
-    # Symbols keeping a tape at once, evicted least-recently-printed.
-    max_symbols: int = Field(default=16, ge=1, le=64)
-
-
 class HistorySettings(BaseModel):
     """How much history to load for each base timeframe."""
 
@@ -355,7 +341,6 @@ class Settings(BaseSettings):
     regime: RegimeSettings = Field(default_factory=RegimeSettings)
     edgar: EdgarSettings = Field(default_factory=EdgarSettings)
     trading: TradingSettings = Field(default_factory=TradingSettings)
-    tape: TapeSettings = Field(default_factory=TapeSettings)
     news_ai: NewsAISettings = Field(default_factory=NewsAISettings)
 
     indicators_file: Path = CONFIG_DIR / "indicators.yaml"

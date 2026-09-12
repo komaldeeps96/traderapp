@@ -214,11 +214,6 @@ async def _subscribe(
     quote = container.quotes.get(symbol)
     if quote is not None:
         connection.send(quote_message(symbol, quote))
-    # And whatever tape this symbol has already printed, as a replacement for
-    # whatever the window was showing. Sent unconditionally, empty buffer
-    # included: that empty frame is what clears the previous symbol's prints
-    # out of a window the user is looking at.
-    connection.send(container.tape_payload(symbol))
     await container.state.save(symbol, timeframe.value)
 
 

@@ -21,7 +21,6 @@ from ..domain.protocol import (
     regime_message,
     scanner_message,
     status_message,
-    tape_message,
     trading_message,
     watchlist_message,
 )
@@ -54,7 +53,6 @@ from ..services.scanner import ScannerService
 from ..services.state import StateStore
 from ..services.swing import SwingService
 from ..services.symbol_info import SymbolInfoService
-from ..services.tape import TapeService
 from ..services.trading import TradingService
 from ..services.tv import TVDataService
 from ..services.watchlist import WatchlistService
@@ -78,17 +76,6 @@ class AppContainer:
         self.market_data = MarketDataService(self.router, self.store, self.engine)
         self.quotes = QuoteService()
         self.router.on_quote(self.quotes.handle_quote)
-        # Time and sales: a second reader on the same trade stream, sharing the
-        # quote service because the aggressor side is inferred from the standing
-        # book (domain/tape.py). Registered independently of
-        # MarketDataService.start's handler — the tape wants the print, not the
-        # period it lands in, so it fills from the first trade.
-        self.tape = TapeService(
-            self.quotes,
-            buffer=self.settings.tape.buffer,
-            max_symbols=self.settings.tape.max_symbols,
-        )
-        self.router.on_trade(self.tape.handle_trade)
         # Order entry, on its own TWS connection and its own client id — see
         # providers/ibkr_broker.py for why it is not the data client. Off
         # unless settings.trading.enabled says otherwise, which it does not by
@@ -152,7 +139,6 @@ class AppContainer:
             self.quotes,
             self.symbol_info,
             self.api_budget,
-            self.tape,
         )
         # One ScannerService per market-cap tier, sharing this one IBKR
         # connection. Each carries its own IBKR subscription, filters and
@@ -275,14 +261,6 @@ class AppContainer:
 
     def api_payload(self) -> dict:
         return api_usage_message(self.api_budget.snapshot())
-
-    def tape_payload(self, symbol: str) -> dict:
-        """The whole buffer, as a replacement.
-
-        Sent on subscribe so a symbol switch opens with the prints that already
-        happened rather than an empty window.
-        """
-        return tape_message(symbol, self.tape.recent(symbol), reset=True)
 
     def regime_payload(self) -> dict:
         state = self.regime.state

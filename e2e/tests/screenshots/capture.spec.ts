@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-import { makePosition, makeScannerRows, type TapePrintFixture } from '../../fixtures/data';
+import { makePosition, makeScannerRows } from '../../fixtures/data';
 import { expect, test } from '../../fixtures/test';
 
 /**
@@ -45,27 +45,6 @@ const ARMED = {
 // `source` matters as much as `scannerAvailable`: the scanners are an IBKR
 // feature and stay disabled while the router reports Alpaca.
 const RUNNING = { scannerAvailable: true, source: 'ibkr' as const, trading: ARMED };
-
-/**
- * A tape long enough to look like one. The shared fixture is one row of each
- * verdict — a truth table for the tint and filter specs — which screenshots as
- * a nearly empty window. Fixed arithmetic, no randomness, so the image comes
- * out the same on the next capture.
- */
-function burst(count = 26): TapePrintFixture[] {
-  const base = 1_709_651_400_000; // 09:30 NY on the fixtures' session.
-  const sides = ['ask', 'ask', 'bid', 'above', 'ask', 'bid', 'mid', 'below'] as const;
-  const sizes = [100, 200, 500, 1_500, 100, 300, 2_500, 100, 800, 5_000];
-  const ticks = [0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 3];
-  return Array.from({ length: count }, (_, i) => ({
-    q: i + 1,
-    t: base + i * 700,
-    p: Number((10.04 + ticks[i % ticks.length] * 0.01).toFixed(2)),
-    s: sizes[i % sizes.length],
-    a: sides[i % sides.length],
-    x: ['Q', 'K', 'D', 'P', 'N'][i % 5],
-  }));
-}
 
 /**
  * Fill the four market-cap scanners. `scannerAvailable` only removes the
@@ -116,7 +95,7 @@ async function settle(terminal: { page: import('@playwright/test').Page }) {
 
 test.describe('screenshots', () => {
   test.skip(!CAPTURING, 'Run `npm run screenshots` to regenerate the README images.');
-  test.use({ backendOptions: { ...RUNNING, tape: burst() } });
+  test.use({ backendOptions: RUNNING });
 
   test('the terminal', async ({ terminal, backend }) => {
     await terminal.waitForChart();
@@ -143,14 +122,6 @@ test.describe('screenshots', () => {
     await settle(terminal);
     await terminal.moveMouseAway();
     await shootDock(terminal, terminal.page.getByTestId('news-row').last(), 'news-brief');
-  });
-
-  test('the tape', async ({ terminal }) => {
-    await terminal.waitForChart();
-    await expect(terminal.tapeRows().first()).toBeVisible();
-    await settle(terminal);
-    await terminal.moveMouseAway();
-    await shootDock(terminal, terminal.tape, 'tape');
   });
 
   test('the order strip', async ({ terminal }) => {

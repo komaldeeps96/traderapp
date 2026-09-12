@@ -70,20 +70,6 @@ history:
   # cost of one more capped tape walk per ticker switch.
   # tensec_prior_sessions: 1
 
-tape:
-  # TIME AND SALES — the print-by-print window under the context chart.
-  # A separate reader on the same trade stream: no bars, no indicators, and
-  # nothing here reaches either. There is no on/off switch, because a tape
-  # that is not there is a window showing nothing.
-  #
-  # Rows held per symbol. The window itself keeps fewer; this is the depth a
-  # fresh subscribe is handed, so it is really "how far back can I scroll
-  # through the burst that just happened".
-  buffer: 600
-  # Symbols keeping a tape at once, evicted least-recently-printed. Well
-  # above a session's worth of flipping between runners.
-  max_symbols: 16
-
 scanner:
   # The trade-rate scanner is IBKR-only; there is no Alpaca equivalent to
   # fall back to. The market-cap band is per tier (app/domain/scanner.py,

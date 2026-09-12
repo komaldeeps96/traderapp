@@ -33,15 +33,10 @@ Financials → Metrics, is the **order strip**: three buy buttons in dollars,
 three sell buttons in percent of the position, each showing the share count it
 would send. Off by default — the account behind it is live.
 
-Down the right is the dock: a 1-minute context chart over a **time and sales**
-window, then fundamentals, news and SEC filings behind their own tabs. The tape
-is tinted as a direct-access platform tints it — green at the offer, stronger
-through it, red at the bid and stronger below — with a size floor, block
-threshold, same-price aggregation and a freeze. No feed publishes which side
-took a print, so that verdict is the server's, formed against the standing
-quote; see [`docs/time-and-sales.md`](docs/time-and-sales.md).
-
-<img src="docs/screenshots/tape.png" width="420" alt="The context chart over the time and sales window">
+Down the right is the dock: 1-minute over 5-minute context charts, then
+fundamentals, news and SEC filings behind their own tabs. The charts follow the
+main chart's symbol, so the immediate trend and the day's structure stay in
+view while it sits on the 10-second chart.
 
 The news tab is split. Below is the feed — thirty days from IBKR's entitled
 wires and Alpaca's Benzinga, deduplicated across both. Above it is one trading
@@ -361,12 +356,12 @@ its own — no dataframes, no clock, no globals.
 ```
 backend/app/
   core/        settings, logging, time
-  domain/      bars, timeframes, sessions, wire protocol, tape, orders,
+  domain/      bars, timeframes, sessions, wire protocol, orders,
                and the news rubric — a prompt is a module, not a string
   indicators/  pure maths, key levels, YAML specs, engine
   market/      bar builder, resampling, in-memory store
   providers/   alpaca, ibkr, the router that fails over, and the broker
-  services/    subscriptions, market data, scanner, broadcaster, tape,
+  services/    subscriptions, market data, scanner, broadcaster,
                trading, and the Claude reader behind the news score
   api/         REST + WebSocket
 frontend/src/
@@ -423,7 +418,6 @@ before changing the thing they describe.
 | [`ai-architecture.md`](docs/ai-architecture.md) | The AI layer — the sandbox, the caching, and how the score is measured |
 | [`news-summary.md`](docs/news-summary.md) | Scoring one session of headlines for catalyst quality |
 | [`order-entry.md`](docs/order-entry.md) | Six buttons, and everything checked before they were built |
-| [`time-and-sales.md`](docs/time-and-sales.md) | The tape, and what it deliberately does not carry |
 | [`market-data-providers.md`](docs/market-data-providers.md) | Two feeds, one router, and what each is actually good for |
 | [`momentum-reads.md`](docs/momentum-reads.md) | The reads the terminal is built around, and which are done |
 | [`dilution-desk.md`](docs/dilution-desk.md) | The fundamentals, news and filings dock |

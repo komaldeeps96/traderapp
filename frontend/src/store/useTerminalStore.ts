@@ -19,7 +19,6 @@ import {
   loadDockWidth,
   loadMiniTimeframes,
   loadNewsAi,
-  loadTapeFilters,
   loadVisibility,
   saveDockTab,
   saveMainTab,
@@ -27,11 +26,9 @@ import {
   saveDockWidth,
   saveMiniTimeframes,
   saveNewsAi,
-  saveTapeFilters,
   visibilityOverrides,
   type Theme,
 } from "@/lib/storage";
-import { mergePrints, type TapeFilters } from "@/lib/tape";
 import type {
   ApiUsageMessage,
   DataSource,
@@ -46,8 +43,6 @@ import type {
   ScannerConfig,
   ScannerRow,
   ScannerTierId,
-  TapeMessage,
-  TapePrint,
   Timeframe,
   TradingState,
   WatchlistRow,
@@ -110,12 +105,6 @@ interface TerminalState {
   // per-symbol level 1 + reference data
   quote: QuoteMessage | null;
   info: InfoMessage | null;
-
-  // time and sales — every print on the open symbol, newest first, and how
-  // the window is filtered. The prints are the one high-rate list this store
-  // holds; nothing else re-renders off them.
-  tape: TapePrint[];
-  tapeFilters: TapeFilters;
 
   // upstream request budgets
   apiUsage: ApiUsageMessage | null;
@@ -243,8 +232,6 @@ interface TerminalState {
     scanCodes: Array<{ code: string; label: string }>;
   }) => void;
   setQuote: (quote: QuoteMessage) => void;
-  applyTape: (message: TapeMessage) => void;
-  setTapeFilters: (patch: Partial<TapeFilters>) => void;
   setTrading: (payload: {
     state: TradingState;
     positions: PositionRow[];
@@ -284,9 +271,6 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   quote: null,
   info: null,
   apiUsage: null,
-
-  tape: [],
-  tapeFilters: loadTapeFilters(),
 
   specs: [],
   visibility: {},
@@ -389,11 +373,6 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       barCount: 0,
       quote: changedSymbol ? null : state.quote,
       info: changedSymbol ? null : state.info,
-      // The previous company's prints must never sit under a new ticker: a
-      // tape row is a fact about one instrument and reads as live either way.
-      // The server sends a `reset` frame on subscribe too; this is what
-      // clears the window in the gap before it lands.
-      tape: changedSymbol ? [] : state.tape,
       // The previous company's headlines and filing alerts must not sit under
       // the new ticker while its own load.
       news: changedSymbol ? [] : state.news,
@@ -577,21 +556,6 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set({ scannerNote: note, scanCodes }),
 
   setQuote: (quote) => set({ quote }),
-
-  // Prints for a symbol the user has navigated away from are dropped, exactly
-  // as a stale snapshot is. `mergePrints` owns the dedupe and the cap.
-  applyTape: ({ symbol, prints, reset }) => {
-    const state = get();
-    if (symbol !== state.symbol) return;
-    const merged = mergePrints(state.tape, prints, reset);
-    if (merged !== state.tape) set({ tape: merged });
-  },
-
-  setTapeFilters: (patch) => {
-    const tapeFilters = { ...get().tapeFilters, ...patch };
-    saveTapeFilters(tapeFilters);
-    set({ tapeFilters });
-  },
 
   setInfo: (info) => set({ info }),
 

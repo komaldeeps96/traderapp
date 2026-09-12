@@ -43,11 +43,6 @@ const TOLERANCE = { maxDiffPixelRatio: 0.004, animations: 'disabled' as const };
 test.describe('appearance', () => {
   test('dark theme — the default', async ({ terminal }) => {
     await terminal.waitForChart();
-    // The tape is ~14% of this frame, so it would move the diff on its own —
-    // but its rows are fine detail, and the tinted ones are the point. A
-    // green run is not evidence they drew unless their presence is asserted.
-    await expect(terminal.tapeRows()).toHaveCount(6);
-    await expect(terminal.tapeRow(2)).toHaveClass(/tape-above/);
     // A chip on the toolbar is about 0.02% of this frame — three times under
     // the tolerance — so it could vanish entirely and the comparison would
     // still pass. Its presence is asserted rather than assumed, and so is the
@@ -66,7 +61,6 @@ test.describe('appearance', () => {
 
   test('light theme', async ({ terminal }) => {
     await terminal.waitForChart();
-    await expect(terminal.tapeRows()).toHaveCount(6);
     await expect(terminal.page.getByTestId('news-ai-toggle')).toBeVisible();
     await expect(terminal.dockTabs()).toHaveCount(4);
     await terminal.themeToggle.click();

@@ -27,7 +27,6 @@ import {
   DOCK_DEFAULT_WIDTH,
   type DockTabId,
 } from '@/lib/dock';
-import { DEFAULT_TAPE_FILTERS, type TapeFilters } from '@/lib/tape';
 import type { IndicatorSpec, Timeframe } from '@/types/protocol';
 
 const THEME_KEY = 'traderapp.theme';
@@ -38,7 +37,6 @@ const DOCK_TAB_KEY = 'traderapp.dockTab';
 const MAIN_TAB_KEY = 'traderapp.mainTab';
 const SCANNER_TAB_KEY = 'traderapp.scannerTab';
 const DOCK_WIDTH_KEY = 'traderapp.dockWidth';
-const TAPE_FILTERS_KEY = 'traderapp.tapeFilters';
 const NEWS_AI_KEY = 'traderapp.newsAi';
 
 // A saved zoom outside these bounds is a corrupt value, not a preference.
@@ -212,33 +210,6 @@ export function saveDockWidth(width: number): void {
   } catch {
     /* ignore */
   }
-}
-
-/**
- * How the time-and-sales window is filtered.
- *
- * Field by field, so a value from an older build costs that one filter its
- * saved setting rather than resetting the window. `paused` is not restored: a
- * frozen tape on open reads as a dead feed.
- */
-export function loadTapeFilters(): TapeFilters {
-  const saved = readJson<Partial<Record<keyof TapeFilters, unknown>>>(TAPE_FILTERS_KEY, {});
-  const size = (value: unknown, fallback: number): number =>
-    typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
-  const flag = (value: unknown, fallback: boolean): boolean =>
-    typeof value === 'boolean' ? value : fallback;
-
-  return {
-    minSize: size(saved.minSize, DEFAULT_TAPE_FILTERS.minSize),
-    blockSize: size(saved.blockSize, DEFAULT_TAPE_FILTERS.blockSize),
-    regularOnly: flag(saved.regularOnly, DEFAULT_TAPE_FILTERS.regularOnly),
-    aggregate: flag(saved.aggregate, DEFAULT_TAPE_FILTERS.aggregate),
-    paused: false,
-  };
-}
-
-export function saveTapeFilters(filters: TapeFilters): void {
-  writeJson(TAPE_FILTERS_KEY, { ...filters, paused: false });
 }
 
 type ZoomStore = Record<string, number>;

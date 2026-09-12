@@ -154,8 +154,7 @@ describe('handleMessage mini routing', () => {
     main = fakeEngine();
     minute = fakeEngine(0);
     setEngine(main as unknown as ChartEngine);
-    // One slot, showing 1m — the shipped default since the second slot became
-    // the time-and-sales window.
+    // Only slot 0 is engined here; the routing under test is per slot.
     useTerminalStore.getState().setMiniTimeframe(0, '1m');
     setMiniEngine(0, minute as unknown as ChartEngine);
     useTerminalStore.getState().requestChart('BANL', '10s');
@@ -237,70 +236,3 @@ describe('handleMessage mini routing', () => {
   });
 });
 
-/**
- * Time and sales rides the same symbol filter as everything else, and its
- * batches deliberately overlap — the broadcaster's cursor is shared by every
- * client, so a late joiner is sent rows its opening backlog already carried.
- */
-describe('handleMessage tape', () => {
-  const print = (q: number, over: Partial<import('@/types/protocol').TapePrint> = {}) => ({
-    q,
-    t: 1_700_000_000_000 + q,
-    p: 2.5,
-    s: 100,
-    a: 'ask' as const,
-    ...over,
-  });
-
-  const tape = (symbol: string, prints: unknown[], reset = false) =>
-    ({ type: 'tape', symbol, reset, prints }) as never;
-
-  beforeEach(() => {
-    // The store is a module singleton shared by every spec in this file, and
-    // `requestChart` only clears the tape when the *symbol* changes — so a
-    // re-request of the same name would leave the previous test's prints in
-    // place and quietly satisfy the assertions below.
-    useTerminalStore.setState({ tape: [] });
-    useTerminalStore.getState().requestChart('BANL', '10s');
-  });
-
-  it('holds the newest print first', () => {
-    handleMessage(tape('BANL', [print(1), print(2), print(3)], true));
-
-    expect(useTerminalStore.getState().tape.map((row) => row.q)).toEqual([3, 2, 1]);
-  });
-
-  it('appends a later batch onto what it holds', () => {
-    handleMessage(tape('BANL', [print(1), print(2)], true));
-    handleMessage(tape('BANL', [print(3)]));
-
-    expect(useTerminalStore.getState().tape.map((row) => row.q)).toEqual([3, 2, 1]);
-  });
-
-  it('drops the overlap between the backlog and the first live batch', () => {
-    handleMessage(tape('BANL', [print(1), print(2), print(3)], true));
-    handleMessage(tape('BANL', [print(2), print(3), print(4)]));
-
-    expect(useTerminalStore.getState().tape.map((row) => row.q)).toEqual([4, 3, 2, 1]);
-  });
-
-  it('a reset replaces rather than appends', () => {
-    handleMessage(tape('BANL', [print(1), print(2)], true));
-    handleMessage(tape('BANL', [print(1)], true));
-
-    expect(useTerminalStore.getState().tape.map((row) => row.q)).toEqual([1]);
-  });
-
-  it('ignores prints for a symbol the user has navigated away from', () => {
-    handleMessage(tape('NVDA', [print(1)], true));
-
-    expect(useTerminalStore.getState().tape).toEqual([]);
-  });
-
-  it('a symbol switch clears the window before the new tape lands', () => {
-    handleMessage(tape('BANL', [print(1)], true));
-    useTerminalStore.getState().requestChart('NVDA', '10s');
-
-    expect(useTerminalStore.getState().tape).toEqual([]);
-  });
-});

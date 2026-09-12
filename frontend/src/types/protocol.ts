@@ -79,45 +79,6 @@ export interface QuoteMessage {
   t: number;
 }
 
-/**
- * Which side of the book took a print, inferred from the standing quote.
- *
- * Nothing on either feed publishes it — see `backend/app/domain/tape.py`.
- * `unk` means no quote had arrived yet, or the book was crossed when it did.
- */
-export type Aggressor = "above" | "ask" | "mid" | "bid" | "below" | "unk";
-
-/** One row of the tape. Short keys: this is the chattiest message on the wire. */
-export interface TapePrint {
-  /** Per-symbol sequence, strictly increasing. The client dedupes on it. */
-  q: number;
-  /** Epoch MILLISECONDS — the one time on this wire that is not seconds. */
-  t: number;
-  p: number;
-  s: number;
-  a: Aggressor;
-  /** Market centre as the source names it: "D" from Alpaca, "NASDAQ" from IBKR. */
-  x?: string;
-  /** Sale conditions, absent when there are none. */
-  c?: string[];
-  /** Present and 0 only when the print is not price-forming. */
-  f?: number;
-}
-
-/**
- * New prints for one symbol.
- *
- * `reset` marks the backlog sent at subscribe time: replace the list rather
- * than appending. Incremental batches deliberately overlap that backlog, so
- * anything at or below the newest sequence held is dropped.
- */
-export interface TapeMessage {
-  type: "tape";
-  symbol: string;
-  reset: boolean;
-  prints: TapePrint[];
-}
-
 /** One upstream's request-budget window. */
 export interface ApiWindow {
   used: number;
@@ -626,7 +587,6 @@ export type ServerMessage =
   | BarMessage
   | StatusMessage
   | QuoteMessage
-  | TapeMessage
   | InfoMessage
   | ApiUsageMessage
   | ScannerMessage

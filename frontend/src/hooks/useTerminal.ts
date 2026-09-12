@@ -306,12 +306,6 @@ export function handleMessage(message: ServerMessage): void {
       if (message.symbol === store.symbol) store.setQuote(message);
       break;
 
-    case "tape":
-      // The symbol check and the dedupe both live in the store, because the
-      // batches deliberately overlap — see `lib/tape.mergePrints`.
-      store.applyTape(message);
-      break;
-
     case "info":
       if (message.symbol === store.symbol) {
         store.setInfo(message);

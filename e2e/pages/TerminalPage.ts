@@ -62,8 +62,6 @@ export interface TerminalState {
   barCount: number;
   visibility: Record<string, boolean>;
   miniTimeframes: string[];
-  /** Prints held for the open symbol, before any filtering. */
-  tapeCount: number;
 }
 
 export class TerminalPage {
@@ -137,24 +135,9 @@ export class TerminalPage {
     return this.page.getByTestId('chart-controls');
   }
 
-  /** The context chart in the dock. Absent below its breakpoint. */
+  /** The context charts in the dock. Absent below their breakpoint. */
   get miniCharts(): Locator {
     return this.page.getByTestId('mini-charts');
-  }
-
-  /** Time and sales, under the context chart in the dock's first tab. */
-  get tape(): Locator {
-    return this.page.getByTestId('tape');
-  }
-
-  /** Every rendered print, newest first. */
-  tapeRows(): Locator {
-    return this.page.locator('[data-testid^="tape-row-"]');
-  }
-
-  /** One print, by the sequence number the wire gave it. */
-  tapeRow(seq: number): Locator {
-    return this.page.getByTestId(`tape-row-${seq}`);
   }
 
   /** The right-hand rail that holds them, and the other three tabs. */

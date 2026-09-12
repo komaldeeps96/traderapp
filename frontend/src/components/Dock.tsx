@@ -10,13 +10,12 @@ import { FilingsTab } from './FilingsTab';
 import { FundamentalsTab } from './FundamentalsTab';
 import { MiniCharts } from './MiniCharts';
 import { NewsTab, useNewsFeed } from './NewsTab';
-import { TapePanel } from './TapePanel';
 
 /**
  * The rail to the right of the chart.
  *
- * Four tabs: one context chart over the time-and-sales window, then the
- * pre-trade check — what the company is, what it has said, what it has filed.
+ * Four tabs: the context charts, then the pre-trade check — what the company
+ * is, what it has said, what it has filed.
  *
  * Three things keep it from destabilising a dense layout:
  *
@@ -117,15 +116,7 @@ export function Dock({
         aria-labelledby={`dock-tab-${tab}`}
         className="flex min-h-0 flex-1 flex-col"
       >
-        {tab === 'charts' && (
-          <>
-            <MiniCharts onTimeframeChange={onMiniTimeframeChange} />
-            {/* Mounted with the chart, not lazily: the tape is a live buffer
-                that fills whether or not it is on screen, and a window that
-                starts empty every time the tab is opened is not a tape. */}
-            <TapePanel />
-          </>
-        )}
+        {tab === 'charts' && <MiniCharts onTimeframeChange={onMiniTimeframeChange} />}
         {tab === 'fundamentals' && <FundamentalsTab />}
         {tab === 'news' && <NewsTab />}
         {tab === 'filings' && <FilingsTab />}
