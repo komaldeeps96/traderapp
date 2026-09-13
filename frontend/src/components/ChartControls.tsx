@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { getEngine } from '@/chart/engineRef';
+import { useKeyedState } from '@/hooks/useKeyedState';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
 import { ChartButton } from './ChartButton';
@@ -51,33 +52,28 @@ export function ChartControls() {
  * its move, span and volume, and panning is suspended. Escape is the fast exit.
  */
 function MeasureToggle() {
-  const [measuring, setMeasuring] = useState(false);
+  const symbol = useTerminalStore((state) => state.symbol);
+  const timeframe = useTerminalStore((state) => state.timeframe);
+  // A symbol or timeframe switch clears the selection under us; the mode goes
+  // with it, so the chart never silently keeps eating drag gestures.
+  const [measuring, setMeasuring] = useKeyedState(`${symbol}:${timeframe}`, false);
 
-  const setMode = useCallback((on: boolean) => {
-    getEngine()?.setMeasureMode(on);
-    setMeasuring(on);
-  }, []);
+  useEffect(() => {
+    getEngine()?.setMeasureMode(measuring);
+  }, [measuring]);
 
   useEffect(() => {
     if (!measuring) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMode(false);
+      if (event.key === 'Escape') setMeasuring(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [measuring, setMode]);
-
-  // A symbol or timeframe switch cleared the selection under us; drop the
-  // mode too, so the chart never silently keeps eating drag gestures.
-  const symbol = useTerminalStore((state) => state.symbol);
-  const timeframe = useTerminalStore((state) => state.timeframe);
-  useEffect(() => {
-    setMode(false);
-  }, [symbol, timeframe, setMode]);
+  }, [measuring, setMeasuring]);
 
   return (
     <ChartButton
-      onClick={() => setMode(!measuring)}
+      onClick={() => setMeasuring(!measuring)}
       label="Measure"
       testId="measure-toggle"
       pressed={measuring}
@@ -132,7 +128,6 @@ function useSubPaneOffset(): number {
       frame = requestAnimationFrame(step);
     };
 
-    sample();
     settle();
     const onResize = () => settle();
     window.addEventListener('resize', onResize);

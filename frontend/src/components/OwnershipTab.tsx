@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
-
+import { useSymbolResource } from '@/hooks/useSymbolResource';
 import { formatCompact, formatMoney, formatPrice } from '@/lib/format';
 import { api } from '@/lib/http';
 import { useTerminalStore } from '@/store/useTerminalStore';
-import type { InsiderIntent, InsiderTrade, OwnershipResponse } from '@/types/protocol';
+import type { InsiderIntent, InsiderTrade } from '@/types/protocol';
+
+import { LoadError } from './PeriodToggle';
 
 /**
  * What insiders have actually done.
@@ -27,24 +28,9 @@ const INTENT_CLASS: Record<InsiderIntent, string> = {
 
 export function OwnershipTab() {
   const symbol = useTerminalStore((state) => state.symbol);
-  const [data, setData] = useState<OwnershipResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!symbol) return;
-    const controller = new AbortController();
-    setLoading(true);
-    void (async () => {
-      try {
-        setData(await api.ownership(symbol, controller.signal));
-      } catch {
-        if (!controller.signal.aborted) setData(null);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    })();
-    return () => controller.abort();
-  }, [symbol]);
+  const { data, error, loading } = useSymbolResource(symbol, (signal) =>
+    api.ownership(symbol, signal),
+  );
 
   const summary = data?.summary ?? null;
   const trades = data?.trades ?? [];
@@ -99,7 +85,9 @@ export function OwnershipTab() {
         </section>
       )}
 
-      {trades.length === 0 ? (
+      {error ? (
+        <LoadError what={`${symbol}'s insider filings`} error={error} testId="ownership-error" />
+      ) : data === null ? null : trades.length === 0 ? (
         <p className="p-4 font-mono text-[11px] text-ink-3" data-testid="ownership-empty">
           {data?.available === false
             ? 'SEC filings are switched off for this terminal.'

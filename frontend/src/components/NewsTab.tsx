@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect } from 'react';
 
+import { useKeyedState } from '@/hooks/useKeyedState';
+import { useSymbolResource } from '@/hooks/useSymbolResource';
 import { formatNewsTime } from '@/lib/format';
 import { api } from '@/lib/http';
 import { useTerminalStore } from '@/store/useTerminalStore';
@@ -42,10 +44,8 @@ export function NewsTab() {
   const headlines = useTerminalStore((state) => state.news);
   const status = useTerminalStore((state) => state.newsStatus);
   const providers = useTerminalStore((state) => state.newsProviders);
-  const [open, setOpen] = useState<Headline | null>(null);
-
   // A different symbol's article must not stay open over the new feed.
-  useEffect(() => setOpen(null), [symbol]);
+  const [open, setOpen] = useKeyedState<Headline | null>(symbol, null);
 
   if (!symbol) return empty('Load a symbol to see its news.');
 
@@ -229,34 +229,15 @@ function Reader({
 }
 
 function useArticle(symbol: string, headline: Headline) {
-  const [paragraphs, setParagraphs] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setError(null);
-    setParagraphs([]);
-    void (async () => {
-      try {
-        const response = await api.article(
-          symbol,
-          headline.provider,
-          headline.article_id,
-          controller.signal,
-        );
-        setParagraphs(response.paragraphs);
-      } catch {
-        if (!controller.signal.aborted) setError('Could not load this article.');
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    })();
-    return () => controller.abort();
-  }, [symbol, headline.provider, headline.article_id]);
-
-  return { paragraphs, error, loading };
+  const { data, error, loading } = useSymbolResource(
+    `${symbol}|${headline.provider}|${headline.article_id}`,
+    (signal) => api.article(symbol, headline.provider, headline.article_id, signal),
+  );
+  return {
+    paragraphs: data?.paragraphs ?? [],
+    error: error ? 'Could not load this article.' : null,
+    loading,
+  };
 }
 
 /**

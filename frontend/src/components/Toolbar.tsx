@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import type { FormEvent } from 'react';
 
+import { useKeyedState } from '@/hooks/useKeyedState';
 import { TIMEFRAMES, type Timeframe } from '@/types/protocol';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
@@ -177,13 +178,9 @@ function SymbolInput({
   timeframe: Timeframe;
   onSubscribe: (symbol: string, timeframe: Timeframe) => void;
 }) {
-  const [draft, setDraft] = useState(symbol);
-
-  // Follow the store when the symbol changes elsewhere — a scanner click, or a
-  // session restored on load — without fighting the user mid-type.
-  useEffect(() => {
-    setDraft(symbol);
-  }, [symbol]);
+  // Follows the store when the symbol changes elsewhere — a scanner click, or
+  // a session restored on load — without fighting the user mid-type.
+  const [draft, setDraft] = useKeyedState(symbol, symbol);
 
   function submit(event: FormEvent) {
     event.preventDefault();

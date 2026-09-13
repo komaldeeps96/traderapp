@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 
-import { daysUntil, formatCompact, formatMoney, formatPrice } from '@/lib/format';
+import { formatMoney, formatPrice, formatSignedPercent } from '@/lib/format';
 import { api } from '@/lib/http';
 import type { SwingRow, SwingScreen } from '@/types/protocol';
+
+import { EarningsCell } from './EarningsCell';
 
 /**
  * Multi-day setups, from daily structure.
@@ -145,22 +147,34 @@ export function SwingPanel({ onSelect }: { onSelect: (symbol: string) => void })
                 title={`${row.name} · ${row.sector}`}
                 className="cursor-pointer border-b border-line/40 hover:bg-elevated"
               >
-                <td className="px-2 py-1 font-semibold text-ink">{row.symbol}</td>
+                <td className="px-2 py-1 font-semibold text-ink">
+                  {/* The row answers a mouse anywhere; this is what a keyboard reaches. */}
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelect(row.symbol);
+                    }}
+                    className="font-semibold outline-none focus-visible:underline"
+                  >
+                    {row.symbol}
+                  </button>
+                </td>
                 <td className="px-2 py-1 text-right text-ink-2">{formatPrice(row.close)}</td>
                 <td
                   className={`px-2 py-1 text-right ${
                     (row.change ?? 0) < 0 ? 'text-down' : 'text-up'
                   }`}
                 >
-                  {signed(row.change)}
+                  {formatSignedPercent(row.change)}
                 </td>
-                <td className="px-2 py-1 text-right text-ink-3">{signed(row.off_high)}</td>
+                <td className="px-2 py-1 text-right text-ink-3">{formatSignedPercent(row.off_high)}</td>
                 <td
                   className={`px-2 py-1 text-right ${
                     (row.perf_quarter ?? 0) < 0 ? 'text-down' : 'text-ink-2'
                   }`}
                 >
-                  {signed(row.perf_quarter)}
+                  {formatSignedPercent(row.perf_quarter)}
                 </td>
                 <td className="px-2 py-1 text-right text-ink-2">
                   {row.rvol == null ? '—' : `${row.rvol.toFixed(2)}×`}
@@ -168,7 +182,7 @@ export function SwingPanel({ onSelect }: { onSelect: (symbol: string) => void })
                 <td className="px-2 py-1 text-right text-ink-3">
                   {row.market_cap == null ? '—' : formatMoney(row.market_cap)}
                 </td>
-                <Earnings epoch={row.next_earnings} />
+                <EarningsCell epoch={row.next_earnings} testId="swing-earnings" />
               </tr>
             ))}
           </tbody>
@@ -184,29 +198,3 @@ export function SwingPanel({ onSelect }: { onSelect: (symbol: string) => void })
   );
 }
 
-/**
- * How near the next report is. A breakout entered three days before earnings is
- * a different trade, so the cell shouts inside a week and stays quiet beyond.
- * A date already past — the source keeps serving one — is nothing at all.
- */
-function Earnings({ epoch }: { epoch: number | null }) {
-  const days = daysUntil(epoch, Date.now() / 1000);
-  if (days == null || days < 0 || days > 60) {
-    return <td className="px-2 py-1 text-right text-ink-3">—</td>;
-  }
-  return (
-    <td
-      className={`px-2 py-1 text-right ${days <= 7 ? 'font-semibold text-down' : 'text-ink-3'}`}
-      data-testid="swing-earnings"
-    >
-      {days}d
-    </td>
-  );
-}
-
-/** A percentage that always carries its sign; distance is meaningless without one. */
-function signed(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return '—';
-  const shown = Math.abs(value) >= 1000 ? formatCompact(value, 0) : value.toFixed(1);
-  return `${value > 0 ? '+' : ''}${shown}%`;
-}

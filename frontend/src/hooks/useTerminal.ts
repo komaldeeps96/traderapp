@@ -13,6 +13,7 @@ import type { ChartEngine } from "@/chart/ChartEngine";
 import { getEngine, getMiniEngine, miniEngineEntries } from "@/chart/engineRef";
 import { sendCommand, setCommandSink } from "@/lib/commands";
 import { api } from "@/lib/http";
+import { withBar } from "@/lib/snapshot";
 import {
   applyTheme,
   loadTheme,
@@ -28,12 +29,30 @@ import { useTerminalStore } from "@/store/useTerminalStore";
 import type {
   BarMessage,
   ClientCommand,
+  ErrorMessage,
   IndicatorSpec,
   ScannerTierId,
   ServerMessage,
   SnapshotMessage,
   Timeframe,
 } from "@/types/protocol";
+
+/** First wait before asking a backend that did not answer again; doubles to 8x. */
+const STARTUP_RETRY_MS = 1_000;
+
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
 
 type ScannerOverrides = Omit<
   Extract<ClientCommand, { action: "scanner.configure" }>,
@@ -149,45 +168,56 @@ export function useTerminal() {
     const controller = new AbortController();
 
     // Configuration first: without the indicator specs the chart cannot build
-    // its series, so the opening subscribe waits for them.
+    // its series, so the opening subscribe waits for them. Retried, so a
+    // terminal opened before its backend comes up without a reload.
     void (async () => {
-      try {
-        // The session is fetched alongside the rest rather than after it:
-        // its indicator overrides have to be in the store before `setSpecs`
-        // computes what the chart opens with.
-        const [specs, scanner, session] = await Promise.all([
-          api.indicators(controller.signal),
-          api.scannerTiers(controller.signal),
-          api.session(controller.signal),
-        ]);
-        useTerminalStore
-          .getState()
-          .setIndicatorOverrides(
-            migrateLegacyVisibility(specs, session.indicators ?? {}),
-          );
-        useTerminalStore.getState().setSpecs(specs);
-        useTerminalStore.getState().setScannerTiers({
-          note: scanner.note,
-          scanCodes: scanner.scan_codes,
-        });
+      for (let attempt = 0; !controller.signal.aborted; attempt += 1) {
+        try {
+          // The session is fetched alongside the rest rather than after it:
+          // its indicator overrides have to be in the store before `setSpecs`
+          // computes what the chart opens with.
+          const [specs, scanner, session] = await Promise.all([
+            api.indicators(controller.signal),
+            api.scannerTiers(controller.signal),
+            api.session(controller.signal),
+          ]);
+          useTerminalStore
+            .getState()
+            .setIndicatorOverrides(
+              migrateLegacyVisibility(specs, session.indicators ?? {}),
+            );
+          useTerminalStore.getState().setSpecs(specs);
+          useTerminalStore.getState().setScannerTiers({
+            note: scanner.note,
+            scanCodes: scanner.scan_codes,
+          });
 
-        subscribe(session.symbol, session.timeframe);
-      } catch {
-        if (!controller.signal.aborted) {
+          subscribe(session.symbol, session.timeframe);
+          return;
+        } catch {
+          if (controller.signal.aborted) return;
           useTerminalStore
             .getState()
             .setError(
-              "Could not reach the backend. Is it running on port 8000?",
+              "Could not reach the backend. Is it running on port 8000? Retrying…",
             );
+          await pause(STARTUP_RETRY_MS * 2 ** Math.min(attempt, 3), controller.signal);
         }
       }
     })();
 
     const client = createWsClient();
     clientRef.current = client;
-    // The store toggles indicators; the socket carries them. Commands sent
-    // before the socket opens are replayed by the client on connect.
-    setCommandSink((command) => client.send(command));
+    // The store toggles indicators; the socket carries them. Visibility is
+    // remembered and replayed on every connect, like the subscription;
+    // anything else sent while the socket is down is dropped.
+    setCommandSink((command) => {
+      if (command.action === "indicators.visibility") {
+        client.setIndicatorVisibility(command.timeframe, command.visible);
+      } else {
+        client.send(command);
+      }
+    });
 
     const offMessage = client.onMessage(handleMessage);
     const offStatus = client.onStatusChange((connected) => {
@@ -363,7 +393,7 @@ export function handleMessage(message: ServerMessage): void {
       break;
 
     case "error":
-      store.setError(message.message);
+      routeError(message);
       break;
 
     case "pong":
@@ -394,6 +424,22 @@ function applyLevelVisibility(id: string, visible: boolean): void {
         )
       : null,
   );
+}
+
+/**
+ * Only a failed chart load belongs to the chart: its "error" status drops live
+ * bars until the next snapshot. A refused order goes to the order strip, and
+ * anything else is a notice.
+ */
+function routeError(message: ErrorMessage): void {
+  const store = useTerminalStore.getState();
+  if (message.code === "no_data" || message.action === "subscribe") {
+    store.setError(message.message);
+  } else if (message.code === "trade") {
+    store.setOrderNote(message.message);
+  } else {
+    store.setNotice(message.message);
+  }
 }
 
 function isCurrent(symbol: string, timeframe: string): boolean {
@@ -484,6 +530,14 @@ function applyToMini(engine: ChartEngine, message: SnapshotMessage): void {
 }
 
 function applyMiniBar(message: BarMessage): void {
+  // Until its snapshot lands a mini has nothing to extend: a bar applied to
+  // the empty chart a symbol switch leaves would stand in for its history.
+  const key = miniKey(message.symbol, message.timeframe);
+  const snapshot = lastMiniSnapshots.get(key);
+  if (!snapshot) return;
+  // Kept current, so a mini rebuilt later — the dock coming back to its
+  // charts — is filled to now rather than to when the snapshot arrived.
+  lastMiniSnapshots.set(key, withBar(snapshot, message));
   for (const engine of minisFor(message.symbol, message.timeframe)) {
     engine.applyBar(message.bar, message.series);
   }

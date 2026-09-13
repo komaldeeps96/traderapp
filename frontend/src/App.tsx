@@ -41,6 +41,8 @@ export default function App() {
   const symbol = useTerminalStore((state) => state.symbol);
   const timeframe = useTerminalStore((state) => state.timeframe);
   const error = useTerminalStore((state) => state.error);
+  const notice = useTerminalStore((state) => state.notice);
+  const setNotice = useTerminalStore((state) => state.setNotice);
   const status = useTerminalStore((state) => state.status);
   const mainTab = useTerminalStore((state) => state.mainTab);
   const scannerTab = useTerminalStore((state) => state.scannerTab);
@@ -101,6 +103,24 @@ export default function App() {
             className="shrink-0 border-b border-down/30 bg-down/10 px-3 py-1.5 text-[11px] text-down"
           >
             {error}
+          </div>
+        )}
+
+        {notice && (
+          <div
+            role="status"
+            data-testid="notice-banner"
+            className="flex shrink-0 items-center gap-2 border-b border-warn/30 bg-warn/10 px-3 py-1.5 text-[11px] text-warn"
+          >
+            <span className="min-w-0 flex-1 truncate">{notice}</span>
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              aria-label="Dismiss notice"
+              className="shrink-0 rounded-sm px-1 font-bold hover:bg-warn/20"
+            >
+              ×
+            </button>
           </div>
         )}
 

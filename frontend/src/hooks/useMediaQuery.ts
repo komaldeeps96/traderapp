@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 /**
  * Track a media query.
@@ -9,19 +9,16 @@ import { useEffect, useState } from 'react';
  * being styled away.
  */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => read(query));
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const list = window.matchMedia(query);
-    // The query can have changed between the initial state and this effect.
-    setMatches(list.matches);
-    const onChange = (event: MediaQueryListEvent) => setMatches(event.matches);
-    list.addEventListener('change', onChange);
-    return () => list.removeEventListener('change', onChange);
-  }, [query]);
-
-  return matches;
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (typeof window === 'undefined' || !window.matchMedia) return () => {};
+      const list = window.matchMedia(query);
+      list.addEventListener('change', onChange);
+      return () => list.removeEventListener('change', onChange);
+    },
+    [query],
+  );
+  return useSyncExternalStore(subscribe, () => read(query), () => false);
 }
 
 function read(query: string): boolean {

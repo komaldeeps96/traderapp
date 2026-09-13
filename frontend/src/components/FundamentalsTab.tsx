@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
-
+import { useSymbolResource } from '@/hooks/useSymbolResource';
 import { useTerminalStore } from '@/store/useTerminalStore';
 import { api } from '@/lib/http';
-import { formatCompact, formatMoney, formatPrice } from '@/lib/format';
+import { formatCompact, formatMoney, formatNyDate, formatPrice } from '@/lib/format';
 import type {
   BusinessStats,
   DatedValue,
@@ -31,12 +30,14 @@ const SHELF_GROWN_MULTIPLE = 1.5;
 export function FundamentalsTab() {
   const symbol = useTerminalStore((state) => state.symbol);
   const lastPrice = useTerminalStore((state) => state.live?.bar.c ?? null);
-  const { data, error, loading } = useFundamentals(symbol);
+  const { data, error, loading } = useSymbolResource(symbol, (signal) =>
+    api.fundamentals(symbol, signal),
+  );
 
   if (!symbol) return empty('Load a symbol to see its filings and dilution.');
-  if (loading && !data) return empty(`Loading ${symbol}…`);
-  if (error) return empty(error);
-  if (!data?.available) {
+  if (error) return empty(`Could not load ${symbol}'s filings — ${error}.`);
+  if (loading || !data) return empty(`Loading ${symbol}…`);
+  if (!data.available) {
     return empty('SEC filings are switched off. Set edgar.enabled in settings.yaml.');
   }
 
@@ -341,7 +342,7 @@ function Business({ stats }: { stats: BusinessStats }) {
       {earnings != null && (
         <DockRow
           label="Next earnings"
-          value={new Date(earnings * 1000).toISOString().slice(0, 10)}
+          value={formatNyDate(earnings)}
           testId="next-earnings"
           title="TradingView's scheduled report date"
         />
@@ -409,38 +410,4 @@ function Dated({
       title={`Reported for ${value.as_of} on a ${value.form}, ${value.stale_days} days ago`}
     />
   );
-}
-
-/**
- * Fetch on symbol change, aborting the one in flight. Switching tickers fast is
- * the normal case, and without the abort a slow response for the previous
- * symbol lands after the fast one and shows the wrong company's filings.
- */
-function useFundamentals(symbol: string) {
-  const [data, setData] = useState<FundamentalsResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!symbol) {
-      setData(null);
-      return;
-    }
-    const controller = new AbortController();
-    setLoading(true);
-    setError(null);
-    void (async () => {
-      try {
-        const response = await api.fundamentals(symbol, controller.signal);
-        setData(response);
-      } catch {
-        if (!controller.signal.aborted) setError(`No filings available for ${symbol}.`);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    })();
-    return () => controller.abort();
-  }, [symbol]);
-
-  return { data, error, loading };
 }

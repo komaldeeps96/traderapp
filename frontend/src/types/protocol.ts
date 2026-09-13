@@ -510,12 +510,14 @@ export interface WatchlistMessage {
 
 /** Why an order button is dead. Mirrors `OrderPlan.blocked` in the backend. */
 export type BlockedReason =
-  "no_quote" | "no_position" | "too_small" | "over_cap";
+  "no_quote" | "no_position" | "committed" | "too_small" | "over_cap";
 
 /** One position, as IBKR reports it — never as our own fills compute it. */
 export interface PositionRow {
   symbol: string;
   shares: number;
+  /** Shares this client's working or just-filled sells have already claimed. */
+  committed: number;
   avg_cost: number;
   unrealized: number;
 }
@@ -552,6 +554,8 @@ export interface TradingState {
   offset_cents: number;
   offset_bps: number;
   max_order_dollars: number;
+  /** A second order on the same side and symbol inside this is refused. */
+  repeat_guard_seconds: number;
   tif: string;
   positions_known: boolean;
   note: string | null;
@@ -576,6 +580,8 @@ export interface ErrorMessage {
   type: "error";
   code: string;
   message: string;
+  /** The command this answers, when it answers one. */
+  action?: string | null;
 }
 
 export interface PongMessage {

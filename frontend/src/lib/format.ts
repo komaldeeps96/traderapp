@@ -277,6 +277,22 @@ export function formatRotation(value: number | null | undefined): string {
  * `formatPercent` signs everything, which is right for a change and wrong for a
  * quantity that cannot be negative — "+0.4%" invites being read as one.
  */
+/**
+ * A percentage that always carries its sign when it has one: a distance off a
+ * high, or a day's move, means nothing without it. Zero is unsigned, and a
+ * four-figure run is compacted rather than printed to the decimal.
+ */
+export function formatSignedPercent(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const shown = Math.abs(value) >= 1000 ? formatCompact(value, 0) : value.toFixed(1);
+  return `${value > 0 ? '+' : ''}${shown}%`;
+}
+
+/** YYYY-MM-DD on the New York calendar, the one a report date is scheduled on. */
+export function formatNyDate(epochSeconds: number): string {
+  return nyDayKey.format(new Date(epochSeconds * 1000));
+}
+
 export function formatUnsignedPercent(
   value: number | null | undefined,
   digits = 2,

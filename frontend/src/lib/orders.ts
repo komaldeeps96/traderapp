@@ -166,20 +166,27 @@ export function previewBuy(
   return { shares, limit, notional, blocked };
 }
 
-/** What a sell button shows. No cap: the ceiling bounds what may be bought. */
+/**
+ * What a sell button shows: a fraction of the shares no working sell has
+ * `committed`, as the server sizes it. No cap: the ceiling bounds buying.
+ */
 export function previewSell(
   fraction: number,
   position: number,
   quote: QuoteLike | null | undefined,
   offset: OffsetConfig,
+  committed = 0,
 ): ButtonPlan {
   if (position <= 0)
     return { shares: 0, limit: 0, notional: 0, blocked: "no_position" };
+  const free = position - Math.max(0, committed);
+  if (free <= 0)
+    return { shares: 0, limit: 0, notional: 0, blocked: "committed" };
   if (!quoteOk(quote))
     return { shares: 0, limit: 0, notional: 0, blocked: "no_quote" };
 
   const limit = sellLimit(quote.bid, offset);
-  const shares = sharesForFraction(position, fraction);
+  const shares = sharesForFraction(free, fraction);
   if (shares <= 0)
     return { shares: 0, limit, notional: 0, blocked: "too_small" };
   return {

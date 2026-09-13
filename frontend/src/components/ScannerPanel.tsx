@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 
 import { formatCompact, formatMoney, formatPercent, formatPrice } from '@/lib/format';
+import { parseFilter } from '@/lib/scannerFilters';
 import { useTerminalStore } from '@/store/useTerminalStore';
 import type { ClientCommand, ScannerConfig, ScannerTierId } from '@/types/protocol';
 
@@ -194,6 +195,39 @@ export function ScannerPanel({ scannerId, onSelect, onConfigure }: ScannerPanelP
   );
 }
 
+interface FilterDraft {
+  scan_code: string;
+  above_price: string;
+  below_price: string;
+  above_trade_rate: string;
+  change_perc_above: string;
+  market_cap_above: string;
+  market_cap_below: string;
+}
+
+const DEFAULT_DRAFT: FilterDraft = {
+  scan_code: 'TOP_TRADE_RATE',
+  above_price: '',
+  below_price: '50',
+  above_trade_rate: '200',
+  change_perc_above: '',
+  market_cap_above: '',
+  market_cap_below: '',
+};
+
+/** The form's text for a config. Market caps are typed in millions. */
+function draftFrom(config: ScannerConfig): FilterDraft {
+  return {
+    scan_code: config.scan_code,
+    above_price: config.above_price?.toString() ?? '',
+    below_price: config.below_price?.toString() ?? '',
+    above_trade_rate: config.above_trade_rate?.toString() ?? '',
+    change_perc_above: config.change_perc_above?.toString() ?? '',
+    market_cap_above: config.market_cap_above != null ? String(config.market_cap_above / 1e6) : '',
+    market_cap_below: config.market_cap_below != null ? String(config.market_cap_below / 1e6) : '',
+  };
+}
+
 function ScannerFilters({
   scannerId,
   config,
@@ -206,47 +240,44 @@ function ScannerFilters({
   disabled: boolean;
 }) {
   const scanCodes = useTerminalStore((state) => state.scanCodes);
-  const [draft, setDraft] = useState({
-    scan_code: 'TOP_TRADE_RATE',
-    above_price: '',
-    below_price: '50',
-    above_trade_rate: '200',
-    change_perc_above: '',
-    market_cap_above: '',
-    market_cap_below: '',
-  });
-  const [hydrated, setHydrated] = useState(false);
+  const [edited, setEdited] = useState<FilterDraft | null>(null);
+  const [invalid, setInvalid] = useState<ReadonlySet<string>>(new Set());
 
-  // Adopt the server's filters once. Re-syncing on every broadcast would wipe
-  // edits in progress whenever an unrelated scanner refresh arrived.
-  useEffect(() => {
-    if (!config || hydrated) return;
-    setHydrated(true);
-    setDraft({
-      scan_code: config.scan_code,
-      above_price: config.above_price?.toString() ?? '',
-      below_price: config.below_price?.toString() ?? '',
-      above_trade_rate: config.above_trade_rate?.toString() ?? '',
-      change_perc_above: config.change_perc_above?.toString() ?? '',
-      market_cap_above: config.market_cap_above != null ? String(config.market_cap_above / 1e6) : '',
-      market_cap_below: config.market_cap_below != null ? String(config.market_cap_below / 1e6) : '',
-    });
-  }, [config, hydrated]);
+  // The server's filters until the first keystroke, the user's own after it:
+  // following every broadcast past that would wipe edits in progress.
+  const base = config ? draftFrom(config) : DEFAULT_DRAFT;
+  const draft = edited ?? base;
+  const edit = (change: Partial<FilterDraft>) =>
+    setEdited((current) => ({ ...(current ?? base), ...change }));
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const num = (raw: string, scale = 1) => {
-      const value = Number(raw.trim());
-      return raw.trim() && Number.isFinite(value) ? value * scale : undefined;
+    const parsed = {
+      above_price: parseFilter(draft.above_price),
+      below_price: parseFilter(draft.below_price),
+      above_trade_rate: parseFilter(draft.above_trade_rate, { integer: true }),
+      change_perc_above: parseFilter(draft.change_perc_above),
+      market_cap_above: parseFilter(draft.market_cap_above, { scale: 1e6 }),
+      market_cap_below: parseFilter(draft.market_cap_below, { scale: 1e6 }),
+    };
+    const rejected = Object.entries(parsed)
+      .filter(([, result]) => 'invalid' in result)
+      .map(([key]) => key);
+    setInvalid(new Set(rejected));
+    if (rejected.length > 0) return;
+
+    const value = (key: keyof typeof parsed) => {
+      const result = parsed[key];
+      return 'value' in result ? result.value : 'clear';
     };
     onConfigure({
       scan_code: draft.scan_code,
-      above_price: num(draft.above_price) ?? 'clear',
-      below_price: num(draft.below_price) ?? 'clear',
-      above_trade_rate: num(draft.above_trade_rate) ?? 'clear',
-      change_perc_above: num(draft.change_perc_above) ?? 'clear',
-      market_cap_above: num(draft.market_cap_above, 1e6) ?? 'clear',
-      market_cap_below: num(draft.market_cap_below, 1e6) ?? 'clear',
+      above_price: value('above_price'),
+      below_price: value('below_price'),
+      above_trade_rate: value('above_trade_rate'),
+      change_perc_above: value('change_perc_above'),
+      market_cap_above: value('market_cap_above'),
+      market_cap_below: value('market_cap_below'),
     });
   }
 
@@ -254,12 +285,21 @@ function ScannerFilters({
     <label className="flex min-w-0 flex-col gap-0.5" title={title}>
       <span className="text-[8px] font-bold uppercase tracking-wide text-ink-3">{label}</span>
       <input
-        className={INPUT}
+        className={`${INPUT} ${invalid.has(key) ? 'border-down' : ''}`}
         inputMode="decimal"
         value={draft[key]}
         disabled={disabled}
+        aria-invalid={invalid.has(key)}
         data-testid={`scanner-${scannerId}-${key}`}
-        onChange={(event) => setDraft((d) => ({ ...d, [key]: event.target.value }))}
+        onChange={(event) => {
+          edit({ [key]: event.target.value });
+          setInvalid((current) => {
+            if (!current.has(key)) return current;
+            const next = new Set(current);
+            next.delete(key);
+            return next;
+          });
+        }}
       />
     </label>
   );
@@ -277,9 +317,11 @@ function ScannerFilters({
           className={INPUT}
           value={draft.scan_code}
           disabled={disabled}
-          onChange={(event) => setDraft((d) => ({ ...d, scan_code: event.target.value }))}
+          onChange={(event) => edit({ scan_code: event.target.value })}
         >
-          {scanCodes.length === 0 && <option value={draft.scan_code}>Top % Gainers</option>}
+          {/* Before the server's list arrives, the code itself: a friendly
+              label guessed here would name a different scan. */}
+          {scanCodes.length === 0 && <option value={draft.scan_code}>{draft.scan_code}</option>}
           {scanCodes.map((code) => (
             <option key={code.code} value={code.code}>
               {code.label}

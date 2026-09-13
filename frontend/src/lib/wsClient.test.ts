@@ -352,6 +352,38 @@ describe('WsClient', () => {
       expect(FakeSocket.latest().readyState).toBe(WebSocket.CLOSED);
     });
 
+    it('reconnects without waiting for a close that never comes', () => {
+      // A half-open TCP link can sit on its close for tens of seconds; the
+      // reconnect must not wait for it.
+      const client = makeClient({ heartbeatMs: 1000, heartbeatTimeoutMs: 500 });
+      const states: boolean[] = [];
+      client.onStatusChange((connected) => states.push(connected));
+      client.connect();
+      const silent = FakeSocket.latest();
+      silent.close = () => undefined;
+      silent.open();
+
+      vi.advanceTimersByTime(1500);
+      expect(states).toEqual([true, false]);
+
+      vi.advanceTimersByTime(1000);
+      expect(FakeSocket.instances).toHaveLength(2);
+      expect(FakeSocket.latest()).not.toBe(silent);
+    });
+
+    it('hears nothing more from the socket it abandoned', () => {
+      const client = makeClient({ heartbeatMs: 1000, heartbeatTimeoutMs: 500 });
+      const received: string[] = [];
+      client.onMessage((message) => received.push(message.type));
+      client.connect();
+      const silent = FakeSocket.latest();
+      silent.open();
+
+      vi.advanceTimersByTime(1500);
+      silent.emit({ type: 'pong' });
+      expect(received).toEqual([]);
+    });
+
     it('keeps the link when any frame arrives', () => {
       const client = makeClient({ heartbeatMs: 1000, heartbeatTimeoutMs: 500 });
       client.connect();

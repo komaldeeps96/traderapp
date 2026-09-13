@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
+import { useSymbolResource } from '@/hooks/useSymbolResource';
 import { formatMetricValue, formatMoney } from '@/lib/format';
 import { api } from '@/lib/http';
 import { useTerminalStore } from '@/store/useTerminalStore';
-import type { FinancialPeriodKind, MetricsResponse } from '@/types/protocol';
+import type { FinancialPeriodKind } from '@/types/protocol';
+
+import { LoadError, PeriodToggle } from './PeriodToggle';
 
 /**
  * What the statements mean, and what the market is asking for them.
@@ -18,32 +21,13 @@ import type { FinancialPeriodKind, MetricsResponse } from '@/types/protocol';
  * it means.
  */
 
-const PERIODS: Array<{ id: FinancialPeriodKind; label: string }> = [
-  { id: 'annual', label: 'Annual' },
-  { id: 'quarterly', label: 'Quarterly' },
-];
-
 export function MetricsTab() {
   const symbol = useTerminalStore((state) => state.symbol);
   const [period, setPeriod] = useState<FinancialPeriodKind>('annual');
-  const [data, setData] = useState<MetricsResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!symbol) return;
-    const controller = new AbortController();
-    setLoading(true);
-    void (async () => {
-      try {
-        setData(await api.metrics(symbol, period, controller.signal));
-      } catch {
-        if (!controller.signal.aborted) setData(null);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    })();
-    return () => controller.abort();
-  }, [symbol, period]);
+  const { data, error, loading } = useSymbolResource(
+    symbol ? `${symbol}|${period}` : '',
+    (signal) => api.metrics(symbol, period, signal),
+  );
 
   const valuation = data?.valuation ?? null;
   const empty = data !== null && data.groups.length === 0;
@@ -52,24 +36,7 @@ export function MetricsTab() {
     <div className="flex h-full min-h-0 flex-col bg-surface" data-testid="metrics-tab">
       <header className="flex shrink-0 items-center gap-3 border-b border-line px-3 py-1.5">
         <h2 className="font-mono text-[11px] font-semibold tracking-wide text-ink-2">METRICS</h2>
-        <div className="flex gap-1" role="group" aria-label="Reporting period">
-          {PERIODS.map((choice) => (
-            <button
-              key={choice.id}
-              type="button"
-              onClick={() => setPeriod(choice.id)}
-              aria-pressed={period === choice.id}
-              data-testid={`metrics-period-${choice.id}`}
-              className={`rounded-sm px-1.5 py-0.5 font-mono text-[10px] font-bold leading-4 ${
-                period === choice.id
-                  ? 'bg-accent/20 text-accent-text'
-                  : 'text-ink-3 hover:text-ink-2'
-              }`}
-            >
-              {choice.label.toUpperCase()}
-            </button>
-          ))}
-        </div>
+        <PeriodToggle value={period} onChange={setPeriod} testIdPrefix="metrics" />
         {data?.currency && data.groups.length > 0 && (
           <span
             className="font-mono text-[10px] text-ink-3"
@@ -116,7 +83,9 @@ export function MetricsTab() {
         </section>
       )}
 
-      {empty ? (
+      {error ? (
+        <LoadError what={`${symbol}'s metrics`} error={error} testId="metrics-error" />
+      ) : empty ? (
         <p className="p-4 font-mono text-[11px] text-ink-3" data-testid="metrics-empty">
           {data?.available === false
             ? 'SEC filings are switched off for this terminal.'

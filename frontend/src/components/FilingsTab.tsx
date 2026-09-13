@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-
+import { useKeyedState } from '@/hooks/useKeyedState';
+import { useSymbolResource } from '@/hooks/useSymbolResource';
 import { api } from '@/lib/http';
 import { useTerminalStore } from '@/store/useTerminalStore';
-import type { FilingKind, FilingRow, FilingsResponse } from '@/types/protocol';
+import type { FilingKind, FilingRow } from '@/types/protocol';
 
 import { DockBody, DockEmpty } from './DockPanel';
 
@@ -39,19 +39,16 @@ const LEADING_SHOWN = 18;
 export function FilingsTab() {
   const symbol = useTerminalStore((state) => state.symbol);
   const live = useTerminalStore((state) => state.liveFilings);
-  const { data, error, loading } = useFilings(symbol);
-  const [showAll, setShowAll] = useState(false);
-  const [showOlder, setShowOlder] = useState(false);
-
-  useEffect(() => {
-    setShowAll(false);
-    setShowOlder(false);
-  }, [symbol]);
+  const { data, error, loading } = useSymbolResource(symbol, (signal) =>
+    api.filings(symbol, signal),
+  );
+  const [showAll, setShowAll] = useKeyedState(symbol, false);
+  const [showOlder, setShowOlder] = useKeyedState(symbol, false);
 
   if (!symbol) return empty('Load a symbol to see its SEC filings.');
-  if (loading && !data) return empty(`Loading ${symbol} filings…`);
-  if (error) return empty(error);
-  if (!data?.available) {
+  if (error) return empty(`Could not load ${symbol}'s filings — ${error}.`);
+  if (loading || !data) return empty(`Loading ${symbol} filings…`);
+  if (!data.available) {
     return empty('SEC filings are switched off. Set edgar.enabled in settings.yaml.');
   }
 
@@ -163,32 +160,4 @@ function Row({ row, isLive }: { row: FilingRow; isLive: boolean }) {
       </span>
     </a>
   );
-}
-
-function useFilings(symbol: string) {
-  const [data, setData] = useState<FilingsResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!symbol) {
-      setData(null);
-      return;
-    }
-    const controller = new AbortController();
-    setLoading(true);
-    setError(null);
-    void (async () => {
-      try {
-        setData(await api.filings(symbol, controller.signal));
-      } catch {
-        if (!controller.signal.aborted) setError(`No filings available for ${symbol}.`);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    })();
-    return () => controller.abort();
-  }, [symbol]);
-
-  return { data, error, loading };
 }

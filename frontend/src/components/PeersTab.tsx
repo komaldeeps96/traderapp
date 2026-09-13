@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
-
+import { useSymbolResource } from '@/hooks/useSymbolResource';
 import { formatMetricValue, formatMoney } from '@/lib/format';
 import { api } from '@/lib/http';
 import { useTerminalStore } from '@/store/useTerminalStore';
-import type { PeerRank, PeerRow, PeersResponse } from '@/types/protocol';
+import type { PeerRank, PeerRow } from '@/types/protocol';
+
+import { LoadError } from './PeriodToggle';
 
 /**
  * The company beside the ones it competes with.
@@ -26,24 +27,9 @@ const RANK_TONE = (position: number | null, total: number): string => {
 
 export function PeersTab() {
   const symbol = useTerminalStore((state) => state.symbol);
-  const [data, setData] = useState<PeersResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!symbol) return;
-    const controller = new AbortController();
-    setLoading(true);
-    void (async () => {
-      try {
-        setData(await api.peers(symbol, controller.signal));
-      } catch {
-        if (!controller.signal.aborted) setData(null);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    })();
-    return () => controller.abort();
-  }, [symbol]);
+  const { data, error, loading } = useSymbolResource(symbol, (signal) =>
+    api.peers(symbol, signal),
+  );
 
   const rows = data?.rows ?? [];
   const ranks = data?.ranks ?? [];
@@ -77,7 +63,9 @@ export function PeersTab() {
         </section>
       )}
 
-      {rows.length === 0 ? (
+      {error ? (
+        <LoadError what={`${symbol}'s peers`} error={error} testId="peers-error" />
+      ) : data === null ? null : rows.length === 0 ? (
         <p className="p-4 font-mono text-[11px] text-ink-3" data-testid="peers-empty">
           {data?.available === false
             ? 'The TradingView screener is switched off for this terminal.'

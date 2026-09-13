@@ -50,6 +50,8 @@ import type {
 } from "@/types/protocol";
 import { SCANNER_TIER_IDS, SCANNER_TIER_LABELS } from "@/types/protocol";
 
+import { ATH_LEVEL_ID } from "./selectors";
+
 export interface ScannerTierState {
   label: string;
   rows: ScannerRow[];
@@ -71,6 +73,19 @@ function emptyScanners(): Record<ScannerTierId, ScannerTierState> {
 }
 
 export type ChartStatus = "idle" | "loading" | "ready" | "error";
+
+/**
+ * The all-time high's eye across a timeframe switch. It is drawn from the info
+ * stream rather than a spec, so the per-timeframe defaults know nothing of it.
+ */
+function keepAth(
+  next: Record<string, boolean>,
+  previous: Record<string, boolean>,
+): Record<string, boolean> {
+  return ATH_LEVEL_ID in previous
+    ? { ...next, [ATH_LEVEL_ID]: previous[ATH_LEVEL_ID] }
+    : next;
+}
 
 export interface Readout {
   bar: WireBar;
@@ -95,6 +110,9 @@ interface TerminalState {
   timeframe: Timeframe;
   status: ChartStatus;
   error: string | null;
+  /** A server message that is not about the chart, such as a rejected scanner
+   *  filter. Shown until dismissed or replaced. */
+  notice: string | null;
   barCount: number;
   live: Readout | null;
   hovered: Readout | null;
@@ -127,6 +145,8 @@ interface TerminalState {
   watchlist: string[];
   watchlistRows: WatchlistRow[];
   watchlistNote: string | null;
+  /** Counts the socket's pushes; see `seedWatchlist`. */
+  watchlistRevision: number;
 
   // the right-hand dock — which tab is open and how wide the rail is
   dockTab: DockTabId;
@@ -163,6 +183,9 @@ interface TerminalState {
   workingOrders: OrderRow[];
   /** The last order this terminal placed, for the strip's acknowledgement. */
   lastOrder: OrderRow | null;
+  /** A refusal addressed to this window alone, such as an order from a machine
+   *  that may not place one. The broadcast `trading.note` carries the rest. */
+  orderNote: string | null;
 
   // market regime
   regimeRunning: boolean;
@@ -191,6 +214,8 @@ interface TerminalState {
   setLive: (live: Readout, barCount: number) => void;
   setHovered: (hovered: Readout | null) => void;
   setError: (message: string) => void;
+  setNotice: (message: string | null) => void;
+  setOrderNote: (message: string | null) => void;
   toggleIndicator: (id: string) => void;
   setAllIndicators: (ids: string[], visible: boolean) => void;
   applyVisibility: (visibility: Record<string, boolean>) => void;
@@ -225,6 +250,10 @@ interface TerminalState {
     rows: WatchlistRow[];
     note: string | null;
   }) => void;
+  seedWatchlist: (
+    payload: { symbols: string[]; rows: WatchlistRow[]; note: string | null },
+    revision: number,
+  ) => void;
   addToWatchlist: (symbol: string) => void;
   removeFromWatchlist: (symbol: string) => void;
   setScannerTiers: (payload: {
@@ -263,6 +292,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   timeframe: "10s",
   status: "idle",
   error: null,
+  notice: null,
   barCount: 0,
   live: null,
   hovered: null,
@@ -280,6 +310,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   watchlist: [],
   watchlistRows: [],
   watchlistNote: null,
+  watchlistRevision: 0,
   miniTimeframes: loadMiniTimeframes(),
   dockTab: loadDockTab(),
   mainTab: loadMainTab(),
@@ -300,6 +331,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   positions: [],
   workingOrders: [],
   lastOrder: null,
+  orderNote: null,
 
   regimeRunning: false,
   regimeError: null,
@@ -318,10 +350,14 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   // server against the freshest quote and IBKR's own position — echoing an
   // optimistic fill here would draw a position that does not exist. The
   // `trading` broadcast that follows is what the strip renders.
-  buy: (symbol, dollars) =>
-    sendCommand({ action: "trade.buy", symbol, dollars }),
-  sell: (symbol, fraction) =>
-    sendCommand({ action: "trade.sell", symbol, fraction }),
+  buy: (symbol, dollars) => {
+    set({ orderNote: null });
+    sendCommand({ action: "trade.buy", symbol, dollars });
+  },
+  sell: (symbol, fraction) => {
+    set({ orderNote: null });
+    sendCommand({ action: "trade.sell", symbol, fraction });
+  },
   cancelAllOrders: () => sendCommand({ action: "trade.cancel_all" }),
 
   setSourceStatus: ({
@@ -378,11 +414,15 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       news: changedSymbol ? [] : state.news,
       liveFilings: changedSymbol ? [] : state.liveFilings,
       dockAlerts: changedSymbol ? {} : state.dockAlerts,
+      orderNote: changedSymbol ? null : state.orderNote,
       visibility: changedTimeframe
-        ? loadVisibility(
-            state.specs,
-            timeframe,
-            state.indicatorOverrides[timeframe],
+        ? keepAth(
+            loadVisibility(
+              state.specs,
+              timeframe,
+              state.indicatorOverrides[timeframe],
+            ),
+            state.visibility,
           )
         : state.visibility,
     });
@@ -405,9 +445,14 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
   setError: (message) => set({ status: "error", error: message }),
 
+  setNotice: (notice) => set({ notice }),
+
+  setOrderNote: (orderNote) => set({ orderNote }),
+
   toggleIndicator: (id) => {
     const { visibility } = get();
-    get().applyVisibility({ ...visibility, [id]: !visibility[id] });
+    // Shown until switched off: the all-time high has no spec, so no entry.
+    get().applyVisibility({ ...visibility, [id]: !(visibility[id] ?? true) });
   },
 
   setAllIndicators: (ids, visible) => {
@@ -535,7 +580,21 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   },
 
   setWatchlist: ({ symbols, rows, note }) =>
-    set({ watchlist: symbols, watchlistRows: rows, watchlistNote: note }),
+    set((state) => ({
+      watchlist: symbols,
+      watchlistRows: rows,
+      watchlistNote: note,
+      watchlistRevision: state.watchlistRevision + 1,
+    })),
+
+  // A fetched list answers for the moment it was asked. Once the socket has
+  // pushed since, it is older than what is on screen, and is dropped.
+  seedWatchlist: ({ symbols, rows, note }, revision) =>
+    set((state) =>
+      state.watchlistRevision === revision
+        ? { watchlist: symbols, watchlistRows: rows, watchlistNote: note }
+        : {},
+    ),
 
   // Both edits are sent and not applied: the list lives on the server, and the
   // broadcast that comes back is what every window renders. Echoing locally

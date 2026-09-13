@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { formatPrice } from "@/lib/format";
 import {
@@ -29,15 +29,15 @@ import type { BlockedReason, PositionRow } from "@/types/protocol";
  * the row under a moving finger.
  *
  * **There is no confirmation dialog**, which would defeat a one-click momentum
- * entry. The protection is a master switch off by default, a hard server-side
- * cap, a long-only clamp, and an in-flight guard that turns a double-click into
- * one order. See services/trading.py.
+ * entry. The protection is on the server (services/trading.py); the strip
+ * mirrors its repeat window so a second click is visibly dead, not refused.
  */
 
 /** What a dead button says, in the space a dead button has. */
 const BLOCKED_LABEL: Record<BlockedReason, string> = {
   no_quote: "no bid/ask",
   no_position: "flat",
+  committed: "working",
   too_small: "0 sh",
   over_cap: "over cap",
 };
@@ -45,10 +45,51 @@ const BLOCKED_LABEL: Record<BlockedReason, string> = {
 const BLOCKED_TITLE: Record<BlockedReason, string> = {
   no_quote: "No bid/ask for this symbol — an order cannot be priced.",
   no_position: "Nothing held in this symbol.",
+  committed: "Every share is already in a working sell order.",
   too_small: "Not enough for one whole share. Fractional shares are not used.",
   over_cap:
     "Over the per-order cap set in settings (trading.max_order_dollars).",
 };
+
+type Side = "buy" | "sell";
+type Hold = { symbol: string; key: string } | null;
+
+/**
+ * Holds one side of the strip for the server's repeat window after an order.
+ * A ref as well as state: two clicks can land before React renders between
+ * them, and the second must see the first.
+ */
+function useRepeatGuard(windowMs: number) {
+  const [holds, setHolds] = useState<Record<Side, Hold>>({
+    buy: null,
+    sell: null,
+  });
+  const latest = useRef(holds);
+  const timers = useRef<Partial<Record<Side, ReturnType<typeof setTimeout>>>>(
+    {},
+  );
+
+  useEffect(() => {
+    const pending = timers.current;
+    return () => Object.values(pending).forEach(clearTimeout);
+  }, []);
+
+  const update = (side: Side, hold: Hold) => {
+    latest.current = { ...latest.current, [side]: hold };
+    setHolds(latest.current);
+  };
+
+  /** Takes the side and returns true, or false if an order already holds it. */
+  const claim = (side: Side, symbol: string, key: string): boolean => {
+    if (latest.current[side]?.symbol === symbol) return false;
+    update(side, { symbol, key });
+    clearTimeout(timers.current[side]);
+    timers.current[side] = setTimeout(() => update(side, null), windowMs);
+    return true;
+  };
+
+  return { holds, claim };
+}
 
 function OrderButton({
   label,
@@ -63,7 +104,7 @@ function OrderButton({
   tone: "buy" | "sell";
   testId: string;
   disabled: boolean;
-  onClick: () => void;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
 }) {
   const dead = disabled || plan.blocked !== null || plan.shares <= 0;
   const detail = plan.blocked
@@ -149,6 +190,9 @@ export function OrderPanel({
   const positions = useTerminalStore((state) => state.positions);
   const workingOrders = useTerminalStore((state) => state.workingOrders);
   const lastOrder = useTerminalStore((state) => state.lastOrder);
+  const orderNote = useTerminalStore((state) => state.orderNote);
+  const connected = useTerminalStore((state) => state.connected);
+  const delayed = useTerminalStore((state) => state.delayed);
   const symbol = useTerminalStore((state) => state.symbol);
   const quote = useTerminalStore((state) => state.quote);
   const info = useTerminalStore((state) => state.info);
@@ -156,24 +200,9 @@ export function OrderPanel({
   const sell = useTerminalStore((state) => state.sell);
   const cancelAllOrders = useTerminalStore((state) => state.cancelAllOrders);
 
-  // A press is held for a beat so a fast fill still shows that the click
-  // registered. Without it a button that works looks like a button that did
-  // nothing, which is how a second order gets sent.
-  const [pressed, setPressed] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
+  const { holds, claim } = useRepeatGuard(
+    (trading?.repeat_guard_seconds ?? 0) * 1000,
   );
-
-  const press = (key: string, send: () => void) => {
-    send();
-    setPressed(key);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setPressed(null), 600);
-  };
 
   // With trading off the strip is not rendered at all: an inert row of buy
   // buttons is worse than no row, because it looks like it would work.
@@ -186,11 +215,37 @@ export function OrderPanel({
   const position = positions.find((row) => row.symbol === symbol);
   const held = position?.shares ?? 0;
   const halted = info?.halted === true;
-  // Halted, disconnected or read-only: the whole strip goes dead rather than
-  // each button discovering it separately at the moment of the click.
-  const frozen = !trading.connected || halted || trading.read_only;
+  // Halted, disconnected, delayed or read-only: the whole strip goes dead
+  // rather than each button discovering it at the moment of the click. With the
+  // backend socket down a click would be dropped on the floor unseen, and on
+  // the delayed feed the server refuses to price off a stale book.
+  const frozen =
+    !connected || !trading.connected || halted || delayed || trading.read_only;
   const note =
-    trading.note ?? (halted ? "Halted — orders will not fill." : null);
+    (connected
+      ? null
+      : "Disconnected from the terminal backend — orders cannot be sent.") ??
+    (delayed
+      ? "Quotes are delayed — orders are off until the real-time feed returns."
+      : null) ??
+    trading.note ??
+    orderNote ??
+    (halted ? "Halted — orders will not fill." : null);
+
+  const heldBy = (side: Side) =>
+    holds[side]?.symbol === symbol ? holds[side].key : null;
+
+  const press = (
+    side: Side,
+    key: string,
+    event: MouseEvent<HTMLButtonElement>,
+    send: () => void,
+  ) => {
+    // Focus left on the button would let a later Enter, meant for the symbol
+    // box, place the same order again.
+    event.currentTarget.blur();
+    if (claim(side, symbol, key)) send();
+  };
 
   return (
     <section
@@ -293,11 +348,13 @@ export function OrderPanel({
             <OrderButton
               key={key}
               testId={`order-${key}`}
-              label={pressed === key ? "···" : `$${dollars}`}
+              label={heldBy("buy") === key ? "···" : `$${dollars}`}
               plan={plan}
               tone="buy"
-              disabled={frozen || !symbol}
-              onClick={() => press(key, () => buy(symbol, dollars))}
+              disabled={frozen || !symbol || heldBy("buy") !== null}
+              onClick={(event) =>
+                press("buy", key, event, () => buy(symbol, dollars))
+              }
             />
           );
         })}
@@ -306,17 +363,25 @@ export function OrderPanel({
         <span aria-hidden className="mx-2 h-6 w-px bg-line-strong" />
 
         {trading.sell_fractions.map((fraction) => {
-          const plan = previewSell(fraction, held, quote, offset);
+          const plan = previewSell(
+            fraction,
+            held,
+            quote,
+            offset,
+            position?.committed ?? 0,
+          );
           const key = `sell-${fraction}`;
           return (
             <OrderButton
               key={key}
               testId={`order-${key}`}
-              label={pressed === key ? "···" : sellLabel(fraction)}
+              label={heldBy("sell") === key ? "···" : sellLabel(fraction)}
               plan={plan}
               tone="sell"
-              disabled={frozen || !symbol}
-              onClick={() => press(key, () => sell(symbol, fraction))}
+              disabled={frozen || !symbol || heldBy("sell") !== null}
+              onClick={(event) =>
+                press("sell", key, event, () => sell(symbol, fraction))
+              }
             />
           );
         })}

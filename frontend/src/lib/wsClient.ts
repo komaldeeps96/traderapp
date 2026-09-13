@@ -17,6 +17,8 @@
 
 import type { ClientCommand, ScannerTierId, ServerMessage, Timeframe } from '@/types/protocol';
 
+import { API_PORT } from './http';
+
 export type MessageHandler = (message: ServerMessage) => void;
 export type StatusHandler = (connected: boolean) => void;
 
@@ -84,7 +86,10 @@ export class WsClient {
     const socket = this.options.createSocket(this.options.url);
     this.socket = socket;
 
+    // Every handler checks it still belongs to the current socket: an old one
+    // can deliver its close after a new one has opened.
     socket.onopen = () => {
+      if (this.socket !== socket) return;
       this.reconnectAttempts = 0;
       this.emitStatus(true);
       this.startHeartbeat();
@@ -96,6 +101,7 @@ export class WsClient {
     };
 
     socket.onmessage = (event: MessageEvent) => {
+      if (this.socket !== socket) return;
       let parsed: ServerMessage;
       try {
         parsed = JSON.parse(event.data as string) as ServerMessage;
@@ -108,6 +114,7 @@ export class WsClient {
     };
 
     socket.onclose = () => {
+      if (this.socket !== socket) return;
       this.stopHeartbeat();
       this.emitStatus(false);
       if (!this.closedByUs) this.scheduleReconnect();
@@ -223,12 +230,28 @@ export class WsClient {
       if (this.pongTimer) return;
       this.pongTimer = setTimeout(() => {
         this.pongTimer = null;
-        // Silence past the deadline means the link is dead even though the
-        // socket still claims to be open. Force it closed so onclose can
-        // schedule a reconnect.
-        this.socket?.close();
+        this.abandon();
       }, this.options.heartbeatTimeoutMs);
     }, this.options.heartbeatMs);
+  }
+
+  /**
+   * Give up on a link that has gone silent. A half-open TCP connection can take
+   * tens of seconds to deliver its close, so the reconnect does not wait on it.
+   */
+  private abandon(): void {
+    const socket = this.socket;
+    this.socket = null;
+    this.stopHeartbeat();
+    if (socket) {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      socket.close();
+    }
+    this.emitStatus(false);
+    this.scheduleReconnect();
   }
 
   private stopHeartbeat(): void {
@@ -246,8 +269,6 @@ export class WsClient {
     }
   }
 }
-
-const API_PORT = '8000';
 
 function defaultUrl(): string {
   const override = import.meta.env?.VITE_WS_URL;

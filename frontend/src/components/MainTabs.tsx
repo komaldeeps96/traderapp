@@ -1,4 +1,5 @@
 import { MAIN_TAB_IDS, MAIN_TAB_LABELS, MAIN_TAB_TITLES } from '@/lib/mainTabs';
+import { onTabListKey } from '@/lib/tabs';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
 /**
@@ -18,14 +19,18 @@ export function MainTabs() {
       aria-label="Main view"
       data-testid="main-tabs"
       className="flex shrink-0 items-center gap-0.5 border-b border-line bg-panel px-2"
+      onKeyDown={(event) => onTabListKey(event, MAIN_TAB_IDS, tab, setTab)}
     >
       {MAIN_TAB_IDS.map((id) => (
         <button
           key={id}
           type="button"
           role="tab"
+          id={`main-tab-${id}`}
+          tabIndex={tab === id ? 0 : -1}
           aria-selected={tab === id}
-          aria-controls={`main-panel-${id}`}
+          // Only the open panel is in the document to point at.
+          aria-controls={tab === id ? `main-panel-${id}` : undefined}
           title={MAIN_TAB_TITLES[id]}
           data-testid={`main-tab-${id}`}
           onClick={() => setTab(id)}

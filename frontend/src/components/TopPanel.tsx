@@ -28,6 +28,11 @@ import {
   type SpreadTone,
 } from '@/store/selectors';
 import { useKeyLevels } from '@/hooks/useKeyLevels';
+import {
+  EARNINGS_HORIZON_DAYS,
+  EARNINGS_NEAR_DAYS,
+  EARNINGS_URGENT_DAYS,
+} from '@/lib/earnings';
 import { useTerminalStore } from '@/store/useTerminalStore';
 import type { DilutionTone } from '@/types/protocol';
 
@@ -97,10 +102,6 @@ function bandTierTitle(info: InfoView): string {
  * Past dates are dropped — TradingView keeps serving the last scheduled date
  * after the event, and "ERN -3d" reads as a date to avoid.
  */
-const EARNINGS_URGENT_DAYS = 7;
-const EARNINGS_NEAR_DAYS = 14;
-const EARNINGS_HORIZON_DAYS = 60;
-
 function earningsClass(days: number): string {
   if (days <= EARNINGS_URGENT_DAYS) return 'bg-down/20 text-down';
   if (days <= EARNINGS_NEAR_DAYS) return 'bg-elevated text-accent-text';

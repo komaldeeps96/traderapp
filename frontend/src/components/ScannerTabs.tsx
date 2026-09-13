@@ -3,6 +3,7 @@ import {
   SCANNER_TAB_LABELS,
   SCANNER_TAB_TITLES,
 } from '@/lib/scannerTabs';
+import { onTabListKey } from '@/lib/tabs';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
 /** Day movers or swing setups — the two questions the left column answers. */
@@ -16,12 +17,14 @@ export function ScannerTabs() {
       aria-label="Scanner mode"
       data-testid="scanner-tabs"
       className="flex shrink-0 items-center gap-0.5 border-b border-line bg-panel px-2"
+      onKeyDown={(event) => onTabListKey(event, SCANNER_TAB_IDS, tab, setTab)}
     >
       {SCANNER_TAB_IDS.map((id) => (
         <button
           key={id}
           type="button"
           role="tab"
+          tabIndex={tab === id ? 0 : -1}
           aria-selected={tab === id}
           title={SCANNER_TAB_TITLES[id]}
           data-testid={`scanner-tab-${id}`}

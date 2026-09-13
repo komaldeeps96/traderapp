@@ -35,12 +35,12 @@ import {
   hasCandleCountdown,
   isCandleClosing,
   secondsToCandleClose,
-  sessionVolumes,
 } from '@/lib/session';
 import { loadZoom, saveZoom } from '@/lib/storage';
 import type { LevelStyle } from '@/store/selectors';
 import { indicatorLabel, type IndicatorSpec, type SeriesMap, type Timeframe, type WireBar } from '@/types/protocol';
 
+import { BarData } from './barData';
 import { MeasureTool, measureStats, type MeasurePoint } from './measure';
 import { BarCountdown } from './countdown';
 import type { MiniConfig } from './mini';
@@ -135,16 +135,12 @@ export class ChartEngine {
   private athPrice: number | null = null;
   private dollarRange: { low: number; high: number; step: number } | null = null;
 
-  private bars: WireBar[] = [];
-  private barIndex = new Map<number, number>();
-  private seriesValues = new Map<string, Map<number, number>>();
+  private readonly data = new BarData();
   private specs: IndicatorSpec[] = [];
   private timeframe: Timeframe = '10s';
   private zoomSaveTimer: ReturnType<typeof setTimeout> | null = null;
   /** Specs streamed for the readout strip but never painted. */
   private readoutIds = new Set<string>();
-  /** Session-cumulative volume per bar; null until asked for, dropped on any bar change. */
-  private sessionVolCache: number[] | null = null;
   private theme: ThemeName;
   private palette: ChartPalette;
   private readonly measure = new MeasureTool();
@@ -231,41 +227,27 @@ export class ChartEngine {
   // ── lifecycle ────────────────────────────────────────────────────────
 
   private chartOptions() {
-    const palette = this.palette;
+    const theme = this.themeOptions();
+    const formatters = this.formatterOptions();
     return {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: palette.surface },
-        textColor: palette.textMuted,
+        ...theme.layout,
         fontFamily:
           "system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
         fontSize: this.fontSize,
-        panes: { separatorColor: palette.border, separatorHoverColor: palette.grid },
       },
-      grid: {
-        vertLines: { color: palette.grid },
-        horzLines: { color: palette.grid },
-      },
+      grid: theme.grid,
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: {
-          color: palette.crosshair,
-          width: 1 as const,
-          style: LineStyle.Dashed,
-          labelBackgroundColor: palette.crosshairLabel,
-        },
-        horzLine: {
-          color: palette.crosshair,
-          width: 1 as const,
-          style: LineStyle.Dashed,
-          labelBackgroundColor: palette.crosshairLabel,
-        },
+        vertLine: { ...theme.crosshair.vertLine, width: 1 as const, style: LineStyle.Dashed },
+        horzLine: { ...theme.crosshair.horzLine, width: 1 as const, style: LineStyle.Dashed },
       },
       // Both scales stay visible on a mini chart — a price without an axis is
       // a shape, not a level — but the price scale gives back the width it
       // reserves for a full chart's key-level tags, which a mini has none of.
       rightPriceScale: {
-        borderColor: palette.border,
+        ...theme.rightPriceScale,
         autoScale: true,
         minimumWidth: this.mini ? 44 : 64,
         // The library reserves a fifth of the pane above the highest bar,
@@ -275,10 +257,46 @@ export class ChartEngine {
         scaleMargins: PRICE_SCALE_MARGINS,
       },
       timeScale: {
-        borderColor: palette.border,
+        ...theme.timeScale,
+        ...formatters.timeScale,
         timeVisible: true,
-        secondsVisible: this.timeframe === '10s',
         rightOffset: this.mini ? 1 : 4,
+      },
+      localization: formatters.localization,
+    };
+  }
+
+  /**
+   * Colours only. Re-applying the rest resets the right offset and the price
+   * scale's auto-scaling, which scrolls a chart read back in time to its live
+   * edge and undoes a manual vertical zoom.
+   */
+  private themeOptions() {
+    const palette = this.palette;
+    return {
+      layout: {
+        background: { type: ColorType.Solid, color: palette.surface },
+        textColor: palette.textMuted,
+        panes: { separatorColor: palette.border, separatorHoverColor: palette.grid },
+      },
+      grid: {
+        vertLines: { color: palette.grid },
+        horzLines: { color: palette.grid },
+      },
+      crosshair: {
+        vertLine: { color: palette.crosshair, labelBackgroundColor: palette.crosshairLabel },
+        horzLine: { color: palette.crosshair, labelBackgroundColor: palette.crosshairLabel },
+      },
+      rightPriceScale: { borderColor: palette.border },
+      timeScale: { borderColor: palette.border },
+    };
+  }
+
+  /** What depends on the timeframe: the axis and crosshair time labels. */
+  private formatterOptions() {
+    return {
+      timeScale: {
+        secondsVisible: this.timeframe === '10s',
         tickMarkFormatter: (time: UTCTimestamp) => formatAxisTime(Number(time), this.timeframe),
       },
       localization: {
@@ -308,14 +326,14 @@ export class ChartEngine {
     this.zoomSaveTimer = null;
     this.setMeasureMode(false);
     this.indicatorSeries.clear();
-    this.seriesValues.clear();
+    this.data.clear();
     this.chart.remove();
   }
 
   setTheme(theme: ThemeName): void {
     this.theme = theme;
     this.palette = paletteFor(theme);
-    this.chart.applyOptions(this.chartOptions());
+    this.chart.applyOptions(this.themeOptions());
     this.candles.applyOptions({
       upColor: this.palette.up,
       downColor: this.palette.down,
@@ -336,7 +354,12 @@ export class ChartEngine {
       this.macdSignal?.applyOptions({ color: this.signalColor() });
     }
     this.applyCountdownColors();
-    if (this.bars.length) {
+    // Redrawn at the same price in the new colour; setAllTimeHigh skips an
+    // unchanged price.
+    const ath = this.athPrice;
+    this.athPrice = null;
+    this.setAllTimeHigh(ath);
+    if (this.data.count) {
       this.renderPanes();
       this.renderDollarLines();
     }
@@ -405,17 +428,15 @@ export class ChartEngine {
     // exact for prepends and appends alike, and it keeps the right-edge
     // whitespace that a time-based restore would clamp away.
     const keepLogical = input.resetView ? null : this.timeScale.getVisibleLogicalRange();
-    const anchorTime = this.bars[0]?.t;
+    const anchorTime = this.data.bars[0]?.t;
 
     this.specs = input.specs;
     this.timeframe = input.timeframe;
-    this.bars = input.bars;
-    this.barIndex = new Map(input.bars.map((bar, index) => [bar.t, index]));
-    this.sessionVolCache = null;
+    this.data.load(input.bars);
 
     // Timeframe-dependent formatters have to be reapplied before data lands,
     // or the axis briefly labels 1-minute bars as dates.
-    this.chart.applyOptions(this.chartOptions());
+    this.chart.applyOptions(this.formatterOptions());
 
     this.reconcileSeries(input.specs, input.timeframe, input.visibility);
     this.applyPricePrecision();
@@ -428,11 +449,13 @@ export class ChartEngine {
 
     if (input.resetView) {
       // A measurement is a statement about one symbol on one timeframe;
-      // carried across a switch it would be quietly wrong.
+      // carried across a switch it would be quietly wrong. So is a manual
+      // vertical zoom: a new chart starts auto-scaled.
       this.measure.clear();
+      this.chart.priceScale('right').applyOptions({ autoScale: true });
       this.resetView(this.savedZoom());
     } else if (keepLogical) {
-      const shift = anchorTime !== undefined ? (this.barIndex.get(anchorTime) ?? 0) : 0;
+      const shift = anchorTime !== undefined ? (this.data.indexOf(anchorTime) ?? 0) : 0;
       this.timeScale.setVisibleLogicalRange({
         from: keepLogical.from + shift,
         to: keepLogical.to + shift,
@@ -507,7 +530,7 @@ export class ChartEngine {
       const series = this.indicatorSeries.get(id);
       if (!series || !style.labelVisible) continue;
 
-      const value = this.latestValue(id);
+      const value = this.data.latestValue(id);
       const y = value === undefined ? null : series.priceToCoordinate(value);
       const overlaps = y !== null && y > priceY - height && y < priceY + 2 * height;
       if (overlaps === this.crowded.has(id)) continue;
@@ -527,11 +550,9 @@ export class ChartEngine {
    * history loads.
    */
   clear(): void {
-    this.bars = [];
-    this.barIndex.clear();
+    this.data.clear();
     this.setAllTimeHigh(null);
     this.countdown.set(null);
-    this.seriesValues.clear();
     for (const line of this.dollarLines) this.candles.removePriceLine(line);
     this.dollarLines = [];
     this.dollarRange = null;
@@ -546,14 +567,7 @@ export class ChartEngine {
   }
 
   applyBar(bar: WireBar, values: Record<string, number>): void {
-    const existingIndex = this.barIndex.get(bar.t);
-    if (existingIndex === undefined) {
-      this.bars.push(bar);
-      this.barIndex.set(bar.t, this.bars.length - 1);
-    } else {
-      this.bars[existingIndex] = bar;
-    }
-    this.sessionVolCache = null;
+    this.data.upsert(bar);
 
     const time = bar.t as UTCTimestamp;
     this.candles.update({ time, open: bar.o, high: bar.h, low: bar.l, close: bar.c });
@@ -566,16 +580,16 @@ export class ChartEngine {
       if (!Number.isFinite(value)) continue;
       if (id.startsWith('macd')) {
         this.updateMacdPoint(id, time, value);
-        this.rememberValue(id, bar.t, value);
+        this.data.remember(id, bar.t, value);
         continue;
       }
       const series = this.indicatorSeries.get(id);
       if (!series) {
-        if (this.readoutIds.has(id)) this.rememberValue(id, bar.t, value);
+        if (this.readoutIds.has(id)) this.data.remember(id, bar.t, value);
         continue;
       }
       series.update({ time, value });
-      this.rememberValue(id, bar.t, value);
+      this.data.remember(id, bar.t, value);
     }
 
     // A runner breaking to new highs grows the dollar grid as it goes.
@@ -601,7 +615,7 @@ export class ChartEngine {
 
   private renderCandles(): void {
     this.candles.setData(
-      this.bars.map((bar) => ({
+      this.data.bars.map((bar) => ({
         time: bar.t as UTCTimestamp,
         open: bar.o,
         high: bar.h,
@@ -610,27 +624,27 @@ export class ChartEngine {
       })),
     );
     this.extendedHours.setData(
-      this.bars.map((bar) => ({ time: bar.t as UTCTimestamp, value: bar.x ? 1 : 0 })),
+      this.data.bars.map((bar) => ({ time: bar.t as UTCTimestamp, value: bar.x ? 1 : 0 })),
     );
   }
 
   private renderPanes(): void {
-    const points = this.bars.map((bar) => ({
+    const points = this.data.bars.map((bar) => ({
       time: bar.t as UTCTimestamp,
       color: this.volumeColor(bar),
     }));
-    this.volume?.setData(points.map((point, i) => ({ ...point, value: this.bars[i]!.v })));
+    this.volume?.setData(points.map((point, i) => ({ ...point, value: this.data.bars[i]!.v })));
   }
 
   private renderIndicators(series: SeriesMap): void {
-    this.seriesValues.clear();
+    this.data.clearSeries();
     for (const [id, chartSeries] of this.indicatorSeries) {
       const points = series[id] ?? [];
       chartSeries.setData(points.map(([time, value]) => ({ time: time as UTCTimestamp, value })));
-      this.seriesValues.set(id, new Map(points));
+      this.data.setSeries(id, points);
     }
     for (const id of this.readoutIds) {
-      this.seriesValues.set(id, new Map(series[id] ?? []));
+      this.data.setSeries(id, series[id] ?? []);
     }
     this.renderMacd(series);
   }
@@ -650,7 +664,7 @@ export class ChartEngine {
       })),
     );
     for (const id of ['macd', 'macd_signal', 'macd_hist']) {
-      this.seriesValues.set(id, new Map(series[id] ?? []));
+      this.data.setSeries(id, series[id] ?? []);
     }
   }
 
@@ -698,11 +712,11 @@ export class ChartEngine {
     // On a mini chart the grid would be denser than the candles it sits
     // behind, which is wallpaper rather than information.
     if (this.mini) return;
-    if (!this.bars.length || !INTRADAY_TIMEFRAMES.has(this.timeframe)) return;
+    if (!this.data.bars.length || !INTRADAY_TIMEFRAMES.has(this.timeframe)) return;
 
     let low = Infinity;
     let high = -Infinity;
-    for (const bar of this.bars) {
+    for (const bar of this.data.bars) {
       if (bar.l < low) low = bar.l;
       if (bar.h > high) high = bar.h;
     }
@@ -735,15 +749,6 @@ export class ChartEngine {
       );
     }
     this.dollarRange = { low, high, step };
-  }
-
-  private rememberValue(id: string, time: number, value: number): void {
-    let lookup = this.seriesValues.get(id);
-    if (!lookup) {
-      lookup = new Map();
-      this.seriesValues.set(id, lookup);
-    }
-    lookup.set(time, value);
   }
 
   private volumeColor(bar: WireBar): string {
@@ -782,7 +787,7 @@ export class ChartEngine {
       if (!wanted.has(id)) {
         this.chart.removeSeries(series);
         this.indicatorSeries.delete(id);
-        this.seriesValues.delete(id);
+        this.data.dropSeries(id);
       }
     }
 
@@ -794,7 +799,6 @@ export class ChartEngine {
     if (volumeSpec) nextPane += 1;
     const macdSpec = [...wanted.values()].find((spec) => spec.pane === 'macd');
     this.ensureMacd(macdSpec, macdSpec ? nextPane : 0, visibility);
-    if (macdSpec) nextPane += 1;
 
     for (const [id, spec] of wanted) {
       if (spec.pane !== 'price') continue;
@@ -938,95 +942,33 @@ export class ChartEngine {
 
   // ── lookups ──────────────────────────────────────────────────────────
 
-  getBars(): readonly WireBar[] {
-    return this.bars;
-  }
-
   barCount(): number {
-    return this.bars.length;
+    return this.data.count;
   }
 
   lastBar(): WireBar | null {
-    return this.bars.at(-1) ?? null;
+    return this.data.last();
   }
 
-  /** The session's cumulative volume as of the bar at `time`. */
   sessionVolumeAt(time: number): number | null {
-    const index = this.barIndex.get(time);
-    if (index === undefined) return null;
-    this.sessionVolCache ??= sessionVolumes(this.bars);
-    return this.sessionVolCache[index] ?? null;
+    return this.data.sessionVolumeAt(time);
   }
 
   barAt(time: number): WireBar | null {
-    const index = this.barIndex.get(time);
-    return index === undefined ? null : (this.bars[index] ?? null);
+    return this.data.at(time);
   }
 
-  /** The close of the bar before `time`, for the change readout. */
   previousClose(time: number): number | null {
-    const index = this.barIndex.get(time);
-    if (index === undefined || index <= 0) return null;
-    return this.bars[index - 1]?.c ?? null;
+    return this.data.previousClose(time);
   }
 
-  /**
-   * Indicator values at a timestamp.
-   *
-   * Key-level series are stored compressed (two points per constant run), so an
-   * exact hit is rare and the value in effect is the newest point at or before
-   * the time asked for.
-   */
   valuesAt(time: number): Record<string, number> {
-    const values: Record<string, number> = {};
-    for (const [id, lookup] of this.seriesValues) {
-      const exact = lookup.get(time);
-      if (exact !== undefined) {
-        values[id] = exact;
-        continue;
-      }
-      let bestTime = -Infinity;
-      let bestValue: number | undefined;
-      for (const [pointTime, value] of lookup) {
-        if (pointTime <= time && pointTime > bestTime) {
-          bestTime = pointTime;
-          bestValue = value;
-        }
-      }
-      if (bestValue !== undefined) values[id] = bestValue;
-    }
-    return values;
+    return this.data.valuesAt(time);
   }
 
-  /**
-   * The newest value of one series.
-   *
-   * Points are not in time order — a live `update` appends to whatever the
-   * snapshot left — so this scans rather than peeking at the end. Cheap because
-   * the timer-driven caller only asks about compressed key levels.
-   */
-  latestValue(id: string): number | undefined {
-    const lookup = this.seriesValues.get(id);
-    if (!lookup) return undefined;
-    let bestTime = -Infinity;
-    let bestValue: number | undefined;
-    for (const [pointTime, value] of lookup) {
-      if (pointTime > bestTime) {
-        bestTime = pointTime;
-        bestValue = value;
-      }
-    }
-    return bestValue;
-  }
-
-  /** Every series' newest value. Once per snapshot — see `latestValue`. */
+  /** Every series' newest value. Once per snapshot: each is a scan. */
   latestValues(): Record<string, number> {
-    const values: Record<string, number> = {};
-    for (const id of this.seriesValues.keys()) {
-      const value = this.latestValue(id);
-      if (value !== undefined) values[id] = value;
-    }
-    return values;
+    return this.data.latestValues();
   }
 
   // ── navigation ───────────────────────────────────────────────────────
@@ -1079,12 +1021,12 @@ export class ChartEngine {
    * persisted width back in, so a restart or symbol switch keeps the zoom.
    */
   resetView(visibleBars?: number): void {
-    if (!this.bars.length) return;
+    if (!this.data.bars.length) return;
     const visible = visibleBars ?? this.mini?.visibleBars ?? DEFAULT_VISIBLE_BARS;
     this.chart.priceScale('right').applyOptions({ autoScale: true });
     this.timeScale.setVisibleLogicalRange({
-      from: Math.max(0, this.bars.length - visible),
-      to: this.bars.length - 1,
+      from: Math.max(0, this.data.bars.length - visible),
+      to: this.data.bars.length - 1,
     });
   }
 
@@ -1130,7 +1072,7 @@ export class ChartEngine {
     this.measure.setSelection(
       this.measureAnchor,
       point,
-      measureStats(this.bars, this.timeframe, this.measureAnchor, point),
+      measureStats(this.data.bars, this.timeframe, this.measureAnchor, point),
     );
   };
 
@@ -1145,15 +1087,15 @@ export class ChartEngine {
    * price is left exactly where the pointer put it.
    */
   private measurePoint(event: PointerEvent): MeasurePoint | null {
-    if (!this.bars.length) return null;
+    if (!this.data.bars.length) return null;
     const rect = this.options.container.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const logical = this.timeScale.coordinateToLogical(x);
     const price = this.candles.coordinateToPrice(y);
     if (logical === null || price === null) return null;
-    const index = Math.min(Math.max(Math.round(logical), 0), this.bars.length - 1);
-    const bar = this.bars[index];
+    const index = Math.min(Math.max(Math.round(logical), 0), this.data.bars.length - 1);
+    const bar = this.data.bars[index];
     if (!bar) return null;
     return { index, time: bar.t, price };
   }
@@ -1175,15 +1117,18 @@ export class ChartEngine {
    */
   private persistZoomSoon(): void {
     const key = this.zoomKey();
-    if (!key || !this.bars.length) return;
+    if (!key || !this.data.bars.length) return;
     if (this.zoomSaveTimer !== null) clearTimeout(this.zoomSaveTimer);
     this.zoomSaveTimer = setTimeout(() => {
       this.zoomSaveTimer = null;
       const range = this.timeScale.getVisibleLogicalRange();
+      // A view reaching the first bar was sized by the data, not the user: a
+      // twenty-bar listing would otherwise become every weekly chart's width.
+      if (!range || range.from <= 0) return;
       // Stored as a bar COUNT, matching what resetView takes: a range from
       // logical a to b shows b - a + 1 bars, and feeding the raw width back
       // in would shave one bar off the view on every restore.
-      if (range) saveZoom(key, range.to - range.from + 1);
+      saveZoom(key, range.to - range.from + 1);
     }, ZOOM_SAVE_DELAY_MS);
   }
 
@@ -1223,7 +1168,7 @@ export class ChartEngine {
    */
   inspect() {
     return {
-      barCount: this.bars.length,
+      barCount: this.data.count,
       lastBar: this.lastBar(),
       timeframe: this.timeframe,
       theme: this.theme,
@@ -1245,9 +1190,7 @@ export class ChartEngine {
           : null,
       },
       seriesIds: [...this.indicatorSeries.keys()].sort(),
-      pointCounts: Object.fromEntries(
-        [...this.seriesValues].map(([id, lookup]) => [id, lookup.size]),
-      ),
+      pointCounts: this.data.pointCounts(),
       visible: Object.fromEntries(
         [...this.indicatorSeries].map(([id, series]) => [id, series.options().visible]),
       ),

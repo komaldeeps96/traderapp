@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { MINI_COLUMN_QUERY } from '@/chart/mini';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { DOCK_TAB_IDS, DOCK_TAB_LABELS, DOCK_TAB_TITLES, clampDockWidth } from '@/lib/dock';
+import { onTabListKey } from '@/lib/tabs';
 import type { Timeframe } from '@/types/protocol';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
@@ -76,6 +77,7 @@ export function Dock({
         role="tablist"
         aria-label="Dock panels"
         className="flex h-[26px] shrink-0 items-stretch border-b border-line bg-panel"
+        onKeyDown={(event) => onTabListKey(event, DOCK_TAB_IDS, tab, setTab)}
       >
         {DOCK_TAB_IDS.map((id) => (
           <button
@@ -83,8 +85,10 @@ export function Dock({
             type="button"
             role="tab"
             id={`dock-tab-${id}`}
+            tabIndex={tab === id ? 0 : -1}
             aria-selected={tab === id}
-            aria-controls={`dock-panel-${id}`}
+            // Only the open panel is mounted, so only it can be pointed at.
+            aria-controls={tab === id ? `dock-panel-${id}` : undefined}
             title={DOCK_TAB_TITLES[id]}
             data-testid={`dock-tab-${id}`}
             onClick={() => setTab(id)}

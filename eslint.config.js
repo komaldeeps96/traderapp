@@ -3,8 +3,8 @@
 // `tsc` already carries most of the weight here — the config is strict, with
 // `noUncheckedIndexedAccess` and `noUnusedLocals` — so this deliberately does
 // not repeat type checking. It covers what a type checker structurally cannot
-// see: exhausted-looking switches that are not, floating promises, React hook
-// dependency arrays, and exports nobody imports.
+// see: a switch that misses a member of a union, floating promises, and React
+// hook dependency arrays. Lint runs with --max-warnings 0.
 
 import js from '@eslint/js';
 import reactHooks from 'eslint-plugin-react-hooks';
@@ -61,6 +61,13 @@ export default tseslint.config(
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
 
+      // A server message type added to the union and not handled by the
+      // client's switch is a message silently dropped.
+      '@typescript-eslint/switch-exhaustiveness-check': [
+        'error',
+        { considerDefaultExhaustiveForUnions: true },
+      ],
+
       // `_`-prefixed is the established signal for "deliberately unused".
       '@typescript-eslint/no-unused-vars': [
         'error',
@@ -97,6 +104,8 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // An error, not the preset's warning: see the comment above.
+      'react-hooks/exhaustive-deps': 'error',
     },
   },
 
@@ -114,7 +123,7 @@ export default tseslint.config(
 
   // Vitest globals.
   {
-    files: ['frontend/**/*.test.ts', 'frontend/vitest.setup.ts'],
+    files: ['frontend/**/*.test.ts', 'frontend/**/*.test.tsx', 'frontend/vitest.setup.ts'],
     languageOptions: {
       globals: { ...globals.node },
     },

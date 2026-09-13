@@ -43,10 +43,13 @@ const VERDICT_TITLE: Record<NewsVerdict, string> = {
 
 export function NewsBriefPanel({ symbol }: { symbol: string }) {
   const enabled = useTerminalStore((state) => state.newsAi);
-  const headlines = useTerminalStore((state) => state.news);
-  const { brief, note, loading, refresh } = useBrief(symbol, enabled, headlines);
+  // Mounted only while switched on, so switching off drops the reading with it.
+  return enabled ? <BriefSection symbol={symbol} /> : null;
+}
 
-  if (!enabled) return null;
+function BriefSection({ symbol }: { symbol: string }) {
+  const headlines = useTerminalStore((state) => state.news);
+  const { brief, note, loading, refresh } = useBrief(symbol, headlines);
 
   return (
     <section
@@ -167,57 +170,51 @@ function Body({ brief }: { brief: Brief }) {
  * screen changes nothing the reader would read. The server keys its own cache
  * the same way, so the two agree about what counts as new.
  */
-function useBrief(
-  symbol: string,
-  enabled: boolean,
-  headlines: Array<{ article_id: string }>,
-) {
-  const [brief, setBrief] = useState<Brief | null>(null);
-  const [note, setNote] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+function useBrief(symbol: string, headlines: Array<{ article_id: string }>) {
+  const [reading, setReading] = useState<Reading | null>(null);
   const [nonce, setNonce] = useState(0);
   const forced = useRef(false);
 
-  const key = headlines.map((row) => row.article_id).join(',');
+  const ids = headlines.map((row) => row.article_id).join(',');
+  const request = symbol ? `${symbol}|${ids}|${nonce}` : '';
 
   useEffect(() => {
-    if (!symbol || !enabled) {
-      setBrief(null);
-      setNote(null);
-      setLoading(false);
-      return;
-    }
+    if (!request) return;
     const controller = new AbortController();
     const force = forced.current;
     forced.current = false;
-    setLoading(true);
-    void (async () => {
-      try {
-        const response = await api.newsBrief(symbol, force, controller.signal);
+    void api.newsBrief(symbol, force, controller.signal).then(
+      (response) => {
         if (controller.signal.aborted) return;
-        // A reply for the symbol that was current when the request went out,
-        // not the one the user has since typed.
-        if (response.symbol !== symbol) return;
-        setBrief(response.brief);
-        setNote(response.note ?? null);
-      } catch {
-        if (!controller.signal.aborted) {
-          setBrief(null);
-          setNote('The reader could not be reached.');
-        }
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    })();
+        setReading({ request, symbol, brief: response.brief, note: response.note ?? null });
+      },
+      () => {
+        if (controller.signal.aborted) return;
+        setReading({ request, symbol, brief: null, note: 'The reader could not be reached.' });
+      },
+    );
     return () => controller.abort();
-    // `key` stands in for the headline set; the array itself is replaced on
-    // every push and would re-run this for no change.
-  }, [symbol, enabled, key, nonce]);
+  }, [request, symbol]);
 
   const refresh = useCallback(() => {
     forced.current = true;
     setNonce((value) => value + 1);
   }, []);
 
-  return { brief, note, loading, refresh };
+  // A new headline leaves the last reading up until the next one lands; another
+  // symbol's reading is never shown.
+  const current = reading?.symbol === symbol ? reading : null;
+  return {
+    brief: current?.brief ?? null,
+    note: current?.note ?? null,
+    loading: request !== '' && reading?.request !== request,
+    refresh,
+  };
+}
+
+interface Reading {
+  request: string;
+  symbol: string;
+  brief: Brief | null;
+  note: string | null;
 }

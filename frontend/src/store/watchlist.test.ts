@@ -89,6 +89,22 @@ describe('watchlist', () => {
     expect(useTerminalStore.getState().watchlistNote).toContain('stale');
   });
 
+  it('takes a fetched list when the socket has said nothing since it was asked for', () => {
+    const store = useTerminalStore.getState();
+    store.seedWatchlist({ symbols: ['ZM'], rows: [row('ZM')], note: null }, store.watchlistRevision);
+    expect(useTerminalStore.getState().watchlist).toEqual(['ZM']);
+  });
+
+  it('drops a fetched list the socket has overtaken', () => {
+    const store = useTerminalStore.getState();
+    const asked = store.watchlistRevision;
+
+    store.setWatchlist({ symbols: ['ZM', 'ZZZZ'], rows: [row('ZM'), row('ZZZZ')], note: null });
+    store.seedWatchlist({ symbols: ['ZM'], rows: [row('ZM')], note: null }, asked);
+
+    expect(useTerminalStore.getState().watchlist).toEqual(['ZM', 'ZZZZ']);
+  });
+
   it('does not throw before the socket is attached', () => {
     setCommandSink(null);
     expect(() => useTerminalStore.getState().addToWatchlist('AAPL')).not.toThrow();

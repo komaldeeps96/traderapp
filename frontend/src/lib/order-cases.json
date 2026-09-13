@@ -55,6 +55,17 @@
     { "why": "long only — a short position sells nothing, it does not cover", "position": -5, "fraction": 1.0, "shares": 0 },
     { "position": 100, "fraction": 0.25, "shares": 25 },
     { "position": 101, "fraction": 0.5, "shares": 50 },
-    { "position": 1000, "fraction": 1.0, "shares": 1000 }
+    { "position": 1000, "fraction": 1.0, "shares": 1000 },
+    { "why": "an exact half rounds up in both languages, not to even", "position": 10000, "fraction": 0.12345, "shares": 1235 }
+  ],
+  "offsets": [
+    { "why": "a half micro rounds up in both languages, not to even", "price_micros": 3000, "cents": 0.0001, "bps": 15, "offset": 5 }
+  ],
+  "sell_plans": [
+    { "why": "sells size off the shares no working sell has claimed", "position": 14, "committed": 7, "fraction": 1.0, "shares": 7, "blocked": null },
+    { "position": 14, "committed": 4, "fraction": 0.5, "shares": 5, "blocked": null },
+    { "why": "every share already in a working sell: a second ALL cannot short", "position": 14, "committed": 14, "fraction": 1.0, "shares": 0, "blocked": "committed" },
+    { "position": 14, "committed": 20, "fraction": 0.25, "shares": 0, "blocked": "committed" },
+    { "why": "flat outranks committed", "position": 0, "committed": 5, "fraction": 1.0, "shares": 0, "blocked": "no_position" }
   ]
 }

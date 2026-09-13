@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
 
+import { useSymbolResource } from '@/hooks/useSymbolResource';
 import { formatAsFiled, formatStatementValue } from '@/lib/format';
 import { api } from '@/lib/http';
 import { useTerminalStore } from '@/store/useTerminalStore';
-import type {
-  ConceptsResponse,
-  FinancialPeriodKind,
-  FinancialsResponse,
-} from '@/types/protocol';
+import type { ConceptsResponse, FinancialPeriodKind } from '@/types/protocol';
+
+import { LoadError, PeriodToggle } from './PeriodToggle';
 
 /**
  * The income statement, balance sheet and cash flow, as filed.
@@ -20,11 +19,6 @@ import type {
  * behind a hover — a revenue line stitched across an ASC 606 change is two
  * tags, and which one answered is part of reading the number.
  */
-
-const PERIODS: Array<{ id: FinancialPeriodKind; label: string }> = [
-  { id: 'annual', label: 'Annual' },
-  { id: 'quarterly', label: 'Quarterly' },
-];
 
 /** Lines whose row is a subtotal rather than a component. */
 const EMPHASISED = new Set([
@@ -41,52 +35,39 @@ const EMPHASISED = new Set([
 export function FinancialsTab() {
   const symbol = useTerminalStore((state) => state.symbol);
   const [period, setPeriod] = useState<FinancialPeriodKind>('annual');
-  const [data, setData] = useState<FinancialsResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { data, error, loading } = useSymbolResource(
+    symbol ? `${symbol}|${period}` : '',
+    (signal) => api.financials(symbol, period, signal),
+  );
   // The statement is a tenth of what a filer tags. Typing here swaps the
   // table for everything else it reported, on the same period axis.
   const [query, setQuery] = useState('');
-  const [found, setFound] = useState<ConceptsResponse | null>(null);
+  // Held against the search that produced it, like the statements, so an
+  // answer for the previous symbol is not drawn under the next.
+  const [search, setSearch] = useState<{ key: string; found: ConceptsResponse } | null>(null);
+  const needle = query.trim();
+  const searchKey = symbol && needle.length >= 3 ? `${symbol}|${period}|${needle}` : '';
 
   useEffect(() => {
-    if (!symbol) return;
-    const controller = new AbortController();
-    setLoading(true);
-    void (async () => {
-      try {
-        setData(await api.financials(symbol, period, controller.signal));
-      } catch {
-        if (!controller.signal.aborted) setData(null);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    })();
-    return () => controller.abort();
-  }, [symbol, period]);
-
-  useEffect(() => {
-    const needle = query.trim();
-    if (!symbol || needle.length < 3) {
-      setFound(null);
-      return;
-    }
+    if (!searchKey) return;
     const controller = new AbortController();
     // Short enough to feel live, long enough not to search each keystroke.
     const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          setFound(await api.concepts(symbol, needle, period, controller.signal));
-        } catch {
-          if (!controller.signal.aborted) setFound(null);
-        }
-      })();
+      api.concepts(symbol, needle, period, controller.signal).then(
+        (found) => {
+          if (!controller.signal.aborted) setSearch({ key: searchKey, found });
+        },
+        // A failed search leaves the statement on screen.
+        () => undefined,
+      );
     }, 250);
     return () => {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [symbol, query, period]);
+  }, [searchKey, symbol, needle, period]);
 
+  const found = search?.key === searchKey ? search.found : null;
   const searching = found !== null;
   const empty = !searching && data !== null && data.periods.length === 0;
 
@@ -96,24 +77,7 @@ export function FinancialsTab() {
         <h2 className="font-mono text-[11px] font-semibold tracking-wide text-ink-2">
           FINANCIALS
         </h2>
-        <div className="flex gap-1" role="group" aria-label="Reporting period">
-          {PERIODS.map((choice) => (
-            <button
-              key={choice.id}
-              type="button"
-              onClick={() => setPeriod(choice.id)}
-              aria-pressed={period === choice.id}
-              data-testid={`financials-period-${choice.id}`}
-              className={`rounded-sm px-1.5 py-0.5 font-mono text-[10px] font-bold leading-4 ${
-                period === choice.id
-                  ? 'bg-accent/20 text-accent-text'
-                  : 'text-ink-3 hover:text-ink-2'
-              }`}
-            >
-              {choice.label.toUpperCase()}
-            </button>
-          ))}
-        </div>
+        <PeriodToggle value={period} onChange={setPeriod} testIdPrefix="financials" />
         {/* The caption describes whichever view is on screen. Search rows
             are shown as filed, so a "converted to USD" caption above CAD
             figures would be a plain contradiction. */}
@@ -170,7 +134,9 @@ export function FinancialsTab() {
         )}
       </header>
 
-      {empty ? (
+      {error ? (
+        <LoadError what={`${symbol}'s statements`} error={error} testId="financials-error" />
+      ) : empty ? (
         <p className="p-4 font-mono text-[11px] text-ink-3" data-testid="financials-empty">
           {data?.available === false
             ? 'SEC filings are switched off for this terminal.'

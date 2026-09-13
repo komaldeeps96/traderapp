@@ -41,6 +41,26 @@ describe("the shared case table", () => {
       expect(sharesForFraction(row.position, row.fraction)).toBe(row.shares);
     },
   );
+
+  it.each(cases.offsets)("$why", (row) => {
+    expect(
+      offsetMicros(row.price_micros, { cents: row.cents, bps: row.bps }),
+    ).toBe(row.offset);
+  });
+
+  it.each(cases.sell_plans)(
+    "$fraction of $position with $committed committed is $shares shares",
+    (row) => {
+      const plan = previewSell(
+        row.fraction,
+        row.position,
+        QUOTE,
+        OFFSET,
+        row.committed,
+      );
+      expect([plan.shares, plan.blocked]).toEqual([row.shares, row.blocked]);
+    },
+  );
 });
 
 describe("properties the table cannot express", () => {

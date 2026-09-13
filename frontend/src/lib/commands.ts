@@ -7,7 +7,8 @@
  * component should re-render on.
  *
  * With no sink installed — unit tests, or before the terminal mounts —
- * commands are dropped rather than throwing; the socket replays on connect.
+ * commands are dropped rather than throwing. Only indicator visibility is
+ * remembered and replayed on connect; see useTerminal.
  */
 
 import type { ClientCommand } from '@/types/protocol';

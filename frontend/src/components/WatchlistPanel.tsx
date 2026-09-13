@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 
-import { daysUntil, formatCompact, formatMoney, formatPrice } from '@/lib/format';
+import { formatMoney, formatPrice, formatSignedPercent } from '@/lib/format';
 import { api } from '@/lib/http';
 import { useTerminalStore } from '@/store/useTerminalStore';
 import type { WatchlistRow } from '@/types/protocol';
+
+import { EarningsCell } from './EarningsCell';
 
 /**
  * The symbols this desk is watching. Nothing else.
@@ -20,30 +22,35 @@ export function WatchlistPanel({ onSelect }: { onSelect: (symbol: string) => voi
   const symbols = useTerminalStore((state) => state.watchlist);
   const rows = useTerminalStore((state) => state.watchlistRows);
   const note = useTerminalStore((state) => state.watchlistNote);
-  const setWatchlist = useTerminalStore((state) => state.setWatchlist);
+  const seedWatchlist = useTerminalStore((state) => state.seedWatchlist);
   const add = useTerminalStore((state) => state.addToWatchlist);
   const remove = useTerminalStore((state) => state.removeFromWatchlist);
   const [draft, setDraft] = useState('');
 
   // The socket pushes the list on connect and after every edit. This is the
-  // one case it cannot cover: a reload that lands before the socket is up.
+  // one case it cannot cover: a reload that lands before the socket is up. An
+  // answer the socket has overtaken is dropped — see `seedWatchlist`.
   useEffect(() => {
     const controller = new AbortController();
+    const revision = useTerminalStore.getState().watchlistRevision;
     void (async () => {
       try {
         const payload = await api.watchlist(controller.signal);
-        setWatchlist({
-          symbols: Array.isArray(payload?.symbols) ? payload.symbols : [],
-          rows: Array.isArray(payload?.rows) ? payload.rows : [],
-          note: payload?.note ?? null,
-        });
+        seedWatchlist(
+          {
+            symbols: Array.isArray(payload?.symbols) ? payload.symbols : [],
+            rows: Array.isArray(payload?.rows) ? payload.rows : [],
+            note: payload?.note ?? null,
+          },
+          revision,
+        );
       } catch {
         // The socket will fill it in a moment; an empty list is the honest
         // thing to show until then.
       }
     })();
     return () => controller.abort();
-  }, [setWatchlist]);
+  }, [seedWatchlist]);
 
   const submit = () => {
     const wanted = draft.trim().toUpperCase();
@@ -159,19 +166,29 @@ function Row({
       className="group cursor-pointer border-b border-line/40 hover:bg-elevated"
     >
       <td className={`px-2 py-1 font-semibold ${unknown ? 'text-ink-3' : 'text-ink'}`}>
-        {row.symbol}
+        {/* The row answers a mouse anywhere; this is what a keyboard reaches. */}
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect(row.symbol);
+          }}
+          className="font-semibold outline-none focus-visible:underline"
+        >
+          {row.symbol}
+        </button>
       </td>
       <td className="px-2 py-1 text-right text-ink-2">{formatPrice(row.close)}</td>
       <td className={`px-2 py-1 text-right ${tint(row.change, 'text-up')}`}>
-        {signed(row.change)}
+        {formatSignedPercent(row.change)}
       </td>
       <td className={`px-2 py-1 text-right ${tint(row.premarket_change, 'text-ink-3')}`}>
-        {signed(row.premarket_change)}
+        {formatSignedPercent(row.premarket_change)}
       </td>
       <td className="px-2 py-1 text-right text-ink-2">
         {row.rvol == null ? '—' : `${row.rvol.toFixed(2)}×`}
       </td>
-      <Earnings epoch={row.next_earnings} />
+      <EarningsCell epoch={row.next_earnings} testId="watchlist-earnings" />
       <td className="w-6 px-1 py-1 text-right">
         <button
           type="button"
@@ -203,22 +220,6 @@ function rowTitle(row: WatchlistRow): string {
   return `${row.name} · ${formatMoney(row.market_cap)}`;
 }
 
-/** Same rule the swing panel uses: shout inside a week, quiet beyond it. */
-function Earnings({ epoch }: { epoch: number | null }) {
-  const days = daysUntil(epoch, Date.now() / 1000);
-  if (days == null || days < 0 || days > 60) {
-    return <td className="px-2 py-1 text-right text-ink-3">—</td>;
-  }
-  return (
-    <td
-      className={`px-2 py-1 text-right ${days <= 7 ? 'font-semibold text-down' : 'text-ink-3'}`}
-      data-testid="watchlist-earnings"
-    >
-      {days}d
-    </td>
-  );
-}
-
 /**
  * Red below zero, `whenUp` above it, neither when there is no number: a dash
  * tinted green reads as a small gain rather than as nothing known.
@@ -228,9 +229,3 @@ function tint(value: number | null, whenUp: string): string {
   return value < 0 ? 'text-down' : whenUp;
 }
 
-/** A percentage that always carries its sign. */
-function signed(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return '—';
-  const shown = Math.abs(value) >= 1000 ? formatCompact(value, 0) : value.toFixed(1);
-  return `${value > 0 ? '+' : ''}${shown}%`;
-}
