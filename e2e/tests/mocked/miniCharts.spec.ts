@@ -72,8 +72,14 @@ test.describe('mini charts', () => {
     await terminal.waitForMiniCharts();
 
     for (const timeframe of ['1m', '5m'] as const) {
-      const range = (await terminal.miniChartState(timeframe))!.visibleRange!;
-      expect(Math.round(range.to - range.from)).toBe(59);
+      // The time scale applies the opening width on its own frame, which a
+      // slow runner can read before.
+      await expect
+        .poll(async () => {
+          const range = (await terminal.miniChartState(timeframe))!.visibleRange!;
+          return Math.round(range.to - range.from);
+        })
+        .toBe(59);
     }
   });
 
