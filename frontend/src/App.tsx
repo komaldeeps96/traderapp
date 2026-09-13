@@ -1,14 +1,13 @@
+import { lazy, Suspense } from "react";
+
 import { Chart } from "@/components/Chart";
 import { ChartControls } from "@/components/ChartControls";
 import { ChartLegend } from "@/components/ChartLegend";
 import { Dock } from "@/components/Dock";
-import { FinancialsTab } from "@/components/FinancialsTab";
 import { KeyLevelsPanel } from "@/components/KeyLevelsPanel";
 import { MainTabs } from "@/components/MainTabs";
-import { MetricsTab } from "@/components/MetricsTab";
 import { OrderPanel } from "@/components/OrderPanel";
-import { OwnershipTab } from "@/components/OwnershipTab";
-import { PeersTab } from "@/components/PeersTab";
+import { PanelFallback } from "@/components/PanelFallback";
 import { ScannerPanel } from "@/components/ScannerPanel";
 import { ScannerTabs } from "@/components/ScannerTabs";
 import { SwingPanel } from "@/components/SwingPanel";
@@ -18,6 +17,21 @@ import { TopPanel } from "@/components/TopPanel";
 import { useTerminal } from "@/hooks/useTerminal";
 import { useTerminalStore } from "@/store/useTerminalStore";
 import { SCANNER_TIER_IDS } from "@/types/protocol";
+
+// The tabs behind the chart are fetched the first time they open, so the first
+// paint downloads only what it draws.
+const FinancialsTab = lazy(() =>
+  import("@/components/FinancialsTab").then((module) => ({ default: module.FinancialsTab })),
+);
+const MetricsTab = lazy(() =>
+  import("@/components/MetricsTab").then((module) => ({ default: module.MetricsTab })),
+);
+const OwnershipTab = lazy(() =>
+  import("@/components/OwnershipTab").then((module) => ({ default: module.OwnershipTab })),
+);
+const PeersTab = lazy(() =>
+  import("@/components/PeersTab").then((module) => ({ default: module.PeersTab })),
+);
 
 /**
  * The terminal layout.
@@ -152,46 +166,56 @@ export default function App() {
                 <ChartLegend onToggle={toggleIndicator} />
                 <ChartControls />
               </div>
-              {mainTab === "peers" && (
-                <div
-                  id="main-panel-peers"
-                  role="tabpanel"
-                  data-testid="main-panel-peers"
-                  className="absolute inset-0"
-                >
-                  <PeersTab />
-                </div>
-              )}
-              {mainTab === "ownership" && (
-                <div
-                  id="main-panel-ownership"
-                  role="tabpanel"
-                  data-testid="main-panel-ownership"
-                  className="absolute inset-0"
-                >
-                  <OwnershipTab />
-                </div>
-              )}
-              {mainTab === "metrics" && (
-                <div
-                  id="main-panel-metrics"
-                  role="tabpanel"
-                  data-testid="main-panel-metrics"
-                  className="absolute inset-0"
-                >
-                  <MetricsTab />
-                </div>
-              )}
-              {mainTab === "financials" && (
-                <div
-                  id="main-panel-financials"
-                  role="tabpanel"
-                  data-testid="main-panel-financials"
-                  className="absolute inset-0"
-                >
-                  <FinancialsTab />
-                </div>
-              )}
+              {/* Outside the chart panel: a tab still loading must never hide
+                  or unmount the chart. */}
+              <Suspense
+                fallback={
+                  <div className="absolute inset-0 flex">
+                    <PanelFallback />
+                  </div>
+                }
+              >
+                {mainTab === "peers" && (
+                  <div
+                    id="main-panel-peers"
+                    role="tabpanel"
+                    data-testid="main-panel-peers"
+                    className="absolute inset-0"
+                  >
+                    <PeersTab />
+                  </div>
+                )}
+                {mainTab === "ownership" && (
+                  <div
+                    id="main-panel-ownership"
+                    role="tabpanel"
+                    data-testid="main-panel-ownership"
+                    className="absolute inset-0"
+                  >
+                    <OwnershipTab />
+                  </div>
+                )}
+                {mainTab === "metrics" && (
+                  <div
+                    id="main-panel-metrics"
+                    role="tabpanel"
+                    data-testid="main-panel-metrics"
+                    className="absolute inset-0"
+                  >
+                    <MetricsTab />
+                  </div>
+                )}
+                {mainTab === "financials" && (
+                  <div
+                    id="main-panel-financials"
+                    role="tabpanel"
+                    data-testid="main-panel-financials"
+                    className="absolute inset-0"
+                  >
+                    <FinancialsTab />
+                  </div>
+                )}
+              </Suspense>
               {mainTab === "chart" && status === "loading" && (
                 <div
                   className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"

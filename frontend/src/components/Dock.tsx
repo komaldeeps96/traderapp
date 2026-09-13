@@ -1,16 +1,22 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
 
 import { MINI_COLUMN_QUERY } from '@/chart/mini';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useNewsFeed } from '@/hooks/useNewsFeed';
 import { DOCK_TAB_IDS, DOCK_TAB_LABELS, DOCK_TAB_TITLES, clampDockWidth } from '@/lib/dock';
 import { onTabListKey } from '@/lib/tabs';
 import type { Timeframe } from '@/types/protocol';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
-import { FilingsTab } from './FilingsTab';
-import { FundamentalsTab } from './FundamentalsTab';
 import { MiniCharts } from './MiniCharts';
-import { NewsTab, useNewsFeed } from './NewsTab';
+import { PanelFallback } from './PanelFallback';
+
+// Fetched the first time their tab opens, so the first paint downloads none of them.
+const FilingsTab = lazy(() => import('./FilingsTab').then((module) => ({ default: module.FilingsTab })));
+const FundamentalsTab = lazy(() =>
+  import('./FundamentalsTab').then((module) => ({ default: module.FundamentalsTab })),
+);
+const NewsTab = lazy(() => import('./NewsTab').then((module) => ({ default: module.NewsTab })));
 
 /**
  * The rail to the right of the chart.
@@ -29,7 +35,7 @@ import { NewsTab, useNewsFeed } from './NewsTab';
  * pane inside one. Same reason the rail is not rendered below the breakpoint.
  *
  * The tabs read from caches warmed at subscribe time, so switching costs no
- * request and shows no spinner.
+ * data request; only a tab's first opening fetches its code.
  */
 export function Dock({
   onMiniTimeframeChange,
@@ -121,9 +127,11 @@ export function Dock({
         className="flex min-h-0 flex-1 flex-col"
       >
         {tab === 'charts' && <MiniCharts onTimeframeChange={onMiniTimeframeChange} />}
-        {tab === 'fundamentals' && <FundamentalsTab />}
-        {tab === 'news' && <NewsTab />}
-        {tab === 'filings' && <FilingsTab />}
+        <Suspense fallback={<PanelFallback />}>
+          {tab === 'fundamentals' && <FundamentalsTab />}
+          {tab === 'news' && <NewsTab />}
+          {tab === 'filings' && <FilingsTab />}
+        </Suspense>
       </div>
     </aside>
   );

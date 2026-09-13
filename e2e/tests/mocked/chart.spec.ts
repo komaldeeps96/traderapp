@@ -143,11 +143,14 @@ test.describe('chart navigation', () => {
 
     await expect.poll(clears).toBe(true);
 
-    const tall = (await terminal.chartState()).subPaneOffset;
+    const priceBefore = (await terminal.chartState()).paneHeights[0]!;
     await terminal.page.setViewportSize({ width: 1440, height: 700 });
 
-    // The offset is measured, not fixed, so a shorter chart moves it.
-    await expect.poll(async () => (await terminal.chartState()).subPaneOffset).not.toBe(tall);
+    // The price pane gives up the height; the sub-panes keep theirs, and the
+    // controls have to clear them all the same.
+    await expect
+      .poll(async () => (await terminal.chartState()).paneHeights[0])
+      .toBeLessThan(priceBefore);
     await expect.poll(clears).toBe(true);
   });
 
@@ -177,6 +180,20 @@ test.describe('chart navigation', () => {
     const before = await terminal.settledRangeWidth();
     await terminal.chartControls.getByRole('button', { name: 'Zoom in' }).click();
     await expect.poll(() => terminal.visibleRangeWidth()).toBeLessThan(before);
+  });
+
+  test('the sub-panes keep their height when the window resizes', async ({ terminal, page }) => {
+    // The library rescales panes in proportion to a resize; the volume pane is
+    // a fixed height, and floating controls are placed off it.
+    await terminal.waitForChart();
+    const panes = async () => (await terminal.chartState()).paneHeights;
+    const [priceBefore, ...subBefore] = await panes();
+    const size = page.viewportSize()!;
+
+    await page.setViewportSize({ width: size.width, height: size.height - 150 });
+    await expect.poll(async () => (await panes())[0]).toBeLessThan(priceBefore!);
+
+    await expect.poll(async () => (await panes()).slice(1)).toEqual(subBefore);
   });
 
   test('zooming out widens it', async ({ terminal }) => {

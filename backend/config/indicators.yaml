@@ -195,8 +195,6 @@ indicators:
       30m: { enabled: true }
       1h: { enabled: true }
       4h: { enabled: true }
-      1d: { enabled: true }
-      1w: { enabled: true }
 
   # The slow structural line: 100 minutes, which is the one the 10-second
   # tape is read against when the fast fan has gone vertical and the question

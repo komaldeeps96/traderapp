@@ -29,7 +29,9 @@ export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
   forbidOnly: isCI,
-  retries: isCI ? 2 : 0,
+  // One retry, so a flaky test still shows in the report instead of hiding
+  // behind a second attempt.
+  retries: isCI ? 1 : 0,
   // Two everywhere, not just in CI. Left undefined, Playwright picks half the
   // cores — four on this machine — and each worker is a whole browser holding a
   // chart, which exhausts memory on a 16GB laptop and kernel-panics it. The

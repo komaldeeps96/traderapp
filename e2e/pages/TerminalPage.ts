@@ -16,6 +16,8 @@ export interface ChartState {
   timeframe: string;
   theme: string;
   paneCount: number;
+  /** Price pane first, then each sub-pane, in pixels. */
+  paneHeights: number[];
   subPaneOffset: number;
   /** The measure tool — canvas-painted, so unreachable from the DOM. */
   measure: {

@@ -1,5 +1,3 @@
-import { useCallback, useEffect } from 'react';
-
 import { useKeyedState } from '@/hooks/useKeyedState';
 import { useSymbolResource } from '@/hooks/useSymbolResource';
 import { formatNewsTime } from '@/lib/format';
@@ -238,36 +236,4 @@ function useArticle(symbol: string, headline: Headline) {
     error: error ? 'Could not load this article.' : null,
     loading,
   };
-}
-
-/**
- * Load the feed when the symbol changes. Lives here rather than in
- * `useTerminal` as the panel's own concern, but writes to the store so a live
- * headline over the WebSocket merges into the same list.
- */
-export function useNewsFeed(symbol: string): void {
-  const setNews = useTerminalStore((state) => state.setNews);
-  const setStatus = useTerminalStore((state) => state.setNewsStatus);
-
-  const load = useCallback(
-    async (signal: AbortSignal) => {
-      setStatus('loading');
-      try {
-        const response = await api.news(symbol, signal);
-        if (signal.aborted) return;
-        setNews(response.symbol, response.headlines, response.providers);
-        setStatus('ready');
-      } catch {
-        if (!signal.aborted) setStatus('error');
-      }
-    },
-    [symbol, setNews, setStatus],
-  );
-
-  useEffect(() => {
-    if (!symbol) return;
-    const controller = new AbortController();
-    void load(controller.signal);
-    return () => controller.abort();
-  }, [symbol, load]);
 }
