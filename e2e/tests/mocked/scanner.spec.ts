@@ -172,8 +172,8 @@ test.describe('scanner with IBKR', () => {
     // The threshold is HOT_TRADE_RATE in ScannerPanel.tsx. Strictly over, so
     // a row sitting exactly on it stays quiet.
     const rows = makeScannerRows(3);
-    rows[0].trades_1m = 1400;
-    rows[1].trades_1m = 1000;
+    rows[0]!.trades_1m = 1400;
+    rows[1]!.trades_1m = 1000;
 
     await terminal.waitForChart();
     await backend.pushScanner('small_cap', rows);
@@ -196,7 +196,7 @@ test.describe('scanner with IBKR', () => {
     // green owns the background, so the accent bar on the symbol cell is what
     // has to survive it.
     const rows = makeScannerRows(2);
-    rows[0].trades_1m = 2000;
+    rows[0]!.trades_1m = 2000;
 
     await terminal.waitForChart();
     await backend.pushScanner('small_cap', rows);
@@ -214,7 +214,7 @@ test.describe('scanner with IBKR', () => {
     await terminal.waitForChart();
     for (const tier of SCANNER_TIERS) {
       const rows = makeScannerRows(1);
-      rows[0].trades_1m = 3000;
+      rows[0]!.trades_1m = 3000;
       await backend.pushScanner(tier.id, rows);
       await expect(terminal.page.getByTestId(`scanner-${tier.id}-row-SC01`)).toHaveAttribute(
         'data-hot',

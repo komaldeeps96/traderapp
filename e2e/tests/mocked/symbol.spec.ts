@@ -41,14 +41,16 @@ test.describe('changing symbol', () => {
 
   test('ignores an empty submission', async ({ terminal, backend }) => {
     await terminal.waitForChart();
-    const before = backend.commands().filter((entry) => entry.action === 'subscribe').length;
+    const subscribes = () => backend.commands().filter((entry) => entry.action === 'subscribe');
+    const before = subscribes().length;
 
     await terminal.symbolInput.fill('   ');
     await terminal.symbolInput.press('Enter');
-    await terminal.page.waitForTimeout(250);
+    await terminal.setSymbol('TSLA');
+    await expect.poll(() => subscribes().length).toBeGreaterThan(before);
 
-    const after = backend.commands().filter((entry) => entry.action === 'subscribe').length;
-    expect(after).toBe(before);
+    const sent = subscribes().slice(before).map((entry) => entry.symbol);
+    expect(new Set(sent)).toEqual(new Set(['TSLA']));
   });
 
   test('selects the field on focus so a new symbol replaces the old', async ({ terminal }) => {

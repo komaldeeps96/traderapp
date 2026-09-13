@@ -1,6 +1,12 @@
 import { makeNextBar } from '../../fixtures/data';
 import { expect, test } from '../../fixtures/test';
 
+/** The bar already on screen, revised to `close`: a sentinel that adds no bar. */
+function reviseLast(snapshot: Parameters<typeof makeNextBar>[0], close: number) {
+  const t = snapshot.bars.at(-1)!.t;
+  return makeNextBar(snapshot, { t, o: close, h: close, l: close, c: close });
+}
+
 test.describe('live updates', () => {
   test('appends a new bar to the chart', async ({ terminal, backend }) => {
     await terminal.waitForChart();
@@ -52,24 +58,28 @@ test.describe('live updates', () => {
   test('ignores an update for a symbol that is not on screen', async ({ terminal, backend }) => {
     // A late frame for a symbol the user already left must never be drawn.
     await terminal.waitForChart();
-    const before = (await terminal.chartState()).lastBar!.c;
+    const snapshot = backend.lastSnapshot()!;
+    const { barCount } = await terminal.chartState();
 
-    const stale = makeNextBar(backend.lastSnapshot()!, { c: 12345 });
+    const stale = makeNextBar(snapshot, { c: 12345 });
     await backend.send({ ...stale, symbol: 'SOMETHINGELSE' });
+    await backend.send(reviseLast(snapshot, 42));
 
-    await terminal.page.waitForTimeout(300);
-    expect((await terminal.chartState()).lastBar!.c).toBe(before);
+    await expect(terminal.ohlcvField('close')).toHaveText('42.00');
+    expect((await terminal.chartState()).barCount).toBe(barCount);
   });
 
   test('ignores an update for a different timeframe', async ({ terminal, backend }) => {
     await terminal.waitForChart();
-    const before = (await terminal.chartState()).lastBar!.c;
+    const snapshot = backend.lastSnapshot()!;
+    const { barCount } = await terminal.chartState();
 
-    const stale = makeNextBar(backend.lastSnapshot()!, { c: 54321 });
+    const stale = makeNextBar(snapshot, { c: 54321 });
     await backend.send({ ...stale, timeframe: '1h' });
+    await backend.send(reviseLast(snapshot, 42));
 
-    await terminal.page.waitForTimeout(300);
-    expect((await terminal.chartState()).lastBar!.c).toBe(before);
+    await expect(terminal.ohlcvField('close')).toHaveText('42.00');
+    expect((await terminal.chartState()).barCount).toBe(barCount);
   });
 
   test('keeps showing the hovered bar rather than the live one', async ({ terminal, backend }) => {
@@ -82,7 +92,7 @@ test.describe('live updates', () => {
     await expect(terminal.ohlcv).toHaveAttribute('data-hovering', 'true');
 
     await backend.send(makeNextBar(backend.lastSnapshot()!, { c: 88 }));
-    await terminal.page.waitForTimeout(300);
+    await expect.poll(async () => (await terminal.chartState()).lastBar!.c).toBe(88);
 
     await expect(terminal.ohlcv).toHaveAttribute('data-hovering', 'true');
     await expect(terminal.ohlcvField('close')).not.toHaveText('88.00');

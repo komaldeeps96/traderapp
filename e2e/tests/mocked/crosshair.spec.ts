@@ -90,7 +90,7 @@ test.describe('crosshair readout', () => {
         terminal.ohlcvField(field).textContent(),
       ),
     );
-    const [open, high, low, close] = values.map((text) => Number(text));
+    const [open = NaN, high = NaN, low = NaN, close = NaN] = values.map((text) => Number(text));
     expect(high).toBeGreaterThanOrEqual(Math.max(open, close));
     expect(low).toBeLessThanOrEqual(Math.min(open, close));
   });

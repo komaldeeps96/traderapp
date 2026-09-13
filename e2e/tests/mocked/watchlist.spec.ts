@@ -56,10 +56,15 @@ test.describe('watchlist', () => {
   });
 
   test('a blank entry sends nothing', async ({ terminal, backend }) => {
-    await terminal.page.getByTestId('watchlist-input').fill('   ');
-    await terminal.page.getByTestId('watchlist-input').press('Enter');
-    await terminal.page.waitForTimeout(150);
-    expect(backend.commands().some((entry) => entry.action === 'watchlist.add')).toBe(false);
+    const input = terminal.page.getByTestId('watchlist-input');
+    await input.fill('   ');
+    await input.press('Enter');
+    await input.fill('AAPL');
+    await input.press('Enter');
+    await backend.waitForCommand('watchlist.add');
+
+    const added = backend.commands().filter((entry) => entry.action === 'watchlist.add');
+    expect(added.map((entry) => entry.symbol)).toEqual(['AAPL']);
   });
 
   test('the same name twice does not appear twice', async ({ terminal }) => {

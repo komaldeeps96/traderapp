@@ -113,10 +113,13 @@ test.describe('news tab', () => {
     await terminal.dockTab('news').click();
 
     await backend.send(
-      makeNewsMessage('ZZZZ', { article_id: 'other', time: 9_999_999_999 }),
+      makeNewsMessage('ZZZZ', { article_id: 'other', headline: 'Not this one', time: 9_999_999_999 }),
     );
+    await backend.send(makeNewsMessage('AAPL', { article_id: 'mine', time: 9_999_999_999 }));
 
-    await expect(terminal.page.getByTestId('news-row')).toHaveCount(6);
+    const rows = terminal.page.getByTestId('news-row');
+    await expect(rows).toHaveCount(7);
+    await expect(rows.filter({ hasText: 'Not this one' })).toHaveCount(0);
   });
 
   test('does not blame TWS when Benzinga is the feed that is missing', async ({
@@ -354,7 +357,11 @@ test.describe('the AI news summary', () => {
     await expect(terminal.page.getByTestId('news-row')).toHaveCount(6);
   });
 
-  test('the toolbar switch stops the request, not just the panel', async ({ terminal, page }) => {
+  test('the toolbar switch stops the request, not just the panel', async ({
+    terminal,
+    backend,
+    page,
+  }) => {
     // A reading costs about a cent and a dozen seconds. A switch that hid the
     // panel while still paying for it would be worse than no switch.
     const asked: string[] = [];
@@ -377,8 +384,16 @@ test.describe('the AI news summary', () => {
     await expect(terminal.page.getByTestId('news-brief')).toHaveCount(0);
     // The feed itself is untouched — the switch is about the reading.
     await expect(terminal.page.getByTestId('news-row')).toHaveCount(6);
-    await terminal.page.waitForTimeout(300);
-    expect(asked.length).toBe(before);
+
+    // A new headline is what asks for a fresh reading.
+    await backend.send(makeNewsMessage('AAPL', { article_id: 'while-off', time: 9_999_999_999 }));
+    await expect(terminal.page.getByTestId('news-row')).toHaveCount(7);
+
+    // Routes answer in request order, so switching back on is answered after
+    // anything the headline set off.
+    await terminal.page.getByTestId('news-ai-toggle').click();
+    await expect(terminal.page.getByTestId('news-brief-score')).toBeVisible();
+    expect(asked.length).toBe(before + 1);
   });
 
   test('the switch is remembered across a reload', async ({ terminal }) => {

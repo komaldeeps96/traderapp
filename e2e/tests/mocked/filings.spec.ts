@@ -134,6 +134,8 @@ test.describe('mid-session filing alert', () => {
   test('a filing for another symbol is ignored', async ({ terminal, backend }) => {
     await terminal.waitForChart();
     await backend.send(makeFilingMessage('ZZZZ', { accession: 'other' }));
+    await backend.pushQuote({ bid: 10.05, ask: 10.09 });
+    await expect(terminal.page.getByTestId('tp-bid')).toContainText('10.05');
     await expect(terminal.page.getByTestId('dock-alert-filings')).toHaveCount(0);
   });
 

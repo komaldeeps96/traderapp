@@ -1,4 +1,5 @@
 import { makePosition } from '../../fixtures/data';
+import type { MockBackend } from '../../fixtures/mockBackend';
 import { expect, test } from '../../fixtures/test';
 
 /**
@@ -138,6 +139,88 @@ test.describe('armed', () => {
   });
 });
 
+/** The trade commands the page has sent, in order, as `action:amount`. */
+function trades(backend: MockBackend): string[] {
+  return backend
+    .commands()
+    .filter((command) => String(command.action).startsWith('trade.'))
+    .map((command) => `${String(command.action)}:${String(command.dollars ?? command.fraction)}`);
+}
+
+test.describe('one click, one order', () => {
+  // A short window keeps these quick; the server's own is a second. A second
+  // order the page wrongly sent would land between the two asserted below.
+  test.use({ backendOptions: { trading: { ...ARMED, repeat_guard_seconds: 0.3 } } });
+
+  test.beforeEach(async ({ terminal, backend }) => {
+    await terminal.waitForChart();
+    await backend.pushTrading({ ...ARMED, repeat_guard_seconds: 0.3, positions: [makePosition('AAPL', 14)] });
+    await expect(terminal.page.getByTestId('order-sell-0.5')).toBeEnabled();
+  });
+
+  test('a double-click sends one order', async ({ terminal, backend }) => {
+    await terminal.page.getByTestId('order-buy-25').dblclick();
+    await expect(terminal.page.getByTestId('order-buy-25')).toBeEnabled();
+    await terminal.page.getByTestId('order-buy-50').click();
+    await expect.poll(() => trades(backend)).toEqual(['trade.buy:25', 'trade.buy:50']);
+  });
+
+  test('Enter after an order does not place it again', async ({ terminal, backend }) => {
+    // Browsers leave focus on a clicked button, where Enter would press it.
+    await terminal.page.getByTestId('order-buy-25').click();
+    await expect(terminal.page.getByTestId('order-buy-25')).toBeEnabled();
+    await terminal.page.keyboard.press('Enter');
+    await terminal.page.keyboard.press('Space');
+    await terminal.page.getByTestId('order-buy-50').click();
+    await expect.poll(() => trades(backend)).toEqual(['trade.buy:25', 'trade.buy:50']);
+  });
+
+  test('selling straight after a buy is a decision, not a double-click', async ({
+    terminal,
+    backend,
+  }) => {
+    await terminal.page.getByTestId('order-buy-25').click();
+    await terminal.page.getByTestId('order-sell-0.5').click();
+    await expect.poll(() => trades(backend)).toEqual(['trade.buy:25', 'trade.sell:0.5']);
+  });
+});
+
+test.describe('the side just used is held, visibly', () => {
+  test.use({ backendOptions: { trading: { ...ARMED, repeat_guard_seconds: 3 } } });
+
+  test('the pressed button shows it went, and its side is dead for the window', async ({
+    terminal,
+  }) => {
+    await terminal.waitForChart();
+    await terminal.page.getByTestId('order-buy-25').click();
+    await expect(terminal.page.getByTestId('order-buy-25')).toContainText('···');
+    await expect(terminal.page.getByTestId('order-buy-50')).toBeDisabled();
+    await expect(terminal.page.getByTestId('order-buy-25')).toBeEnabled({ timeout: 6_000 });
+  });
+});
+
+test.describe('shares already in a working sell', () => {
+  test.use({ backendOptions: { trading: ARMED } });
+
+  test.beforeEach(async ({ terminal }) => {
+    await terminal.waitForChart();
+  });
+
+  test('sells size off the shares not yet claimed', async ({ terminal, backend }) => {
+    await backend.pushTrading({ ...ARMED, positions: [makePosition('AAPL', 14, { committed: 7 })] });
+    await expect(terminal.page.getByTestId('order-sell-1')).toContainText('7 sh');
+    await expect(terminal.page.getByTestId('order-sell-0.5')).toContainText('3 sh');
+    await expect(terminal.page.getByTestId('order-position')).toContainText('14');
+  });
+
+  test('with every share claimed the sells are dead and say why', async ({ terminal, backend }) => {
+    // A second ALL while the first is working would otherwise open a short.
+    await backend.pushTrading({ ...ARMED, positions: [makePosition('AAPL', 14, { committed: 14 })] });
+    await expect(terminal.page.getByTestId('order-sell-1')).toBeDisabled();
+    await expect(terminal.page.getByTestId('order-sell-1')).toContainText('working');
+  });
+});
+
 test.describe('when it must not be used', () => {
   test.use({ backendOptions: { trading: ARMED } });
 
@@ -205,6 +288,19 @@ test.describe('what came back', () => {
     await backend.pushOrder({ side: 'BUY', shares: 2, limit: 10.11, filled: 2, avg_fill: 10.06 });
     await expect(terminal.page.getByTestId('order-ack')).toContainText('BUY 2 AAPL');
     await expect(terminal.page.getByTestId('order-ack')).toContainText('10.06');
+  });
+
+  test('a refusal meant for this window alone shows on the strip', async ({
+    terminal,
+    backend,
+  }) => {
+    await terminal.waitForChart();
+    await backend.pushError(
+      'trade',
+      'Orders are accepted only from this machine (trading.allow_remote is off).',
+    );
+    await expect(terminal.page.getByTestId('order-note')).toContainText('only from this machine');
+    await expect(terminal.errorBanner).toBeHidden();
   });
 
   test('shows a refusal where it will be seen, not in a log', async ({ terminal, backend }) => {

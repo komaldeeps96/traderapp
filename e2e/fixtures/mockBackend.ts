@@ -73,6 +73,10 @@ export interface MockBackend {
   /** Commands the page has sent, newest last. */
   commands: () => Array<Record<string, unknown>>;
   waitForCommand: (action: string, timeoutMs?: number) => Promise<Record<string, unknown>>;
+  /**
+   * Frames are handled in the order sent. To prove one was ignored, send a
+   * visible one after it and wait for that, rather than sleeping.
+   */
   send: (message: unknown) => Promise<void>;
   pushStatus: (overrides?: Record<string, unknown>) => Promise<void>;
   pushScanner: (

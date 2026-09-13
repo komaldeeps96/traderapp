@@ -73,6 +73,7 @@ test.describe('key levels', () => {
     await terminal.waitForChart();
     await backend.pushInfo();
 
+    await expect(terminal.keyLevels).toContainText('ATH');
     await expect(
       terminal.page.locator('[data-testid^="level-row-"][data-far="true"]'),
     ).toHaveCount(0);
@@ -332,11 +333,16 @@ test.describe('keeping the price in view', () => {
     });
 
     await backend.pushQuote({ bid: 10.05, ask: 10.09 });
-    await terminal.page.waitForTimeout(250);
+    // Drawn in the same commit as the list, which centres in a layout effect.
+    await expect(terminal.page.getByTestId('tp-bid')).toContainText('10.05');
 
     expect((await geometry(terminal.page))!.scrollTop).toBe(0);
   });
 });
+
+function premarketHigh(snapshot: Parameters<typeof makeNextBar>[0]): number {
+  return snapshot.series.pm_high![0]![1];
+}
 
 /**
  * Who owns the price axis when a level and the last trade collide.
@@ -357,7 +363,7 @@ test.describe('price label priority', () => {
     const snapshot = backend.lastSnapshot()!;
     // The pre-market high, as a price rather than a percentage — this is the
     // breakout moment, when the two labels genuinely land on each other.
-    const pmHigh = snapshot.series.pm_high[0][1];
+    const pmHigh = premarketHigh(snapshot);
 
     await backend.send(makeNextBar(snapshot, { c: pmHigh, h: pmHigh, l: pmHigh - 0.05 }));
 
@@ -369,7 +375,7 @@ test.describe('price label priority', () => {
   test('gives the label back when the price moves away', async ({ terminal, backend }) => {
     await terminal.waitForChart();
     const snapshot = backend.lastSnapshot()!;
-    const pmHigh = snapshot.series.pm_high[0][1];
+    const pmHigh = premarketHigh(snapshot);
 
     await backend.send(makeNextBar(snapshot, { c: pmHigh, h: pmHigh, l: pmHigh - 0.05 }));
     await expect
@@ -388,7 +394,7 @@ test.describe('price label priority', () => {
   test('only the colliding level stands down', async ({ terminal, backend }) => {
     await terminal.waitForChart();
     const snapshot = backend.lastSnapshot()!;
-    const pmHigh = snapshot.series.pm_high[0][1];
+    const pmHigh = premarketHigh(snapshot);
 
     await backend.send(makeNextBar(snapshot, { c: pmHigh, h: pmHigh, l: pmHigh - 0.05 }));
 

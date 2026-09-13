@@ -261,17 +261,23 @@ test.describe('indicator toggles, against the real server', () => {
    * Each test restores what it changed and reloads again, since these share one
    * backend.
    */
+  async function ema9Visible(terminal: TerminalPage): Promise<boolean> {
+    const visible = (await terminal.chartState()).visible.ema9;
+    if (visible === undefined) throw new Error('the chart has no ema9 line');
+    return visible;
+  }
+
   async function toggleEma9(terminal: TerminalPage): Promise<boolean> {
-    const before = (await terminal.chartState()).visible.ema9;
+    const before = await ema9Visible(terminal);
     await terminal.indicatorChip('ema9').getByRole('button').click();
-    await expect.poll(async () => (await terminal.chartState()).visible.ema9).toBe(!before);
+    await expect.poll(() => ema9Visible(terminal)).toBe(!before);
     return before;
   }
 
   async function reopen(terminal: TerminalPage): Promise<boolean> {
     await terminal.goto();
     await terminal.waitForChart();
-    return (await terminal.chartState()).visible.ema9;
+    return ema9Visible(terminal);
   }
 
   test('survive a reload, with nothing left in the browser', async ({ terminal, page }) => {

@@ -111,6 +111,8 @@ export default defineConfig({
         // backend, not the developer's live one on 8000.
         VITE_API_URL: BACKEND_URL,
         VITE_WS_URL: `${BACKEND_URL.replace('http', 'ws')}/ws`,
+        // The read-only window onto the canvas the specs assert against.
+        VITE_TEST_HOOKS: '1',
       },
       // Never reused. A preview server left running from an earlier run keeps
       // serving the build it started with, so source changes silently do not
@@ -125,7 +127,9 @@ export default defineConfig({
       name: 'alpaca-fixture',
       command: 'node fixtures/alpaca-server.mjs',
       url: `${FIXTURE_URL}/health`,
-      reuseExistingServer: !isCI,
+      // Never reused, like the frontend: a server left over from an earlier
+      // run serves the code it started with. A busy port fails the run instead.
+      reuseExistingServer: false,
       timeout: 30_000,
     },
     {
@@ -133,7 +137,7 @@ export default defineConfig({
       command: '.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8100',
       cwd: '../backend',
       url: `${BACKEND_URL}/api/health`,
-      reuseExistingServer: !isCI,
+      reuseExistingServer: false,
       timeout: 60_000,
       stdout: 'ignore',
       stderr: 'pipe',
@@ -161,6 +165,10 @@ export default defineConfig({
         // off in settings" line, which is a real state of the panel and
         // worth rendering.
         TRADERAPP_NEWS_AI__ENABLED: 'false',
+        // Order entry is a raw socket to a live TWS account, one YAML line away
+        // on this machine. Switched off outright, and no YAML is read at all.
+        TRADERAPP_TRADING__ENABLED: 'false',
+        TRADERAPP_SETTINGS_FILE: '/dev/null',
         TRADERAPP_STATE_FILE: '/tmp/traderapp-e2e-state.yaml',
         TRADERAPP_LOG_LEVEL: 'WARNING',
       },

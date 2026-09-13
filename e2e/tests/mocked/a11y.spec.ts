@@ -13,6 +13,17 @@ import { expect, test } from '../../fixtures/test';
  * every value the chart draws.
  */
 async function scan(page: Page) {
+  // Contrast measured mid-transition is a blend of two themes. Waiting on the
+  // running transitions themselves, rather than a pause, is what makes a slow
+  // runner see the settled colours.
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation instanceof CSSTransition)
+        .map((animation) => animation.finished.catch(() => undefined)),
+    ),
+  );
   return new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     // The chart is a canvas; its content is exposed through the readout and
@@ -22,6 +33,9 @@ async function scan(page: Page) {
 }
 
 test.describe('accessibility', () => {
+  // index.css honours reduced motion, so the theme swap lands in one frame.
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+
   test('the terminal has no violations', async ({ page, terminal }) => {
     await terminal.waitForChart();
     const results = await scan(page);
@@ -42,6 +56,18 @@ test.describe('accessibility', () => {
     await terminal.page.keyboard.press('Tab');
     const focused = await terminal.page.evaluate(() => document.activeElement?.tagName);
     expect(['INPUT', 'BUTTON', 'SELECT']).toContain(focused);
+  });
+
+  test('the main tabs move with the arrow keys', async ({ terminal }) => {
+    // The ARIA tabs pattern: one Tab stop for the strip, arrows within it,
+    // and the selection follows focus.
+    await terminal.waitForChart();
+    await terminal.page.getByTestId('main-tab-chart').focus();
+    await terminal.page.keyboard.press('ArrowRight');
+    const next = terminal.page.getByRole('tab', { selected: true, name: /financials/i });
+    await expect(next).toBeFocused();
+    await terminal.page.keyboard.press('Home');
+    await expect(terminal.page.getByTestId('main-tab-chart')).toHaveAttribute('aria-selected', 'true');
   });
 
   test('a symbol can be loaded without a mouse', async ({ terminal, backend }) => {

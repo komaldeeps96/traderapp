@@ -9,6 +9,27 @@ function rangeWidth(terminal: TerminalPage) {
   };
 }
 
+/**
+ * The width once it has stopped moving. The layout keeps settling after the
+ * first snapshot — panels mount, the canvas resizes — and a baseline read in
+ * that window belongs to a view that is about to change.
+ */
+async function settledWidth(terminal: TerminalPage): Promise<number> {
+  let previous = Number.NaN;
+  await expect
+    .poll(
+      async () => {
+        const width = await rangeWidth(terminal)();
+        const still = width === previous;
+        previous = width;
+        return still;
+      },
+      { intervals: [250] },
+    )
+    .toBe(true);
+  return previous;
+}
+
 test.describe('chart rendering', () => {
   test('loads the session symbol on open', async ({ terminal }) => {
     await terminal.waitForChart();
@@ -191,14 +212,11 @@ test.describe('chart navigation', () => {
   test('zooming out widens it', async ({ terminal }) => {
     await terminal.waitForChart();
     // Zoom in first so there is room to widen: the opening view already shows
-    // the whole fixture, and the time scale clamps past that. The zoom has to
-    // be observed landing before the width is read — the scale applies it on
-    // its own frame, so a read taken too early belongs to the previous view
-    // and the zoom out below then gets measured against the wrong baseline.
-    const opened = await rangeWidth(terminal)();
+    // the whole fixture, and the time scale clamps past that.
+    const opened = await settledWidth(terminal);
     await terminal.chartControls.getByRole('button', { name: 'Zoom in' }).click();
     await expect.poll(rangeWidth(terminal)).toBeLessThan(opened);
-    const zoomed = await rangeWidth(terminal)();
+    const zoomed = await settledWidth(terminal);
 
     await terminal.chartControls.getByRole('button', { name: 'Zoom out' }).click();
     await expect.poll(rangeWidth(terminal)).toBeGreaterThan(zoomed);
@@ -209,7 +227,7 @@ test.describe('chart navigation', () => {
     // tenth off each edge for 0.8x, zoom out added a tenth back for 1.2x, so
     // a round trip returned 0.96x and repeated tapping crept the view inwards.
     await terminal.waitForChart();
-    const opened = await rangeWidth(terminal)();
+    const opened = await settledWidth(terminal);
 
     await terminal.chartControls.getByRole('button', { name: 'Zoom in' }).click();
     await expect.poll(rangeWidth(terminal)).toBeLessThan(opened);

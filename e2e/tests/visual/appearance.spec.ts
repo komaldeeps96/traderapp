@@ -9,21 +9,26 @@ import { expect, test } from '../../fixtures/test';
  * only rewrites baselines whose comparison *failed*, and a small component
  * change lands inside the tolerance without failing.
  *
- * The session clock shows real wall-clock time and is masked out of every
- * frame. The bar countdown is painted into each chart's price axis where a mask
- * cannot reach it, so the clock is frozen instead.
+ * The clock is frozen from before the first render (see the `beforeEach`):
+ * the bar countdown is painted into each chart's price axis, where a mask
+ * cannot reach it, and the bar readout names a date only for another day.
  */
 
 /** Mid-bar on every timeframe, so no chip is caught mid-flip. */
 const FROZEN = new Date('2024-03-05T15:15:04Z');
 
 /**
- * Stop the clock and wait for the countdowns to settle on it. `setFixedTime`
- * freezes the time-reading APIs without faking timers, so the charts keep
- * polling and keep reading the same instant.
+ * Freeze before the page loads, so every render reads the same instant: a
+ * readout drawn before a later freeze keeps the real date. `setFixedTime`
+ * fakes the time-reading APIs and not the timers, so the charts keep polling.
  */
-async function freezeClock(terminal: { page: import('@playwright/test').Page }) {
+test.beforeEach(async ({ terminal }) => {
   await terminal.page.clock.setFixedTime(FROZEN);
+  await terminal.goto();
+});
+
+/** Wait for the bar countdowns to repaint on the frozen instant. */
+async function settleCountdowns(terminal: { page: import('@playwright/test').Page }) {
   await expect
     .poll(async () =>
       terminal.page.evaluate(
@@ -50,7 +55,7 @@ test.describe('appearance', () => {
     // change.
     await expect(terminal.page.getByTestId('news-ai-toggle')).toBeVisible();
     await expect(terminal.dockTabs()).toHaveCount(4);
-    await freezeClock(terminal);
+    await settleCountdowns(terminal);
     await terminal.moveMouseAway();
     await expect(terminal.page).toHaveScreenshot('terminal-dark.png', {
       ...TOLERANCE,
@@ -65,7 +70,7 @@ test.describe('appearance', () => {
     await expect(terminal.dockTabs()).toHaveCount(4);
     await terminal.themeToggle.click();
     await expect.poll(async () => (await terminal.chartState()).theme).toBe('light');
-    await freezeClock(terminal);
+    await settleCountdowns(terminal);
     await terminal.moveMouseAway();
 
     await expect(terminal.page).toHaveScreenshot('terminal-light.png', {
@@ -116,7 +121,7 @@ test.describe('appearance', () => {
 test.describe('bar countdown', () => {
   test('sits under the last-price label', async ({ terminal }) => {
     await terminal.waitForChart();
-    await freezeClock(terminal);
+    await settleCountdowns(terminal);
     await terminal.moveMouseAway();
 
     // Measured off the chart rather than hardcoded, so the column widths either

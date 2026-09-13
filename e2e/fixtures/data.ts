@@ -325,16 +325,28 @@ function ema(values: number[], span: number): Array<number | null> {
   const alpha = 2 / (span + 1);
   let current = values.slice(0, span).reduce((a, b) => a + b, 0) / span;
   out[span - 1] = current;
-  for (let i = span; i < values.length; i += 1) {
-    current = alpha * values[i] + (1 - alpha) * current;
-    out[i] = current;
-  }
+  values.slice(span).forEach((value, offset) => {
+    current = alpha * value + (1 - alpha) * current;
+    out[span + offset] = current;
+  });
   return out;
+}
+
+/** Each defined value against its bar's time. */
+function pointsAt(
+  bars: WireBar[],
+  values: Array<number | null | undefined>,
+  roundTo: (value: number) => number,
+): SeriesPoint[] {
+  return bars.flatMap((bar, i) => {
+    const value = values[i];
+    return value == null ? [] : [[bar.t, roundTo(value)] as SeriesPoint];
+  });
 }
 
 export function makeSeries(bars: WireBar[], manyLevels = false): Record<string, SeriesPoint[]> {
   const closes = bars.map((bar) => bar.c);
-  const first = bars[0];
+  const first = bars[0]!;
   const last = bars.at(-1)!;
 
   const series: Record<string, SeriesPoint[]> = {};
@@ -347,9 +359,7 @@ export function makeSeries(bars: WireBar[], manyLevels = false): Record<string, 
     ['ema45', 45],
     ['ema100', 100],
   ] as const) {
-    series[id] = ema(closes, span)
-      .map((value, i) => (value == null ? null : ([bars[i].t, round(value)] as SeriesPoint)))
-      .filter((point): point is SeriesPoint => point !== null);
+    series[id] = pointsAt(bars, ema(closes, span), round);
   }
 
   // Volume-weighted running average across the session.
@@ -375,10 +385,7 @@ export function makeSeries(bars: WireBar[], manyLevels = false): Record<string, 
   const defined = macdValues.filter((value): value is number => value != null);
   const signalDefined = ema(defined, 9);
   let cursor = 0;
-  const toPoints = (values: Array<number | null>) =>
-    values
-      .map((value, i) => (value == null ? null : ([bars[i].t, round4(value)] as SeriesPoint)))
-      .filter((point): point is SeriesPoint => point !== null);
+  const toPoints = (values: Array<number | null>) => pointsAt(bars, values, round4);
   const signalValues = macdValues.map((value) => {
     if (value == null) return null;
     const signal = signalDefined[cursor];
@@ -1126,6 +1133,7 @@ export function makeTradingMessage(overrides: Record<string, unknown> = {}) {
       offset_cents: 5,
       offset_bps: 15,
       max_order_dollars: 60,
+      repeat_guard_seconds: 1,
       tif: 'DAY',
       positions_known: true,
       note: null,
@@ -1141,7 +1149,7 @@ export function makePosition(
   shares = 14,
   overrides: Record<string, unknown> = {},
 ) {
-  return { symbol, shares, avg_cost: 9.87, unrealized: 1.84, ...overrides };
+  return { symbol, shares, committed: 0, avg_cost: 9.87, unrealized: 1.84, ...overrides };
 }
 
 export function makeOrder(overrides: Record<string, unknown> = {}) {
