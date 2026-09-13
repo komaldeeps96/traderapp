@@ -62,8 +62,8 @@ dev:
 	@$(MAKE) -j2 backend frontend
 
 # The whole gate, in the order that fails fastest: linters, then types, then
-# the suites cheapest first. Same steps as CI, so a green `make check` means a
-# green pipeline.
+# the suites cheapest first. CI runs the same steps, less the macOS-only visual
+# baselines.
 check: lint typecheck test
 
 lint: lint-backend lint-frontend
@@ -77,13 +77,19 @@ lint-frontend:
 test: test-backend test-unit test-e2e
 
 test-backend:
-	cd backend && .venv/bin/python -m pytest -m "not live"
+	cd backend && .venv/bin/python -m pytest
 
 test-unit:
 	npm run test:unit
 
+# One project per invocation: each Playwright process caps its own workers, not
+# the machine's, and several browsers at once exhaust 16GB. See CLAUDE.md.
+E2E_PROJECTS := chromium firefox webkit mobile fullstack visual
+
 test-e2e:
-	npm run test:e2e
+	@for project in $(E2E_PROJECTS); do \
+		(cd e2e && npx playwright test --project=$$project) || exit 1; \
+	done
 
 test-e2e-ui:
 	npm run test:e2e:ui

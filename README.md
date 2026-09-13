@@ -280,7 +280,7 @@ colour — hue is spent on what changes a decision, and identity comes from the
 axis label and the sidebar.
 
 Tune the merge threshold with `DEFAULT_CLUSTER_TOLERANCE_PERCENT` in
-`frontend/src/store/selectors.ts` (default 0.35% of price).
+`frontend/src/store/selectors/levels.ts` (default 0.35% of price).
 
 ### Sub-dollar tickers
 
@@ -432,17 +432,17 @@ backend on 8000, the Vite dev server, and the production `dist/` bundle all
 survive a test run untouched.
 
 ```bash
-# Backend: unit + integration
-cd backend && .venv/bin/python -m pytest -m "not live"
-cd backend && .venv/bin/python -m pytest -m "not live" --cov=app
+# Backend: unit + integration (the network audit is opt-in: -m audit)
+cd backend && .venv/bin/python -m pytest
+cd backend && .venv/bin/python -m pytest --cov=app
 
 # Frontend: unit
 npm run test:unit
 
-# Browser: three engines + visual + full stack; servers start themselves
-npm run test:e2e
+# Browser: one project per invocation; servers start themselves
+cd e2e && npx playwright test --project=chromium
 
-# Everything, including the linters
+# Everything, including the linters, one browser project at a time
 make check
 
 # Regenerate the images in this file
@@ -502,9 +502,9 @@ grading, theming, tablet layout, accessibility (axe, zero violations), and
 visual regression.
 
 ```bash
-npm run test:e2e -- --project=chromium      # one engine
-npm run test:e2e -- --ui                    # watch it run
-cd e2e && npx playwright test --project=visual --update-snapshots   # rebaseline
+cd e2e && npx playwright test --project=chromium      # one engine
+cd e2e && npx playwright test --project=chromium --ui # watch it run
+cd e2e && npx playwright test --project=visual --update-snapshots=all   # rebaseline
 ```
 
 Visual baselines are committed and pinned to a fixed session date and timezone.
@@ -527,6 +527,6 @@ volatile state.
 
 ## Notes
 
-- Requires Python 3.11+ and Node 20+.
+- Requires Python 3.11+ and Node 22.12+.
 - Order entry is off by default and dials **live** TWS when switched on.
   Read [`docs/order-entry.md`](docs/order-entry.md) before enabling it.

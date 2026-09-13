@@ -27,7 +27,7 @@ overhang or shelf capacity either, so it would not have removed the work.
 ## Steps
 
 - [x] **1 — EDGAR provider, filing taxonomy, dilution service** — DONE
-      `domain/filings.py`, `providers/edgar.py`, `services/dilution.py`,
+      `domain/filings.py`, `providers/edgar.py`, `domain/dilution.py`,
       `services/api_budget.py` (+edgar bucket), wired into `container.py` and
       the `symbol_info` prefetch loop. 842 backend tests pass, ruff clean.
       Validated against live EDGAR: CELU reads SERIAL (89% warrant overhang,
@@ -41,7 +41,7 @@ overhang or shelf capacity either, so it would not have removed the work.
       `api/rest.py` (`GET /api/fundamentals/{symbol}`), `services/symbol_info.py`
       (compact `dilution` block on the `info` message, memoised on EDGAR
       document identity), `types/protocol.ts`, `lib/http.ts`,
-      `store/selectors.ts` (`buildDilutionView`), `components/FundamentalsTab.tsx`,
+      `store/selectors/dilution.ts` (`buildDilutionView`), `components/FundamentalsTab.tsx`,
       `components/TopPanel.tsx` chip, `tests/integration/edgar_stub.py`.
       849 backend, 271 frontend unit, 195 mocked e2e.
 - [x] **4 — News tab** — DONE
@@ -132,7 +132,7 @@ CELU) turned up four things the test suite could not:
 - Every EDGAR-derived number carries its `as_of` date. XBRL is quarterly and
   lags; a confident stale number is worse than no number.
 - Tone enums beside the facts, never instead of them — the `SpreadTone` /
-  `PullbackTone` / `BorrowStatus` idiom in `store/selectors.ts`.
+  `PullbackTone` / `BorrowStatus` idiom in `store/selectors/readouts.ts`.
 
 ## Running the tests
 

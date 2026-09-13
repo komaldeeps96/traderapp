@@ -25,7 +25,7 @@ Everything below marks which tier it came from.
       `services/halts.py` (`HaltState`, transition times), `symbol_info.py`
       (`halt_band_pct`, `halt_band_cents`, `halt_halted_at`,
       `halt_resumed_at`), `lib/format.ts` (`formatElapsed`),
-      `store/selectors.ts` (`reopenRead`), `components/TopPanel.tsx`.
+      `store/selectors/readouts.ts` (`reopenRead`), `components/TopPanel.tsx`.
       Backend 100% on `halts.py`; 287 frontend unit, 225 mocked e2e,
       17 fullstack, 5 visual all pass.
 
@@ -84,7 +84,7 @@ Everything below marks which tier it came from.
       pins both offsets.
 
 - [x] **4 — Spike-unlocked baby-shelf capacity** — DONE
-      `services/dilution.py` (`ShelfCapacity`, `shelf_capacity`,
+      `domain/dilution.py` (`ShelfCapacity`, `shelf_capacity`,
       `with_live_shelf`, `SHELF_LOOKBACK_DAYS`), `services/symbol_info.py`
       (`_lookback_high`, `_live_shelf`), `types/protocol.ts`,
       `components/FundamentalsTab.tsx`. 1009 backend tests, 248 e2e, ruff and
@@ -147,7 +147,7 @@ Everything below marks which tier it came from.
       warned about exactly this and it still nearly slipped through.
 
 - [x] **6 — Headroom to the next daily level** — DONE
-      `store/selectors.ts` (`headroom`, `HeadroomView`,
+      `store/selectors/levels.ts` (`headroom`, `HeadroomView`,
       `CAPPED_HEADROOM_PERCENT`), `hooks/useKeyLevels.ts`,
       `components/TopPanel.tsx`. 302 frontend unit, 253 e2e.
 

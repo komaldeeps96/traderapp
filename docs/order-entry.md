@@ -273,17 +273,29 @@ protection is elsewhere:
    off the broker never connects and `place()` is unreachable.
 2. **`max_order_dollars` — a hard server-side cap**, rejected before anything
    reaches TWS. A bug in the dollar arithmetic cannot become a $50,000 order.
-3. **Long-only is enforced on the backend**, not by disabling a button. Sell
-   quantity is clamped to the current long position; a sell can never exceed
-   it and so can never open a short.
-4. **In-flight guard per button.** A double-click sends one order. The button
-   goes to `sending…` and comes back on the ack.
+3. **Long-only is enforced on the backend**, not by disabling a button. A sell
+   is a fraction of the position IBKR reports less what this client's sells
+   have already claimed: the unfilled rest of working sells, and fills IBKR has
+   not yet reported back as a smaller position
+   (`IBKRBroker.committed_to_sells`). Neither one sell nor two in a row can
+   open a short.
+4. **A repeat window, not an acknowledgement.** TWS acknowledges an order in
+   milliseconds, faster than a double-click, so waiting for the ack guards
+   nothing. A second order on the same side of the same symbol inside
+   `repeat_guard_seconds` (1s) is refused on the server, and the strip holds
+   that side for the same window so the second click is visibly dead. Focus
+   leaves the button on click, so a stray Enter cannot press it again.
 5. **Halts disable the side.** `HaltTracker` already knows; the strip shows
    `HALTED` and the buttons go dead.
 6. **Rejections are loud.** `errorEvent` and a rejected `orderStatus` land on
    the strip in red and stay there until the next action, rather than in a
    log nobody is reading during a move.
 7. **`Cancel all`** on the strip, always live.
+8. **Orders only from this machine.** The terminal is served to the LAN so a
+   phone can watch it. Buys and sells from anything but loopback are refused
+   unless `trading.allow_remote` is set; cancel-all is accepted from anywhere.
+   The socket itself refuses pages whose origin is not the terminal's own,
+   because browsers exempt WebSockets from CORS.
 
 ### Setup that is not code
 
@@ -311,6 +323,8 @@ trading:
   tif: DAY                  # or IOC — see above
   outside_rth: true
   max_order_dollars: 60     # hard cap, server-side
+  repeat_guard_seconds: 1   # same side, same symbol: one order per window
+  allow_remote: false       # buys and sells only from this machine
 ```
 
 This points at the **live** account, so the cap does the work the port

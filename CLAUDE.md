@@ -144,7 +144,7 @@ sorting scrambles the order. Numerics from TradingView go through
 prior years, so Apple's FY2016 revenue is tagged `fy: 2018`. A fact's period
 is `start`–`end` and nothing else.
 
-**A screener's universe filter is not a lookup filter.** `_common_stock_terms()`
+**A screener's universe filter is not a lookup filter.** `common_stock_terms()`
 in `services/tv.py` keeps to primary listings of US common stock — right when
 ranking a list nobody named, wrong when somebody typed the symbol. In a
 watchlist it blanks secondary listings (`is_primary` False), ADRs (typed

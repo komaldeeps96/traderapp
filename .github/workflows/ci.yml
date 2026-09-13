@@ -9,14 +9,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Actions are pinned by commit: a tag can be moved to different code.
 jobs:
   backend:
     name: Backend tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
           cache: pip
@@ -25,28 +26,33 @@ jobs:
         working-directory: backend
         # ib-async is deliberately left out: the suite must pass without it,
         # which is what proves IBKR is genuinely optional.
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev]" pip-audit
 
       - name: Lint
         working-directory: backend
         run: ruff check app tests
 
+      - name: Audit
+        working-directory: backend
+        run: pip-audit --skip-editable
+
       - name: Test
         working-directory: backend
-        run: python -m pytest -m "not live"
+        run: python -m pytest --cov=app --cov-report=term:skip-covered --cov-fail-under=90
 
   frontend:
     name: Frontend tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           cache: npm
 
       - run: npm ci
+      - run: npm audit --audit-level=high
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test:unit
@@ -57,14 +63,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           cache: npm
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
           cache: pip
@@ -78,8 +84,21 @@ jobs:
       - name: Install frontend
         run: npm ci
 
+      # The lockfile pins the Playwright version, and with it the browser builds.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: browsers
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: Install browsers
+        if: steps.browsers.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium firefox webkit
+        working-directory: e2e
+
+      - name: Install browser system libraries
+        if: steps.browsers.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium firefox webkit
         working-directory: e2e
 
       - name: Test
@@ -91,14 +110,14 @@ jobs:
         # compare against. Run it locally with `npm run test:e2e`.
         run: npm run test:e2e:ci
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
           name: playwright-report
           path: e2e/playwright-report/
           retention-days: 14
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: playwright-failures
