@@ -30,6 +30,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from ..core.settings import TradingSettings
 
@@ -42,15 +43,26 @@ PositionHandler = Callable[[], Awaitable[None]]
 OrderHandler = Callable[[dict], Awaitable[None]]
 StatusHandler = Callable[[], Awaitable[None]]
 
-# TWS error codes that mean "this connection may not trade". 2148 is the
-# read-only rejection; 10147/10148 are order-not-found on a cancel race,
-# which is noise rather than a fault.
-READ_ONLY_CODES = frozenset({2148})
-CANCEL_RACE_CODES = frozenset({10147, 10148})
+# Tags every order this app places, so its own can be told from anything else.
+ORDER_REF = "traderapp"
 
-# Codes TWS sends as connection notices rather than faults. They arrive on
-# errorEvent all the same and must not reach the panel as rejections.
-INFO_CODES = frozenset({1100, 1101, 1102, 2103, 2104, 2105, 2106, 2107, 2108, 2158, 2109, 2168, 2169})
+# TWS answers an order on a read-only API with 321, its generic "error
+# validating request", so the message is what identifies it.
+VALIDATION_ERROR = 321
+# Order-not-found on a cancel race: noise rather than a fault.
+CANCEL_RACE_CODES = frozenset({10147, 10148})
+# TWS's own numbering: 1100-1102 are connectivity notices, and warnings run
+# from 2100 (2100-2169 in the v9.72 table; 2174 and 2176 arrived later). Both
+# arrive on errorEvent and reject nothing.
+CONNECTION_NOTICES = frozenset({1100, 1101, 1102})
+WARNINGS = range(2100, 2200)
+# "Order Canceled" — also TWS's answer to a cancel this client asked for.
+ORDER_CANCELLED = 202
+
+# How long a sell fill may wait for IBKR's position report before it stops
+# counting against what can be sold. TWS sends both within a second; the bound
+# only stops a report that arrives out of order from pinning shares for good.
+UNREPORTED_FILL_SECONDS = 10.0
 
 
 def _import_ib():
@@ -62,11 +74,18 @@ def _import_ib():
         return None
 
 
+@dataclass(slots=True)
+class _UnreportedFill:
+    at: float
+    shares: int
+
+
 class IBKRBroker:
     """Places orders, and reports positions and order state as they change."""
 
-    def __init__(self, settings: TradingSettings):
+    def __init__(self, settings: TradingSettings, clock: Callable[[], float] = time.monotonic):
         self._settings = settings
+        self._clock = clock
         self._ib = None
         self._stock = None
         self._limit_order = None
@@ -87,8 +106,11 @@ class IBKRBroker:
         # Whether a position snapshot has arrived at all. A sell button must
         # not read "no position" merely because the first push has not landed.
         self._positions_known = False
-        # ib_async Trade objects for orders this client placed, by order id.
-        self._trades: dict[int, object] = {}
+        # Sell fills not yet folded into a position report, oldest first.
+        self._unreported_sells: dict[str, list[_UnreportedFill]] = {}
+        self._seen_executions: set[str] = set()
+        # Orders cancel_all asked TWS to cancel; their 202 is an answer, not a fault.
+        self._cancelling: set[int] = set()
         self._last_error: str | None = None
         self._read_only = False
         # Set only once the handlers are attached, the account has resolved
@@ -144,11 +166,11 @@ class IBKRBroker:
                 await self._reconnect_task
             self._reconnect_task = None
         if self._ib is not None and self._ib.isConnected():
-            with contextlib.suppress(Exception):
-                self._detach()
+            self._detach()
             self._ib.disconnect()
         self._contracts.clear()
-        self._trades.clear()
+        self._unreported_sells.clear()
+        self._cancelling.clear()
 
     @property
     def is_available(self) -> bool:
@@ -199,43 +221,38 @@ class IBKRBroker:
 
     async def _connect_loop(self) -> None:
         attempt = 0
-        delay = 1.0
         while self._should_run:
-            if self.socket_connected:
-                # Connected but not set up: connectAsync was interrupted after
-                # the handshake. Finish the job rather than idling on a
-                # half-built connection that reports itself unavailable
-                # forever.
-                if not self._ready:
-                    self._finish_setup()
-                    await self._emit_status()
+            if self.is_available:
                 await asyncio.sleep(1.0)
                 continue
 
             attempt += 1
             async with self._connect_lock:
-                if self.socket_connected:
-                    continue
                 try:
-                    await asyncio.wait_for(
-                        self._ib.connectAsync(
-                            self._settings.host,
-                            self._settings.port,
-                            clientId=self._settings.client_id,
-                            account=self._settings.account,
-                            # The order path. See the module docstring: what
-                            # actually enforces read-only is TWS's own
-                            # checkbox, not this argument.
-                            readonly=False,
-                        ),
-                        timeout=self._settings.connect_timeout_seconds,
-                    )
+                    if not self.socket_connected:
+                        await asyncio.wait_for(
+                            self._ib.connectAsync(
+                                self._settings.host,
+                                self._settings.port,
+                                clientId=self._settings.client_id,
+                                account=self._settings.account,
+                                # The order path. See the module docstring: what
+                                # actually enforces read-only is TWS's own
+                                # checkbox, not this argument.
+                                readonly=False,
+                            ),
+                            timeout=self._settings.connect_timeout_seconds,
+                        )
+                    self._finish_setup()
                 except Exception as exc:
+                    # A socket that connected but did not set up reports itself
+                    # unavailable for good, so it is dropped and built again.
+                    if self.socket_connected:
+                        self._ib.disconnect()
                     delay = min(2 ** min(attempt, 5), self._settings.max_reconnect_delay_seconds)
-                    logger.info("Broker unavailable (%s); retrying in %ss", exc, int(delay))
+                    logger.info("Broker unavailable (%s); retrying in %.1fs", exc, delay)
                 else:
                     attempt = 0
-                    self._finish_setup()
                     await self._emit_status()
                     continue
             await asyncio.sleep(delay)
@@ -243,9 +260,7 @@ class IBKRBroker:
     def _finish_setup(self) -> None:
         """Resolve the account, attach the handlers, adopt the positions.
 
-        Idempotent, and the only thing that sets ``_ready``: the connect loop
-        calls it on a clean connect and on finding a socket that came up
-        without it.
+        Idempotent, and the only thing that sets ``_ready``.
         """
         if self._ready:
             return
@@ -264,11 +279,10 @@ class IBKRBroker:
 
     def _attach(self) -> None:
         ib = self._ib
-        # connectAsync may have been interrupted after some of these were
-        # added; ib_async's Event is a list, so re-adding would double every
-        # callback. Detach first, ignoring what was never there.
-        with contextlib.suppress(Exception):
-            self._detach()
+        # A setup that failed partway may have added some of these, and
+        # eventkit runs a listener once per add. Detaching a listener that was
+        # never attached is a no-op there.
+        self._detach()
         ib.disconnectedEvent += self._on_disconnected
         ib.orderStatusEvent += self._on_order_status
         ib.execDetailsEvent += self._on_execution
@@ -332,8 +346,12 @@ class IBKRBroker:
         # IBKR reports position as a float because some products are
         # fractional. Ours never are; truncating toward zero keeps a short
         # negative and a long long.
-        self._positions[symbol] = int(size)
+        shares = int(size)
+        previous = self._positions.get(symbol)
+        self._positions[symbol] = shares
         self._avg_cost[symbol] = avg_cost
+        if previous is not None and shares < previous:
+            self._settle_sells(symbol, previous - shares)
         return symbol
 
     def position(self, symbol: str) -> int:
@@ -341,12 +359,46 @@ class IBKRBroker:
         but the account may hold from elsewhere."""
         return self._positions.get(symbol.upper(), 0)
 
+    def committed_to_sells(self, symbol: str) -> int:
+        """Shares of the position this client's sells have already claimed.
+
+        The unfilled remainder of working sells, plus fills IBKR has not yet
+        folded into the position it reports. Without the second, a sell that
+        filled a moment ago still reads as held and a second ALL opens a short.
+        """
+        symbol = symbol.upper()
+        working = sum(
+            max(0, int(trade.order.totalQuantity) - int(trade.orderStatus.filled))
+            for trade in self._our_trades()
+            if trade.order.action == "SELL" and str(trade.contract.symbol).upper() == symbol
+        )
+        return working + self._unreported(symbol)
+
+    def _unreported(self, symbol: str) -> int:
+        fills = self._unreported_sells.get(symbol)
+        if not fills:
+            return 0
+        cutoff = self._clock() - UNREPORTED_FILL_SECONDS
+        fills[:] = [fill for fill in fills if fill.at >= cutoff]
+        return sum(fill.shares for fill in fills)
+
+    def _settle_sells(self, symbol: str, shares: int) -> None:
+        """A position report that fell by ``shares`` has taken in that many sold."""
+        fills = self._unreported_sells.get(symbol, [])
+        while fills and shares > 0:
+            taken = min(fills[0].shares, shares)
+            fills[0].shares -= taken
+            shares -= taken
+            if fills[0].shares == 0:
+                fills.pop(0)
+
     def positions(self) -> list[dict]:
         """Every non-flat stock position, for the rail under the buttons."""
         return [
             {
                 "symbol": symbol,
                 "shares": shares,
+                "committed": self.committed_to_sells(symbol),
                 "avg_cost": round(self._avg_cost.get(symbol, 0.0), 4),
                 "unrealized": round(self._unrealized.get(symbol, 0.0), 2),
             }
@@ -412,7 +464,7 @@ class IBKRBroker:
             # TWS refuses market orders outside regular hours.
             outsideRth=self._settings.outside_rth,
             account=self._account or "",
-            orderRef="traderapp",
+            orderRef=ORDER_REF,
         )
         try:
             trade = self._ib.placeOrder(contract, order)
@@ -420,10 +472,13 @@ class IBKRBroker:
             logger.exception("placeOrder failed for %s", symbol)
             return {"ok": False, "message": str(exc)}
 
-        order_id = int(trade.order.orderId)
-        self._trades[order_id] = trade
         logger.warning(
-            "ORDER SENT %s %s x%s limit %s (id %s)", side, symbol, shares, limit, order_id
+            "ORDER SENT %s %s x%s limit %s (id %s)",
+            side,
+            symbol,
+            shares,
+            limit,
+            trade.order.orderId,
         )
         self._schedule(self._emit_order(trade))
         return {"ok": True, **self._order_wire(trade)}
@@ -437,12 +492,15 @@ class IBKRBroker:
         if not self.is_available:
             return 0
         cancelled = 0
-        for trade in list(self._ib.openTrades()):
-            if getattr(trade.order, "orderRef", "") != "traderapp":
-                continue
-            with contextlib.suppress(Exception):
+        for trade in self._our_trades():
+            order_id = int(trade.order.orderId)
+            try:
                 self._ib.cancelOrder(trade.order)
-                cancelled += 1
+            except Exception:
+                logger.exception("cancelOrder failed for order %s", order_id)
+                continue
+            self._cancelling.add(order_id)
+            cancelled += 1
         if cancelled:
             logger.warning("CANCEL ALL — %s working order(s)", cancelled)
         return cancelled
@@ -450,10 +508,16 @@ class IBKRBroker:
     def working_orders(self) -> list[dict]:
         if not self.is_available:
             return []
+        return [self._order_wire(trade) for trade in self._our_trades()]
+
+    def _our_trades(self) -> list:
+        """This app's orders that are still working."""
+        if self._ib is None:
+            return []
         return [
-            self._order_wire(trade)
+            trade
             for trade in self._ib.openTrades()
-            if getattr(trade.order, "orderRef", "") == "traderapp"
+            if getattr(trade.order, "orderRef", "") == ORDER_REF
         ]
 
     def _order_wire(self, trade) -> dict:
@@ -474,7 +538,14 @@ class IBKRBroker:
     def _on_order_status(self, trade) -> None:
         self._schedule(self._emit_order(trade))
 
-    def _on_execution(self, trade, _fill) -> None:
+    def _on_execution(self, trade, fill) -> None:
+        execution = fill.execution
+        if execution.side == "SLD" and execution.execId not in self._seen_executions:
+            self._seen_executions.add(execution.execId)
+            symbol = str(fill.contract.symbol).upper()
+            self._unreported_sells.setdefault(symbol, []).append(
+                _UnreportedFill(self._clock(), int(execution.shares))
+            )
         self._schedule(self._emit_order(trade))
 
     def _on_error(self, req_id, code, message, _contract) -> None:
@@ -483,18 +554,27 @@ class IBKRBroker:
         A rejection has to reach the strip: an order that silently did not go is
         the failure this panel is built to avoid.
         """
-        if code in INFO_CODES or code in CANCEL_RACE_CODES:
-            return
-        if code in READ_ONLY_CODES:
+        if code == VALIDATION_ERROR and "read-only" in str(message).lower():
             self._read_only = True
             self._last_error = (
                 "TWS is in read-only mode. Untick Global Configuration → "
                 "API → Settings → Read-Only API."
             )
+        elif self._is_noise(req_id, code):
+            return
         else:
             self._last_error = f"IBKR {code}: {message}"
         logger.warning("Broker error %s: %s (req %s)", code, message, req_id)
         self._schedule(self._emit_status())
+
+    def _is_noise(self, req_id: int, code: int) -> bool:
+        """A notice, a warning, or the answer to something this client asked."""
+        return (
+            code in CONNECTION_NOTICES
+            or code in WARNINGS
+            or code in CANCEL_RACE_CODES
+            or (code == ORDER_CANCELLED and req_id in self._cancelling)
+        )
 
     def clear_error(self) -> None:
         self._last_error = None
@@ -502,17 +582,19 @@ class IBKRBroker:
     # ── fan-out ────────────────────────────────────────────────────────
 
     async def _emit_positions(self) -> None:
-        for handler in list(self._position_handlers):
-            with contextlib.suppress(Exception):
-                await handler()
+        await _fan_out(self._position_handlers)
 
     async def _emit_order(self, trade) -> None:
-        wire = self._order_wire(trade)
-        for handler in list(self._order_handlers):
-            with contextlib.suppress(Exception):
-                await handler(wire)
+        await _fan_out(self._order_handlers, self._order_wire(trade))
 
     async def _emit_status(self) -> None:
-        for handler in list(self._status_handlers):
-            with contextlib.suppress(Exception):
-                await handler()
+        await _fan_out(self._status_handlers)
+
+
+async def _fan_out(handlers: list, *args) -> None:
+    # One failing listener must not starve the rest, nor fail unseen.
+    for handler in list(handlers):
+        try:
+            await handler(*args)
+        except Exception:
+            logger.exception("Broker listener %r failed", handler)

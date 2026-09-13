@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.financials import build_statements
+from app.domain.financials import build_statements
 from app.services.metrics import build_metrics
 from tests.unit.test_financials import REVENUE, fact, facts, usd
 

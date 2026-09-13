@@ -12,6 +12,8 @@ is off, rather than rendering as a panel that silently does nothing.
 
 from __future__ import annotations
 
+import contextlib
+
 import pytest
 
 from app.core.settings import (
@@ -106,20 +108,23 @@ class TestTheClientCannotSendAQuantity:
         assert receive_until(ws, "error")["code"] == "bad_command"
 
 
-class TestArmedButUnreachable:
-    """Trading switched on, pointed at a port with nothing behind it.
+LOOPBACK = ("127.0.0.1", 50000)
+ON_THE_WIFI = ("192.168.1.20", 50000)
 
-    This is the shape of a real misconfiguration — TWS closed, or the wrong
-    socket — and it must degrade to a refusal rather than a hang or a crash.
-    Port 1 is chosen because nothing can be listening on it.
+
+@pytest.fixture
+def arm(tmp_path, alpaca_api):
+    """A client on an app with trading switched on, pointed at port 1.
+
+    Port 1 is chosen because nothing can be listening on it, so nothing here can
+    reach TWS. ``peer`` is the address the socket appears to come from.
     """
+    from fastapi.testclient import TestClient
 
-    @pytest.fixture
-    def armed_client(self, tmp_path, alpaca_api):
-        from fastapi.testclient import TestClient
+    from app.main import create_app
 
-        from app.main import create_app
-
+    @contextlib.contextmanager
+    def build(peer=LOOPBACK, **trading):
         settings = Settings(
             alpaca=AlpacaSettings(
                 key_id="test-key", secret_key="test-secret", feed="iex", news_stream=False
@@ -129,13 +134,48 @@ class TestArmedButUnreachable:
             regime=RegimeSettings(enabled=False),
             edgar=EdgarSettings(enabled=False),
             trading=TradingSettings(
-                enabled=True, port=1, connect_timeout_seconds=0.2, max_reconnect_delay_seconds=0.2
+                enabled=True,
+                port=1,
+                connect_timeout_seconds=0.2,
+                max_reconnect_delay_seconds=0.2,
+                **trading,
             ),
             state_file=tmp_path / "state.yaml",
             indicators_file=CONFIG_DIR / "indicators.yaml",
             log_level="WARNING",
         )
-        with TestClient(create_app(settings)) as client:
+        with TestClient(create_app(settings), client=peer) as client:
+            yield client
+
+    return build
+
+
+def drain_opening_frames(socket) -> None:
+    """The eight frames every connection opens with; see ``ws`` in conftest."""
+    for _ in range(8):
+        socket.receive_json()
+
+
+def frames_until(socket, message_type: str, limit: int = 20) -> list[dict]:
+    """Every frame up to and including the first ``message_type``."""
+    seen = []
+    for _ in range(limit):
+        seen.append(socket.receive_json())
+        if seen[-1]["type"] == message_type:
+            return seen
+    raise AssertionError(f"no {message_type!r} within {limit} frames: {seen}")
+
+
+class TestArmedButUnreachable:
+    """Trading switched on, pointed at a port with nothing behind it.
+
+    This is the shape of a real misconfiguration — TWS closed, or the wrong
+    socket — and it must degrade to a refusal rather than a hang or a crash.
+    """
+
+    @pytest.fixture
+    def armed_client(self, arm):
+        with arm() as client:
             yield client
 
     def test_the_strip_reports_armed_but_disconnected(self, armed_client):
@@ -151,4 +191,60 @@ class TestArmedButUnreachable:
             socket.send_json({"action": "trade.buy", "symbol": "AAPL", "dollars": 25})
             error = receive_until(socket, "error", limit=20)
             assert error["code"] == "trade"
+            assert error["action"] == "trade.buy"
             assert "not connected" in error["message"]
+
+
+class TestOnlyThisMachinePlacesOrders:
+    """The terminal is served to the LAN so a phone can watch it. Anything on
+    the WiFi can open the socket, so buys and sells are refused unless they come
+    from loopback or ``trading.allow_remote`` says otherwise."""
+
+    def test_a_buy_from_another_machine_is_refused(self, arm):
+        with arm(peer=ON_THE_WIFI) as client, client.websocket_connect("/ws") as socket:
+            drain_opening_frames(socket)
+            socket.send_json({"action": "trade.buy", "symbol": "AAPL", "dollars": 25})
+            error = receive_until(socket, "error", limit=20)
+            assert error["code"] == "trade"
+            assert "only from this machine" in error["message"]
+
+    def test_a_sell_from_another_machine_is_refused(self, arm):
+        with arm(peer=ON_THE_WIFI) as client, client.websocket_connect("/ws") as socket:
+            drain_opening_frames(socket)
+            socket.send_json({"action": "trade.sell", "symbol": "AAPL", "fraction": 1.0})
+            assert "only from this machine" in receive_until(socket, "error", limit=20)["message"]
+
+    def test_the_refusal_is_not_broadcast_as_the_strips_note(self, arm):
+        """It is about the asking window, not the account: every other window's
+        strip must not start saying orders are refused."""
+        with arm(peer=ON_THE_WIFI) as client, client.websocket_connect("/ws") as socket:
+            drain_opening_frames(socket)
+            socket.send_json({"action": "trade.buy", "symbol": "AAPL", "dollars": 25})
+            receive_until(socket, "error", limit=20)
+            socket.send_json({"action": "trade.cancel_all"})
+            state = receive_until(socket, "trading", limit=20)["state"]
+            assert state["note"] is None or "only from this machine" not in state["note"]
+
+    def test_cancel_all_is_accepted_from_another_machine(self, arm):
+        """Cancelling reduces risk, and a phone is where it might be pressed."""
+        with arm(peer=ON_THE_WIFI) as client, client.websocket_connect("/ws") as socket:
+            drain_opening_frames(socket)
+            socket.send_json({"action": "trade.cancel_all"})
+            frames = frames_until(socket, "trading")
+            assert not [frame for frame in frames if frame["type"] == "error"]
+
+    def test_allow_remote_lets_another_machine_through_to_the_other_guards(self, arm):
+        with (
+            arm(peer=ON_THE_WIFI, allow_remote=True) as client,
+            client.websocket_connect("/ws") as socket,
+        ):
+            drain_opening_frames(socket)
+            socket.send_json({"action": "trade.buy", "symbol": "AAPL", "dollars": 25})
+            assert "not connected" in receive_until(socket, "error", limit=20)["message"]
+
+    def test_with_trading_off_the_refusal_says_so_first(self, client):
+        """A disabled switch is the more fundamental answer, and says what to change."""
+        with client.websocket_connect("/ws") as socket:
+            drain_opening_frames(socket)
+            socket.send_json({"action": "trade.buy", "symbol": "AAPL", "dollars": 25})
+            assert "disabled" in receive_until(socket, "error")["message"]

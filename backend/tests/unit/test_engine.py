@@ -128,7 +128,9 @@ class TestCompute:
 
     def test_series_points_are_time_ordered(self, bars, level_index):
         engine = IndicatorEngine(_full_specs())
-        for points in engine.compute(bars, Timeframe.M1, level_index=level_index).values():
+        series = engine.compute(bars, Timeframe.M1, level_index=level_index)
+        assert series
+        for points in series.values():
             times = [t for t, _ in points]
             assert times == sorted(times)
 
@@ -155,6 +157,7 @@ class TestCompute:
         # Histogram is the gap between the two lines at matching times.
         signal = dict(series["macd_signal"])
         macd_line = dict(series["macd"])
+        assert series["macd_hist"]
         for time, hist in series["macd_hist"]:
             assert hist == pytest.approx(macd_line[time] - signal[time])
 
@@ -185,6 +188,7 @@ class TestLatestMatchesCompute:
         engine = IndicatorEngine(_full_specs())
         full = latest_values(engine.compute(bars, Timeframe.M5, level_index=level_index))
         fast = engine.latest(bars, Timeframe.M5, level_index)
+        assert set(fast) == set(full)
         for key, value in fast.items():
             assert value == pytest.approx(full[key]), key
 
@@ -193,6 +197,7 @@ class TestLatestMatchesCompute:
         bars[-1].close += 5.0
         full = latest_values(engine.compute(bars, Timeframe.M1, level_index=level_index))
         fast = engine.latest(bars, Timeframe.M1, level_index)
+        assert set(fast) == set(full)
         for key, value in fast.items():
             assert value == pytest.approx(full[key]), key
 

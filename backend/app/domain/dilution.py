@@ -24,10 +24,12 @@ common plus warrants, with preferred and converts reported beside it.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from enum import Enum
 
-from ..domain.filings import OFFERING_FORMS, OFFERING_ITEMS, Filing
+from ..core.clock import NY_TZ, parse_iso_date
+from .companyfacts import concept_units
+from .filings import OFFERING_FORMS, OFFERING_ITEMS, Filing
 
 # Form S-3 General Instruction I.B.6 — the "baby shelf" rule. Below this
 # public float a company may sell no more than a third of that float in any
@@ -376,12 +378,8 @@ def measure(
 
 
 def _facts_for(facts: dict | None, taxonomy: str, concept: str) -> list[dict]:
-    if not isinstance(facts, dict):
-        return []
-    concepts = (facts.get("facts") or {}).get(taxonomy) or {}
-    units = (concepts.get(concept) or {}).get("units") or {}
     rows: list[dict] = []
-    for entries in units.values():
+    for entries in concept_units(facts, taxonomy, concept).values():
         if isinstance(entries, list):
             rows.extend(entry for entry in entries if isinstance(entry, dict))
     return rows
@@ -409,7 +407,7 @@ def _latest_instant(
             if best is None or key > (best[0], best[1]):
                 best = (end, key[1], entry)
         if best is not None:
-            parsed = _to_date(best[0])
+            parsed = parse_iso_date(best[0])
             if parsed is not None:
                 return Dated(
                     value=float(best[2]["val"]),
@@ -432,8 +430,8 @@ def _annual_flow(
     for taxonomy, concept in concepts:
         spans: list[tuple[date, date, dict]] = []
         for entry in _facts_for(facts, taxonomy, concept):
-            start = _to_date(entry.get("start"))
-            end = _to_date(entry.get("end"))
+            start = parse_iso_date(entry.get("start"))
+            end = parse_iso_date(entry.get("end"))
             value = entry.get("val")
             if start is None or end is None or not isinstance(value, (int, float)):
                 continue
@@ -474,7 +472,7 @@ def _share_growth(facts: dict | None) -> float | None:
         for entry in _facts_for(facts, taxonomy, concept):
             if entry.get("start") is not None:
                 continue
-            end = _to_date(entry.get("end"))
+            end = parse_iso_date(entry.get("end"))
             value = entry.get("val")
             if end is None or not isinstance(value, (int, float)) or value <= 0:
                 continue
@@ -486,7 +484,7 @@ def _share_growth(facts: dict | None) -> float | None:
 
     points.sort()
     latest_date, latest = points[-1]
-    cutoff = latest_date.replace(year=latest_date.year - 1)
+    cutoff = _year_before(latest_date)
     earlier = [point for point in points if point[0] <= cutoff]
     if not earlier:
         return None
@@ -494,6 +492,14 @@ def _share_growth(facts: dict | None) -> float | None:
     if base <= 0:
         return None
     return (latest - base) / base
+
+
+def _year_before(day: date) -> date:
+    """The same calendar day a year earlier; 29 February falls back to the 28th."""
+    try:
+        return day.replace(year=day.year - 1)
+    except ValueError:
+        return day.replace(year=day.year - 1, day=28)
 
 
 def _runway_months(cash: Dated | None, flow: Dated | None) -> float | None:
@@ -511,7 +517,7 @@ def _runway_months(cash: Dated | None, flow: Dated | None) -> float | None:
 
 
 def _count_offerings(filings: list[Filing], today: date) -> int:
-    cutoff = today.replace(year=today.year - 1)
+    cutoff = _year_before(today)
     return sum(
         1
         for filing in filings
@@ -524,14 +530,14 @@ def _count_offerings(filings: list[Filing], today: date) -> int:
 
 
 def _has_form(filings: list[Filing], forms: set[str], today: date) -> bool:
-    cutoff = today.replace(year=today.year - 1)
+    cutoff = _year_before(today)
     return any(
         filing.form in forms and filing.filed >= cutoff for filing in filings
     )
 
 
 def _has_item(filings: list[Filing], item: str, today: date) -> bool:
-    cutoff = today.replace(year=today.year - 1)
+    cutoff = _year_before(today)
     return any(item in filing.items and filing.filed >= cutoff for filing in filings)
 
 
@@ -627,14 +633,6 @@ def _reasons(
 # ── helpers ────────────────────────────────────────────────────────────
 
 
-def _to_date(value: object) -> date | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        return None
-
-
 def _today() -> date:
-    return datetime.now(UTC).date()
+    """The New York date: a twelve-month window turns over at the market's midnight."""
+    return datetime.now(NY_TZ).date()

@@ -8,10 +8,10 @@ than the tape.
 answers from TradingView and works with nothing else connected.
 
 **The interesting filters cannot be sent.** TradingView's query language
-compares a column against a *number*, not another column, so "within 10% of the
-52-week high" and "sitting on the 50-day" cannot go in the request. The coarse
-terms go to the server and the proximity tests run here, which is why each
-screen asks for more rows than it shows.
+compares a column against a number or another column but cannot scale either,
+so "within 10% of the 52-week high" and "sitting on the 50-day" cannot go in the
+request. The coarse terms go to the server and the proximity tests run here,
+which is why each screen asks for more rows than it shows.
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ from dataclasses import dataclass
 from tradingview_screener import Query, col
 
 from ..core.clock import now_epoch
-from ..domain.screener import finite
-from .tv import _common_stock_terms
+from ..domain.screener import RowReader, finite
+from .tv import common_stock_terms, scan_rows
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ SCREENS: tuple[SwingScreen, ...] = (
     SwingScreen(
         id="trend",
         label="Trend continuation",
-        note="Above a rising 50 and 200, within 10% of the 52-week high, ranked by three-month strength.",
+        note="Above the 50 with the 50 above the 200, within 10% of the 52-week high, ranked by three-month strength.",
         order_by="Perf.3M",
         require_uptrend=True,
         max_off_high=10.0,
@@ -173,7 +173,8 @@ class SwingService:
         self._fetch = fetch
         self._cache: dict[str, tuple[float, list[dict]]] = {}
         self._config = DEFAULT_CONFIG
-        self._note: str | None = None
+        # Per screen, so one screen answering does not clear another's failure.
+        self._failures: dict[str, str] = {}
 
     @property
     def config(self) -> SwingConfig:
@@ -181,9 +182,12 @@ class SwingService:
 
     @property
     def note(self) -> str | None:
-        """Set only when TradingView itself failed, so an empty screen can say
-        so rather than reading as "nothing qualifies today"."""
-        return self._note
+        """Set only while TradingView is failing a screen, so an empty screen can
+        say so rather than reading as "nothing qualifies today"."""
+        return next(iter(self._failures.values()), None)
+
+    def note_for(self, screen_id: str) -> str | None:
+        return self._failures.get(screen_id)
 
     def adopt_config(self, config: dict | None) -> None:
         if not isinstance(config, dict):
@@ -221,10 +225,10 @@ class SwingService:
             rows = await self._run(screen)
         except Exception as exc:
             logger.warning("Swing screen %s failed: %s", screen_id, exc)
-            self._note = "TradingView did not answer; the screen is stale."
+            self._failures[screen_id] = "TradingView did not answer; the screen is stale."
             return self._cache.get(screen_id, (0.0, []))[1]
 
-        self._note = None
+        self._failures.pop(screen_id, None)
         self._cache[screen_id] = (now_epoch(), rows)
         return rows
 
@@ -233,13 +237,13 @@ class SwingService:
         if self._fetch is not None:
             payload = await self._fetch(query)
         else:
-            payload = await asyncio.to_thread(_scan, query)
+            payload = await asyncio.to_thread(scan_rows, query, COLUMNS)
         refined = [row for row in _shape(payload) if _passes(screen, row)]
         return refined[: self._config.rows]
 
     def _query(self, screen: SwingScreen) -> Query:
         terms = [
-            *_common_stock_terms(),
+            *common_stock_terms(),
             col("market_cap_basic") >= self._config.min_market_cap,
             col("average_volume_10d_calc") >= self._config.min_avg_volume,
         ]
@@ -258,41 +262,28 @@ class SwingService:
         )
 
 
-def _scan(query: Query) -> list[list]:
-    _, frame = query.get_scanner_data()
-    return frame[COLUMNS].values.tolist() if not frame.empty else []
-
-
 def _shape(payload) -> list[dict]:
     """Raw rows into the shape the table draws, with the derived fields."""
-    index = {name: position for position, name in enumerate(COLUMNS)}
-
-    def number(row, name):
-        return finite(row[index[name]])
-
-    def text(row, name):
-        value = row[index[name]]
-        return value if isinstance(value, str) else ""
-
+    read = RowReader(COLUMNS)
     out: list[dict] = []
     for row in payload:
-        close = number(row, "close")
+        close = read.number(row, "close")
         row_out = {
-            "symbol": text(row, "name"),
-            "name": text(row, "description"),
-            "sector": text(row, "sector"),
+            "symbol": read.text(row, "name"),
+            "name": read.text(row, "description"),
+            "sector": read.text(row, "sector"),
             "close": close,
-            "change": number(row, "change"),
-            "rvol": number(row, "relative_volume_10d_calc"),
-            "market_cap": number(row, "market_cap_basic"),
-            "avg_volume": number(row, "average_volume_10d_calc"),
-            "perf_week": number(row, "Perf.W"),
-            "perf_month": number(row, "Perf.1M"),
-            "perf_quarter": number(row, "Perf.3M"),
-            "adr": number(row, "ADR"),
-            "off_high": _percent_off_high(close, number(row, "price_52_week_high")),
-            "distance_to_sma50": _distance_to_sma(close, number(row, "SMA50")),
-            "next_earnings": number(row, "earnings_release_next_date"),
+            "change": read.number(row, "change"),
+            "rvol": read.number(row, "relative_volume_10d_calc"),
+            "market_cap": read.number(row, "market_cap_basic"),
+            "avg_volume": read.number(row, "average_volume_10d_calc"),
+            "perf_week": read.number(row, "Perf.W"),
+            "perf_month": read.number(row, "Perf.1M"),
+            "perf_quarter": read.number(row, "Perf.3M"),
+            "adr": read.number(row, "ADR"),
+            "off_high": _percent_off_high(close, read.number(row, "price_52_week_high")),
+            "distance_to_sma50": _distance_to_sma(close, read.number(row, "SMA50")),
+            "next_earnings": read.number(row, "earnings_release_next_date"),
         }
         if row_out["symbol"]:
             out.append(row_out)

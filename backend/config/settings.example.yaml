@@ -56,9 +56,9 @@ history:
   # extension — with Alpaca's trade tape as the recent-slice fallback when TWS
   # is down — and behind those the previous session(s), always walked off
   # Alpaca's tape.
-  # 20 days: the windowed-RVOL denominator wants real prior sessions,
-  # not the handful a chart needs for display.
-  intraday_days: 20
+  # Five days is one Alpaca request per ticker switch; the windowed-RVOL
+  # denominator projects older sessions off the daily base instead.
+  intraday_days: 5
   # Daily history is one Alpaca request capped at 10k rows; 40 years is what
   # fills that page, so asking for less only throws away levels.
   daily_years: 40
@@ -96,20 +96,6 @@ scanner:
   below_price: 50.0
   change_perc_above: 10.0
   rank_window_seconds: 5.0
-
-screener:
-  # The TradingView screener needs no credentials and no TWS. Defaults are
-  # the small-cap momentum screen: $2-$20, up 10%+, 5x the 10-day average
-  # volume, float under 20M shares. All of it is adjustable from the UI.
-  enabled: true
-  refresh_seconds: 15
-  price_min: 2.0
-  price_max: 20.0
-  change_min: 10.0
-  volume_min: 100000
-  rel_vol_min: 5.0
-  float_max: 20000000
-  rows: 30
 
 edgar:
   # SEC EDGAR is the fundamentals and filings source, because IBKR is not one
@@ -210,3 +196,10 @@ trading:
   # means no arithmetic fault anywhere in the stack can produce an order
   # larger than the one you clicked. Raising the buttons means raising this.
   max_order_dollars: 60
+
+  # A second order on the same side of the same symbol inside this window is
+  # refused as a double-click. TWS acknowledges faster than a double-click.
+  repeat_guard_seconds: 1
+  # Buys and sells only from this machine. The terminal is served to the LAN
+  # so a phone can watch; cancel-all is accepted from anywhere.
+  allow_remote: false

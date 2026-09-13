@@ -17,6 +17,7 @@ pushed back inside the spread.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 MICROS = 1_000_000
@@ -33,9 +34,19 @@ BPS = 10_000
 """Basis points in one whole."""
 
 
+def round_half_up(value: float) -> int:
+    """The nearest integer, a half going up: JavaScript's ``Math.round``.
+
+    Python's ``round`` sends a half to the even neighbour, which would put the
+    two copies of this arithmetic one share apart on an exact half.
+    """
+    whole = math.floor(value)
+    return whole + (1 if value - whole >= 0.5 else 0)
+
+
 def to_micros(price: float) -> int:
     """A price as an exact integer count of millionths of a dollar."""
-    return round(price * MICROS)
+    return round_half_up(price * MICROS)
 
 
 def to_price(micros: int) -> float:
@@ -60,8 +71,8 @@ def offset_micros(price_micros: int, *, offset_cents: float, offset_bps: float) 
     12 bps on a $40 name and 12.5% on a $0.40 one, so neither is the right shape
     alone. At 5c and 15bps they cross at $33.33.
     """
-    flat = round(offset_cents * (MICROS // 100))
-    proportionate = round(price_micros * offset_bps / BPS)
+    flat = round_half_up(offset_cents * (MICROS // 100))
+    proportionate = round_half_up(price_micros * offset_bps / BPS)
     return max(flat, proportionate)
 
 
@@ -112,7 +123,7 @@ def shares_for_fraction(position: int, fraction: float) -> int:
         return 0
     if fraction >= 1.0:
         return position
-    return min(position, position * round(fraction * BPS) // BPS)
+    return min(position, position * round_half_up(fraction * BPS) // BPS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,22 +199,26 @@ def plan_sell(
     ask: float,
     offset_cents: float,
     offset_bps: float,
+    committed: int = 0,
 ) -> OrderPlan:
     """Everything a sell would be, or the reason it cannot happen.
 
-    Long only, enforced here rather than by a disabled button: the quantity is
-    clamped to the position by ``shares_for_fraction``, so a sell can never open
-    a short.
+    Long only, enforced here rather than by a disabled button: the quantity is a
+    fraction of the shares no earlier sell has ``committed``, clamped to them, so
+    neither one sell nor two in a row can open a short.
 
     No cap check — the cap bounds what may be *bought*.
     """
     if position <= 0:
         return OrderPlan("SELL", symbol, 0, 0.0, 0.0, blocked="no_position")
+    free = position - max(0, committed)
+    if free <= 0:
+        return OrderPlan("SELL", symbol, 0, 0.0, 0.0, blocked="committed")
     if not _quote_ok(bid, ask):
         return OrderPlan("SELL", symbol, 0, 0.0, 0.0, blocked="no_quote")
 
     limit = sell_limit(bid, offset_cents=offset_cents, offset_bps=offset_bps)
-    shares = shares_for_fraction(position, fraction)
+    shares = shares_for_fraction(free, fraction)
     if shares <= 0:
         return OrderPlan("SELL", symbol, 0, limit, 0.0, blocked="too_small")
     return OrderPlan("SELL", symbol, shares, limit, to_price(shares * to_micros(limit)))

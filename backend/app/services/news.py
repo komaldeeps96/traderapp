@@ -18,7 +18,7 @@ Article bodies are cached indefinitely: an article is immutable once published.
 from __future__ import annotations
 
 import asyncio
-import contextlib
+import itertools
 import logging
 
 from ..core.clock import now_epoch
@@ -62,28 +62,44 @@ class NewsService:
         # replaces itself rather than duplicating.
         self._raw: dict[str, dict[str, dict]] = {}
         self._fetched_at: dict[str, float] = {}
+        # When each symbol was last read or written, in use order. Eviction goes
+        # by this: a symbol fed only by the live stream has no fetch time, and
+        # evicting by that would drop its headline in the merge that added it.
+        self._used_at: dict[str, int] = {}
+        self._uses = itertools.count()
         self._articles: dict[tuple[str, str], str] = {}
         self._providers: list[dict] | None = None
 
     def peek(self, symbol: str) -> list[Headline]:
         """The deduplicated, tagged headlines held for a symbol."""
         rows = self._raw.get(symbol)
-        return build(list(rows.values())) if rows else []
+        if not rows:
+            return []
+        self._used_at[symbol] = next(self._uses)
+        return build(list(rows.values()))
 
     async def providers(self) -> list[dict]:
-        """The feeds behind the panel, for its footer."""
+        """The feeds behind the panel, for its footer.
+
+        Not remembered while IBKR answers with nothing: that is TWS being down,
+        and entitlements are fixed only once it has said what they are.
+        """
         if self._providers is not None:
             return self._providers
         entries: list[dict] = []
         if self._provider is not None:
-            with contextlib.suppress(Exception):
+            try:
                 entries = [
                     {"code": code, "name": name}
                     for code, name in await self._provider.fetch_news_providers()
                 ]
+            except Exception as exc:
+                logger.warning("IBKR news providers unavailable: %s", exc)
+        settled = self._provider is None or bool(entries)
         if self._alpaca is not None:
             entries.append({"code": BENZINGA_CODE, "name": "Benzinga (via Alpaca)"})
-        self._providers = entries
+        if settled:
+            self._providers = entries
         return entries
 
     async def prefetch(self, symbol: str) -> None:
@@ -190,12 +206,14 @@ class NewsService:
             # the wire does not deliver in time order.
             keep = sorted(held.items(), key=lambda item: item[1].get("time") or 0, reverse=True)
             self._raw[symbol] = dict(keep[:MAX_ROWS])
+        self._used_at[symbol] = next(self._uses)
         self._evict()
 
     def _evict(self) -> None:
         if len(self._raw) <= MAX_SYMBOLS:
             return
-        stale = sorted(self._raw, key=lambda symbol: self._fetched_at.get(symbol, 0.0))
+        stale = sorted(self._raw, key=lambda symbol: self._used_at.get(symbol, -1))
         for symbol in stale[: len(self._raw) - MAX_SYMBOLS]:
             self._raw.pop(symbol, None)
             self._fetched_at.pop(symbol, None)
+            self._used_at.pop(symbol, None)

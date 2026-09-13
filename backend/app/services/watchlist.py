@@ -23,7 +23,8 @@ import logging
 from tradingview_screener import Query, col
 
 from ..core.clock import now_epoch
-from ..domain.screener import finite
+from ..domain.screener import RowReader
+from .tv import scan_rows
 
 # US listings only, because that is what the chart beside this can draw.
 EXCHANGES = ["NASDAQ", "NYSE", "AMEX"]
@@ -150,7 +151,7 @@ class WatchlistService:
         query.set_property("filter2", ANY_INSTRUMENT)
         if self._fetch is not None:
             return await self._fetch(query)
-        return await asyncio.to_thread(_scan, query)
+        return await asyncio.to_thread(scan_rows, query, COLUMNS)
 
 
 def _blank() -> dict:
@@ -166,34 +167,21 @@ def _blank() -> dict:
     }
 
 
-def _scan(query: Query) -> list[list]:
-    _, frame = query.get_scanner_data()
-    return frame[COLUMNS].values.tolist() if not frame.empty else []
-
-
 def _shape(payload) -> dict[str, dict]:
-    index = {name: position for position, name in enumerate(COLUMNS)}
-
-    def number(row, name):
-        return finite(row[index[name]])
-
-    def text(row, name):
-        value = row[index[name]]
-        return value if isinstance(value, str) else ""
-
+    read = RowReader(COLUMNS)
     out: dict[str, dict] = {}
     for row in payload:
-        symbol = text(row, "name")
+        symbol = read.text(row, "name")
         if not symbol:
             continue
         out[symbol] = {
-            "name": text(row, "description"),
-            "close": number(row, "close"),
-            "change": number(row, "change"),
-            "volume": number(row, "volume"),
-            "rvol": number(row, "relative_volume_10d_calc"),
-            "market_cap": number(row, "market_cap_basic"),
-            "premarket_change": number(row, "premarket_change"),
-            "next_earnings": number(row, "earnings_release_next_date"),
+            "name": read.text(row, "description"),
+            "close": read.number(row, "close"),
+            "change": read.number(row, "change"),
+            "volume": read.number(row, "volume"),
+            "rvol": read.number(row, "relative_volume_10d_calc"),
+            "market_cap": read.number(row, "market_cap_basic"),
+            "premarket_change": read.number(row, "premarket_change"),
+            "next_earnings": read.number(row, "earnings_release_next_date"),
         }
     return out

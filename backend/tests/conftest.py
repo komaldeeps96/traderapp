@@ -7,13 +7,22 @@ test-shaped is injected into the app itself.
 
 from __future__ import annotations
 
-import asyncio
+import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from app.core.clock import NY_TZ
 from app.domain.bars import Bar
+
+
+@pytest.fixture(autouse=True)
+def _no_machine_settings(request, monkeypatch):
+    """Keep this machine's ``config/settings.yaml`` out of every test but the
+    audit, which reads its credentials on purpose. A ``trading.enabled: true``
+    there must never reach a test's ``Settings()``."""
+    if request.node.get_closest_marker("audit") is None:
+        monkeypatch.setenv("TRADERAPP_SETTINGS_FILE", os.devnull)
 
 # ── time helpers ───────────────────────────────────────────────────────
 
@@ -148,13 +157,3 @@ def daily_bars() -> list[Bar]:
     )
 
 
-@pytest.fixture(autouse=True)
-def _no_lingering_tasks():
-    """Fail loudly if a test leaks a background task."""
-    yield
-    try:
-        loop = asyncio.get_event_loop_policy().get_event_loop()
-    except RuntimeError:
-        return
-    if loop.is_closed():
-        return

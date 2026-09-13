@@ -1,29 +1,17 @@
-"""Order entry, between the buttons and the broker.
+"""Order entry, between the buttons and the broker. See docs/order-entry.md.
 
-Everything that decides *whether* an order happens lives here, and nothing in
-the client. The panel sends a dollar amount or a fraction, never a quantity, so
-a tab asleep for a minute cannot put a stale size on the wire; the shares are
-recomputed from the freshest quote and IBKR's own position at the click.
-
-Four guards, in the order they run:
-
-1. **The switch.** ``trading.enabled`` is False by default and in every test
-   settings object; off, there is no broker connection and this refuses
-   everything.
-2. **The cap.** ``max_order_dollars`` bounds one order's notional, measured at
-   the limit rather than the ask, so it bounds the worst case. It defaults to a
-   hair above the largest button.
-3. **Long only.** A sell is clamped to the position IBKR reports, so it can
-   never open a short. Enforced in ``domain/orders.plan_sell`` rather than by a
-   disabled button, which is a display rather than a rule.
-4. **One click, one order.** A symbol with an order in flight refuses the next
-   until the first is acknowledged.
+The client sends dollars or a fraction, never a quantity; shares are sized here
+from the freshest quote and IBKR's own position. The guards, in order: the
+master switch, one order per symbol and side per ``repeat_guard_seconds``, the
+per-order cap measured at the limit, and long only against the shares no
+working or unreported sell has already claimed.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
+import time
+from collections.abc import Callable
 
 from ..core.settings import TradingSettings
 from ..domain.orders import OrderPlan, plan_buy, plan_sell
@@ -38,6 +26,7 @@ logger = logging.getLogger(__name__)
 BLOCKED_MESSAGES = {
     "no_quote": "No bid/ask — cannot price an order.",
     "no_position": "No position to sell.",
+    "committed": "Every share is already in a working sell.",
     "too_small": "Too small for one whole share.",
     "over_cap": "Over the per-order cap.",
 }
@@ -46,15 +35,28 @@ BLOCKED_MESSAGES = {
 class TradingService:
     """Turns a button press into a checked, sized, priced order."""
 
-    def __init__(self, broker: IBKRBroker, quotes: QuoteService, settings: TradingSettings):
+    def __init__(
+        self,
+        broker: IBKRBroker,
+        quotes: QuoteService,
+        settings: TradingSettings,
+        clock: Callable[[], float] = time.monotonic,
+        feed_delayed: Callable[[], bool] = lambda: False,
+    ):
         self._broker = broker
         self._quotes = quotes
         self._settings = settings
-        # Symbols with an order on the wire, unacknowledged. Guards the
-        # double-click; released in a finally so a raising broker cannot
-        # wedge a symbol shut for the session.
+        self._clock = clock
+        # Whether the quotes that size an order are the delayed tape: a limit
+        # priced off a fifteen-minute-old book fills badly or rests unseen.
+        self._feed_delayed = feed_delayed
+        # Symbols with an order being placed. Qualifying a contract awaits the
+        # network, so two windows could otherwise both pass every check.
         self._in_flight: set[str] = set()
-        self._lock = asyncio.Lock()
+        # When each (symbol, side) last reached the broker. TWS acknowledges in
+        # milliseconds, faster than a double-click, so an acknowledgement cannot
+        # be what tells a second click from a second decision.
+        self._last_sent: dict[tuple[str, str], float] = {}
         # The most recent rejection, shown on the strip until the next action.
         self._note: str | None = None
 
@@ -77,6 +79,7 @@ class TradingService:
             "offset_cents": self._settings.offset_cents,
             "offset_bps": self._settings.offset_bps,
             "max_order_dollars": self._settings.max_order_dollars,
+            "repeat_guard_seconds": self._settings.repeat_guard_seconds,
             "tif": self._settings.tif,
             "positions_known": self._broker.positions_known,
             "note": self._note or self._broker.last_error,
@@ -117,6 +120,7 @@ class TradingService:
             symbol=symbol,
             fraction=fraction,
             position=self._broker.position(symbol),
+            committed=self._broker.committed_to_sells(symbol),
             bid=bid,
             ask=ask,
             offset_cents=self._settings.offset_cents,
@@ -150,37 +154,50 @@ class TradingService:
         self._broker.clear_error()
         return {"ok": True, "cancelled": cancelled}
 
-    def _why_not(self, plan: OrderPlan) -> str | None:
-        """The reason this plan cannot be sent, or None."""
-        if not self._settings.enabled:
-            return "Trading is disabled."
-        if not self._broker.is_available:
-            return "TWS is not connected."
-        if plan.blocked is not None:
-            return BLOCKED_MESSAGES.get(plan.blocked, plan.blocked)
-        if plan.shares <= 0:
-            return BLOCKED_MESSAGES["too_small"]
-        return None
+    def _why_not(self, symbol: str, plan: OrderPlan) -> str | None:
+        """The first reason this plan cannot be sent, or None. Order matters:
+        the most fundamental refusal is the one worth reading."""
+        checks = (
+            (not self._settings.enabled, "Trading is disabled."),
+            (not self._broker.is_available, "TWS is not connected."),
+            (
+                self._feed_delayed(),
+                "Quotes are on the delayed feed; an order would be priced off a stale book.",
+            ),
+            (
+                self._repeated(symbol, plan.side),
+                f"A second {plan.side.lower()} on {symbol} inside "
+                f"{self._settings.repeat_guard_seconds:g}s is held as a double-click.",
+            ),
+            (plan.blocked is not None, BLOCKED_MESSAGES.get(plan.blocked or "", plan.blocked)),
+            (plan.shares <= 0, BLOCKED_MESSAGES["too_small"]),
+        )
+        return next((message for failed, message in checks if failed), None)
+
+    def _repeated(self, symbol: str, side: str) -> bool:
+        sent = self._last_sent.get((symbol, side))
+        return sent is not None and self._clock() - sent < self._settings.repeat_guard_seconds
 
     async def _send(self, symbol: str, plan: OrderPlan) -> dict:
-        refusal = self._why_not(plan)
+        refusal = self._why_not(symbol, plan)
         if refusal is not None:
             return self._refuse(refusal)
 
-        async with self._lock:
-            if symbol in self._in_flight:
-                return self._refuse(f"An order on {symbol} is already in flight.")
-            self._in_flight.add(symbol)
+        # Checked and claimed with no await in between, so no lock is needed.
+        if symbol in self._in_flight:
+            return self._refuse(f"An order on {symbol} is already in flight.")
+        self._in_flight.add(symbol)
         try:
             result = await self._broker.place(
                 symbol=symbol, side=plan.side, shares=plan.shares, limit=plan.limit
             )
         finally:
-            async with self._lock:
-                self._in_flight.discard(symbol)
+            # A raising broker must not wedge the symbol shut for the session.
+            self._in_flight.discard(symbol)
 
         if not result.get("ok"):
             return self._refuse(str(result.get("message") or "Order rejected."))
+        self._last_sent[(symbol, plan.side)] = self._clock()
         self._note = None
         self._broker.clear_error()
         return result

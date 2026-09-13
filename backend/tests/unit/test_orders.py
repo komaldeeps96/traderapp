@@ -21,6 +21,7 @@ from app.domain.orders import (
     offset_micros,
     plan_buy,
     plan_sell,
+    round_half_up,
     sell_limit,
     shares_for_dollars,
     shares_for_fraction,
@@ -56,6 +57,35 @@ def test_buy_sizing_matches_the_shared_table(case: dict) -> None:
 @pytest.mark.parametrize("case", CASES["sell_shares"], ids=_id)
 def test_sell_sizing_matches_the_shared_table(case: dict) -> None:
     assert shares_for_fraction(case["position"], case["fraction"]) == case["shares"]
+
+
+@pytest.mark.parametrize("case", CASES["offsets"], ids=_id)
+def test_offsets_match_the_shared_table(case: dict) -> None:
+    offset = offset_micros(case["price_micros"], offset_cents=case["cents"], offset_bps=case["bps"])
+    assert offset == case["offset"]
+
+
+@pytest.mark.parametrize("case", CASES["sell_plans"], ids=_id)
+def test_sell_plans_match_the_shared_table(case: dict) -> None:
+    plan = plan_sell(
+        symbol="WETO",
+        fraction=case["fraction"],
+        position=case["position"],
+        committed=case["committed"],
+        bid=4.25,
+        ask=4.27,
+        **OFFSET,
+    )
+    assert (plan.shares, plan.blocked) == (case["shares"], case["blocked"])
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(0.5, 1), (1.5, 2), (2.5, 3), (-2.5, -2), (2.4999, 2), (0.49999999999999994, 0), (7.0, 7)],
+)
+def test_rounding_matches_javascripts_math_round(value: float, expected: int) -> None:
+    """Halves go up, as ``Math.round`` sends them, not to the even neighbour."""
+    assert round_half_up(value) == expected
 
 
 # ── the properties the table cannot express ────────────────────────────

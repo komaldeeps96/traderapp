@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -103,6 +104,30 @@ async def test_a_timeout_kills_rather_than_waits(tmp_path):
     with pytest.raises(ReaderError, match="longer than"):
         await instance.run(prompt="p", schema=SCHEMA, system_prompt="s")
     assert asyncio.get_running_loop().time() - started < 3
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_reading_kills_its_process(tmp_path):
+    """Shutdown cancels a reading in flight; the child must not outlive it,
+    still spending against the budget."""
+    pid_file = tmp_path / "pid"
+    script = tmp_path / "claude"
+    # exec, so the recorded pid is the process that sleeps.
+    script.write_text(f"#!/bin/sh\necho $$ > {pid_file}\ncat >/dev/null\nexec sleep 5 >/dev/null 2>&1\n")
+    script.chmod(0o755)
+    instance = reader(command=str(script), timeout_seconds=30)
+
+    reading = asyncio.create_task(instance.run(prompt="p", schema=SCHEMA, system_prompt="s"))
+    for _ in range(500):
+        if pid_file.exists() and pid_file.read_text().strip():
+            break
+        await asyncio.sleep(0.01)
+    reading.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await reading
+
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pid_file.read_text()), 0)
 
 
 # ── reading the envelope ───────────────────────────────────────────────

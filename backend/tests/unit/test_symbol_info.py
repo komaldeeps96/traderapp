@@ -313,6 +313,55 @@ class TestHaltBands:
         assert info["halt_band_pct"] is None
         assert info["halt_band_cents"] == pytest.approx(15.0)
 
+    def test_under_twenty_cents_the_percentage_binds(self, store):
+        """The rule is the lesser of 15 cents and 75%: on a 10-cent stock that
+        is 7.5 cents, and a 15-cent band would draw the halt level twice as far
+        away as it is."""
+        bars = make_minute_series(ny_epoch(2024, 3, 5, 9, 30), [0.10] * 10)
+        store.replace("RUN", Timeframe.M1, bars)
+        store.replace("RUN", Timeframe.D1, [make_bar(ny_epoch(2024, 3, 4, 0, 0), 0.12)])
+
+        info = service_with(store, stats_for()).build("RUN")
+        assert info["halt_up"] == pytest.approx(0.175)
+        assert info["halt_down"] == pytest.approx(0.025)
+        assert info["halt_band_pct"] == pytest.approx(75.0)
+        assert info["halt_band_cents"] is None
+
+    def test_a_three_dollar_band_doubles_in_the_last_25_minutes(self, store):
+        bars = make_minute_series(ny_epoch(2024, 3, 5, 15, 40), [4.0] * 10)
+        store.replace("RUN", Timeframe.M1, bars)
+        store.replace("RUN", Timeframe.D1, [make_bar(ny_epoch(2024, 3, 4, 0, 0), 2.90)])
+
+        info = service_with(store, stats_for()).build("RUN")
+        assert info["halt_band_pct"] == pytest.approx(40.0)
+
+    def test_above_three_dollars_the_close_does_not_double(self, store):
+        """Amendment 18 stopped doubling Tier 2 names above $3.00 at the close."""
+        bars = make_minute_series(ny_epoch(2024, 3, 5, 15, 40), [10.0] * 10)
+        store.replace("RUN", Timeframe.M1, bars)
+        store.replace("RUN", Timeframe.D1, [make_bar(ny_epoch(2024, 3, 4, 0, 0), 9.0)])
+
+        info = service_with(store, stats_for()).build("RUN")
+        assert info["halt_band_pct"] == pytest.approx(10.0)
+
+    def test_nothing_doubles_at_the_open(self, store):
+        """The opening doubling was removed for every tier in 2020."""
+        bars = make_minute_series(ny_epoch(2024, 3, 5, 9, 31), [4.0] * 10)
+        store.replace("RUN", Timeframe.M1, bars)
+        store.replace("RUN", Timeframe.D1, [make_bar(ny_epoch(2024, 3, 4, 0, 0), 2.90)])
+
+        info = service_with(store, stats_for()).build("RUN")
+        assert info["halt_band_pct"] == pytest.approx(20.0)
+
+    def test_a_doubled_cent_band_reports_thirty_cents(self, store):
+        bars = make_minute_series(ny_epoch(2024, 3, 5, 15, 45), [0.60] * 10)
+        store.replace("RUN", Timeframe.M1, bars)
+        store.replace("RUN", Timeframe.D1, [make_bar(ny_epoch(2024, 3, 4, 0, 0), 0.55)])
+
+        info = service_with(store, stats_for()).build("RUN")
+        assert info["halt_band_cents"] == pytest.approx(30.0)
+        assert info["halt_down"] == pytest.approx(0.30)
+
 
 class TestLiveShelfCapacity:
     """The baby-shelf ceiling, priced at the run rather than at the cover page.

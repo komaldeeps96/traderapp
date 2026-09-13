@@ -243,4 +243,14 @@ class TestOutboundMessages:
 
     def test_error_message_shape(self):
         message = error_message("no_data", "nothing here")
-        assert message == {"type": "error", "code": "no_data", "message": "nothing here"}
+        assert message == {
+            "type": "error",
+            "code": "no_data",
+            "message": "nothing here",
+            "action": None,
+        }
+
+    def test_an_error_names_the_command_it_answers(self):
+        """The client routes on it: a failed load belongs to the chart, a refused
+        order to the strip, and confusing the two froze the chart."""
+        assert error_message("trade", "no", action="trade.buy")["action"] == "trade.buy"

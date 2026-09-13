@@ -16,7 +16,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Literal, TypedDict
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator
 
 from .bars import Bar
 from .quotes import Quote
@@ -42,7 +42,14 @@ class DataSource(str, Enum):
 
 
 class _Command(BaseModel):
-    model_config = {"extra": "forbid"}
+    # NaN fails every comparison, so a NaN filter is a filter silently switched
+    # off, and saved; JSON has no NaN either, and the browser drops a frame
+    # carrying one.
+    model_config = {"extra": "forbid", "allow_inf_nan": False}
+
+
+def _normalise_symbol(value: object) -> object:
+    return value.strip().upper() if isinstance(value, str) else value
 
 
 class SubscribeCommand(_Command):
@@ -56,8 +63,8 @@ class SubscribeCommand(_Command):
 
     @field_validator("symbol", mode="before")
     @classmethod
-    def _normalise_symbol(cls, value: object) -> object:
-        return value.strip().upper() if isinstance(value, str) else value
+    def _normalised_symbol(cls, value: object) -> object:
+        return _normalise_symbol(value)
 
     @field_validator("timeframe")
     @classmethod
@@ -116,8 +123,9 @@ class ConfigureScannerCommand(_Command):
     above_price: ClearablePrice = None
     below_price: ClearablePrice = None
     # Trades per minute, not cumulative volume — what the tape is doing now
-    # rather than what it has already done today.
-    above_trade_rate: int | None = Field(default=None, ge=0)
+    # rather than what it has already done today. Clearable like the rest: the
+    # panel sends "clear" for a blank field.
+    above_trade_rate: Annotated[int, Field(ge=0)] | Literal["clear"] | None = None
     market_cap_above: Clearable = None
     market_cap_below: Clearable = None
     change_perc_above: Clearable = None
@@ -158,9 +166,9 @@ class SetIndicatorVisibilityCommand(_Command):
         return Timeframe.parse(self.timeframe)
 
 
-# A watchlist is a list somebody reads at a glance; past a few dozen names
-# it is a screener, and the terminal already has two of those.
-WatchSymbol = Annotated[str, Field(min_length=1, max_length=12)]
+# Held to the same pattern as a chart's symbol: it is saved, broadcast to every
+# window and sent to TradingView.
+WatchSymbol = Annotated[str, BeforeValidator(_normalise_symbol), Field(pattern=SYMBOL_PATTERN)]
 
 
 class WatchlistAddCommand(_Command):
@@ -267,7 +275,7 @@ class BarUpdate(TypedDict):
 QuoteMessage = TypedDict(
     "QuoteMessage",
     {
-        "type": str,  # always "quote"
+        "type": Literal["quote"],
         "symbol": str,
         "bid": float,
         "ask": float,
@@ -365,6 +373,9 @@ class ErrorMessage(TypedDict):
     type: Literal["error"]
     code: str
     message: str
+    # The command this answers, so the client can tell a failed chart load
+    # from a refused order without parsing the sentence.
+    action: str | None
 
 
 def encode_bar(bar: Bar, *, intraday: bool) -> WireBar:
@@ -493,5 +504,5 @@ def order_message(order: dict) -> OrderMessage:
     return {"type": "order", "order": order}
 
 
-def error_message(code: str, message: str) -> ErrorMessage:
-    return {"type": "error", "code": code, "message": message}
+def error_message(code: str, message: str, *, action: str | None = None) -> ErrorMessage:
+    return {"type": "error", "code": code, "message": message, "action": action}

@@ -108,6 +108,7 @@ class FakeIB:
     def __init__(self) -> None:
         self.connected = False
         self.disconnectedEvent = FakeEvent()
+        self.tickNewsEvent = FakeEvent()
         self.historical: list[FakeHistoricalBar] = []
         self.historical_error: Exception | None = None
         self.history_calls: list[dict] = []
@@ -782,6 +783,8 @@ class TestScannerRows:
             captured.append(result)
 
         provider.on_scanner(TIER_ID, handler)
+        # A running scan: rows for one that has stopped are dropped.
+        provider._scanner_data[TIER_ID] = FakeTicker()
         await provider._process_scanner(TIER_ID, rows)
         return captured[0]
 
@@ -971,7 +974,7 @@ class TestScannerStreams:
 
     async def test_records_incoming_prints(self, provider):
         provider._sync_scanner_streams(TIER_ID, [FakeScannerRow(0, "AAA")])
-        ticker = provider._scanner_streams["AAA"]["ticker"]
+        ticker = provider._lines.ticker("AAA")
         ticker.ticks = [type("T", (), {"price": 3.0, "size": 40})()]
 
         provider._on_scanner_tick("AAA", ticker)
@@ -979,7 +982,7 @@ class TestScannerStreams:
 
     async def test_ignores_a_print_with_no_size(self, provider):
         provider._sync_scanner_streams(TIER_ID, [FakeScannerRow(0, "AAA")])
-        ticker = provider._scanner_streams["AAA"]["ticker"]
+        ticker = provider._lines.ticker("AAA")
         ticker.ticks = [type("T", (), {"price": 3.0, "size": 0})()]
 
         provider._on_scanner_tick("AAA", ticker)
@@ -990,7 +993,7 @@ class TestScannerStreams:
         trades = provider._scanner_streams["AAA"]["trades"]
         trades.append((time.time() - TRADE_BUFFER_MAX_AGE - 60, 1.0, 10))
 
-        ticker = provider._scanner_streams["AAA"]["ticker"]
+        ticker = provider._lines.ticker("AAA")
         ticker.ticks = [type("T", (), {"price": 3.0, "size": 40})()]
         provider._on_scanner_tick("AAA", ticker)
 

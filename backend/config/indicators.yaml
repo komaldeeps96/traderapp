@@ -19,36 +19,23 @@
 # colour-vision-deficiency separation against both chart surfaces under the
 # strict all-pairs rule (any two lines can cross anywhere).
 #
-# VWAP used to sit in the neutral family and was indistinguishable from the
-# key levels beside it — measured at dE 10.8 light and 9.9 dark, where under
-# 15 reads as the same colour. It is a benchmark price, not a level, and has
-# carried a hue of its own since.
-#
-# That hue was a bright blue, which fixed the levels and broke the EMAs: the
-# fast EMA is blue too, and the pair measured dE 14.5 against the dark surface
-# — under the 15 floor, so two of the four lines on the chart read as the same
-# colour to anyone with full colour vision. VWAP is magenta now, which is the
-# one direction nothing else on this chart occupies: it clears the EMA blue at
-# dE 27/28 (light/dark), the violet and amber confluence bands at 20/20, the
-# neutral levels at 25/25 and the candle bodies at 17/22, with protan/deutan
-# separation of 12 or better on every one of those pairs. The bright blue also
-# sat below 3:1 against the light surface and outside the dark lightness band;
-# these steps clear both.
+# VWAP carries a hue of its own: it is a benchmark price, not a level, and a
+# neutral grey measures dE 10.8 light and 9.9 dark against the key levels
+# beside it, where under 15 reads as the same colour. It is magenta, the one
+# direction nothing else on this chart occupies (a blue sits at dE 14.5 from
+# the fast EMA on the dark surface). Magenta clears the EMA blue at dE 27/28
+# (light/dark), the violet and amber confluence bands at 20/20, the neutral
+# levels at 25/25 and the candle bodies at 17/22, with protan/deutan
+# separation of 12 or better on each, and holds 3:1 on the light surface.
 
 #
-# Every key level is one solid neutral line. They used to be tiered by weight
-# and dash pattern — 2px dotted for the pre-market range, 2px dashed for the
-# previous close, and so on — which made a handful of them conspicuously
-# unlike the rest for a distinction the eye had to be taught.
+# Every key level is one solid neutral line. The confluence pass (frontend
+# store/selectors/levels.ts, buildLevelStyles) restyles each one every frame,
+# setting colour, weight and the axis label from cluster strength and
+# proximity, so the widths and colours below have no effect and a dash
+# pattern would be the only configured style to reach the chart.
 #
-# The tiering was also mostly fiction. Key levels are restyled every frame by
-# the confluence pass (frontend selectors.ts, buildLevelStyles), which
-# overwrites colour, weight and the axis label from cluster strength and
-# proximity. Only line_style survived it, so dash patterns were the one
-# configured property that still reached the chart — and the widths and
-# colours below had no effect at all.
-#
-# What differentiates a level now is what it is worth: the nearest band
+# What differentiates a level is what it is worth: the nearest band
 # overhead draws violet, the nearest beneath amber, everything else recedes to
 # grey, and stacked levels thicken into one band. Those two hues avoid the
 # candle red/green and the three EMA hues, and sit on the blue-yellow axis so
@@ -208,13 +195,12 @@ indicators:
       30m: { enabled: true }
       1h: { enabled: true }
       4h: { enabled: true }
+      1d: { enabled: true }
+      1w: { enabled: true }
 
   # The slow structural line: 100 minutes, which is the one the 10-second
   # tape is read against when the fast fan has gone vertical and the question
   # is how far price has travelled from anything durable.
-      1d: { enabled: true }
-      1w: { enabled: true }
-
   - id: ema100
     type: ema
     label: EMA 100
@@ -246,6 +232,7 @@ indicators:
     group: moving_averages
     timeframes:
       1d: { enabled: true }
+      1w: { enabled: true }
 
   # ── Session benchmark ──────────────────────────────────────────────
   # Windowed relative volume: today's 4am-to-here volume against a typical
@@ -254,8 +241,6 @@ indicators:
   # the daily base carries that shape back over 50 sessions. Readout-only —
   # a ratio has no business on a price pane; the top-panel strip reads it
   # out per bar, 10-second charts included (stepping once a minute there).
-      1w: { enabled: true }
-
   - id: wrvol
     type: wrvol
     label: Windowed RVOL
@@ -653,12 +638,8 @@ indicators:
 
   # ── Sub-panes ──────────────────────────────────────────────────────
   # Volume bars take the candle's own up/down colour, so the pane needs no
-  # hue of its own.
-  #
-  # A trade-count pane is also supported and is deliberately not enabled —
-  # the count is already in the toolbar readout as "T". To bring the pane
-  # back, add an entry with `type: trades` alongside this one; no code change
-  # is needed.
+  # hue of its own. There is no trade-count pane: the count is in the
+  # toolbar readout as "T".
   - id: volume
     type: volume
     label: Volume

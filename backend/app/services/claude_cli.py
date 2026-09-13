@@ -151,21 +151,31 @@ class ClaudeReader:
                 timeout=self._settings.timeout_seconds,
             )
         except TimeoutError as exc:
-            process.kill()
-            # Reaped with a bound rather than awaited outright: a killed
-            # process whose children still hold its pipes can take as long again
-            # to release them. The shielded wait still collects the child.
-            with contextlib.suppress(ProcessLookupError, TimeoutError):
-                await asyncio.wait_for(asyncio.shield(process.wait()), timeout=1.0)
+            await _reap(process)
             raise ReaderError(
                 f"The reader took longer than {self._settings.timeout_seconds:g}s."
             ) from exc
+        except asyncio.CancelledError:
+            # A reading cancelled at shutdown must not leave `claude -p` running
+            # on its own, still spending.
+            await _reap(process)
+            raise
 
         if process.returncode != 0:
             detail = (stderr or b"").decode(errors="replace").strip().splitlines()
             reason = detail[-1] if detail else f"exit {process.returncode}"
             raise ReaderError(f"The reader failed: {reason}")
         return (stdout or b"").decode(errors="replace")
+
+
+async def _reap(process: asyncio.subprocess.Process) -> None:
+    with contextlib.suppress(ProcessLookupError):
+        process.kill()
+    # Bounded rather than awaited outright: a killed process whose children
+    # still hold its pipes can take as long again to release them. The shielded
+    # wait still collects the child.
+    with contextlib.suppress(ProcessLookupError, TimeoutError):
+        await asyncio.wait_for(asyncio.shield(process.wait()), timeout=1.0)
 
 
 def parse_output(stdout: str) -> dict:

@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .financials import build_statements
+from ..domain.financials import build_statements
 
 # Four quarters make a trailing year. Fewer than four is not a year, and
 # annualising two quarters is a guess the terminal does not make.

@@ -2,13 +2,13 @@
 
 One connection owns one chart subscription. Everything a client sends is
 validated against the command union before it reaches a service, and a
-rejection comes back as an ``error`` message rather than closing the socket.
+rejection or a failure comes back as an ``error`` message rather than closing
+the socket.
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 
@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from ..domain.protocol import (
     BuyCommand,
     CancelAllCommand,
+    ClientCommand,
     ConfigureScannerCommand,
     SellCommand,
     SetIndicatorVisibilityCommand,
@@ -31,59 +32,106 @@ from ..domain.protocol import (
 )
 from ..services.connection import ClientConnection
 from ..services.container import AppContainer, get_container
+from .origin import origin_allowed
 
 logger = logging.getLogger(__name__)
+
+# RFC 6455: a handshake refused on policy.
+POLICY_VIOLATION = 1008
+
+REMOTE_REFUSAL = "Orders are accepted only from this machine (trading.allow_remote is off)."
 
 
 async def websocket_endpoint(websocket: WebSocket) -> None:
     container: AppContainer = get_container()
+    origin = websocket.headers.get("origin")
+    if not origin_allowed(origin, websocket.headers.get("host"), container.settings):
+        logger.warning("Refused a WebSocket from %s", origin)
+        await websocket.close(code=POLICY_VIOLATION)
+        return
     await websocket.accept()
 
     connection = ClientConnection(websocket)
-    await container.hub.register(connection)
-
-    # Opening frames: what the data source is doing, whatever each scanner
-    # tier and regime already have, and the request-budget meters — so a
-    # client joining mid-session is not staring at nothing.
-    connection.send(container.status_payload())
-    for scanner_id in container.scanners:
-        connection.send(container.scanner_payload(scanner_id))
-    connection.send(container.regime_payload())
-    connection.send(container.api_payload())
-    # Whether this terminal can trade at all, what is held, and what is
-    # working. Sent even with trading off, so the strip can say so rather
-    # than render as a live panel that silently does nothing.
-    connection.send(container.trading_payload())
-    # Sent last, and only if there is one: the fetch reaches TradingView, and
-    # nothing above it should wait on the network.
-    if container.watchlist.symbols():
-        connection.send(await container.watchlist_payload())
-
+    loads: set[asyncio.Task] = set()
     try:
+        await container.hub.register(connection)
+        await _send_opening_frames(container, connection)
         while True:
-            raw = await websocket.receive_text()
-            await _dispatch(container, connection, raw)
+            command = _parse(connection, await websocket.receive_text())
+            if command is None:
+                continue
+            if command.action in ("subscribe", "unsubscribe"):
+                for load in loads:
+                    load.cancel()
+            if command.action == "subscribe":
+                # A history load can take seconds. Off the receive loop, so a
+                # sell or a cancel sent meanwhile is read at once, not after it.
+                load = asyncio.create_task(_run(container, connection, command))
+                loads.add(load)
+                load.add_done_callback(loads.discard)
+            else:
+                await _run(container, connection, command)
     except WebSocketDisconnect:
         pass
     except Exception:
         logger.exception("client %s failed", connection.id)
     finally:
+        for load in loads:
+            load.cancel()
+        await asyncio.gather(*loads, return_exceptions=True)
         await container.hub.unregister(connection)
 
 
-async def _dispatch(container: AppContainer, connection: ClientConnection, raw: str) -> None:
+async def _send_opening_frames(container: AppContainer, connection: ClientConnection) -> None:
+    """What the data source is doing, whatever each scanner tier and regime
+    already have, and the request-budget meters — so a client joining
+    mid-session is not staring at nothing."""
+    connection.send(container.fanout.status_payload())
+    for scanner_id in container.scanners:
+        connection.send(container.fanout.scanner_payload(scanner_id))
+    connection.send(container.fanout.regime_payload())
+    connection.send(container.fanout.api_payload())
+    # Sent even with trading off, so the strip can say so rather than render
+    # as a live panel that silently does nothing.
+    connection.send(container.fanout.trading_payload())
+    # Last, and only if there is one: the fetch reaches TradingView, and
+    # nothing above it should wait on the network.
+    if container.watchlist.symbols():
+        connection.send(await container.fanout.watchlist_payload())
+
+
+def _parse(connection: ClientConnection, raw: str) -> ClientCommand | None:
+    """The command in ``raw``, or None after telling the client why not."""
     try:
         payload = json.loads(raw)
     except ValueError:
         connection.send(error_message("bad_json", "Message was not valid JSON."))
-        return
-
+        return None
     try:
-        command = parse_command(payload)
+        return parse_command(payload)
     except ValidationError as exc:
-        connection.send(error_message("bad_command", _explain(exc)))
-        return
+        action = payload.get("action") if isinstance(payload, dict) else None
+        connection.send(
+            error_message(
+                "bad_command", _explain(exc), action=action if isinstance(action, str) else None
+            )
+        )
+        return None
 
+
+async def _run(container: AppContainer, connection: ClientConnection, command) -> None:
+    try:
+        await _handle(container, connection, command)
+    except Exception:
+        logger.exception("%s failed for client %s", command.action, connection.id)
+        connection.send(
+            error_message(
+                "server", f"The server failed on {command.action}.", action=command.action
+            )
+        )
+
+
+async def _handle(container: AppContainer, connection: ClientConnection, command) -> None:
     action = command.action
 
     if action == "ping":
@@ -126,6 +174,13 @@ async def _trade(
     note on the broadcast state: an order that silently did not go is the
     failure this panel exists to remove.
     """
+    places = command.action != "trade.cancel_all"
+    if places and container.trading.enabled and not (
+        connection.is_local or container.settings.trading.allow_remote
+    ):
+        connection.send(error_message("trade", REMOTE_REFUSAL, action=command.action))
+        return
+
     if command.action == "trade.buy":
         result = await container.trading.buy(command.symbol, command.dollars)
     elif command.action == "trade.sell":
@@ -134,8 +189,9 @@ async def _trade(
         result = await container.trading.cancel_all()
 
     if not result.get("ok"):
-        connection.send(error_message("trade", str(result.get("message") or "Order refused.")))
-    container.hub.broadcast(container.trading_payload())
+        message = str(result.get("message") or "Order refused.")
+        connection.send(error_message("trade", message, action=command.action))
+    container.hub.broadcast(container.fanout.trading_payload())
 
 
 async def _edit_watchlist(
@@ -150,7 +206,7 @@ async def _edit_watchlist(
         await container.watchlist.add(command.symbol)
     else:
         await container.watchlist.remove(command.symbol)
-    container.hub.broadcast(await container.watchlist_payload())
+    container.hub.broadcast(await container.fanout.watchlist_payload())
 
 
 _pending_prefetches: set[asyncio.Task] = set()
@@ -164,13 +220,17 @@ def _prefetch_stats(container: AppContainer, symbol: str) -> None:
     """
 
     async def run() -> None:
-        with contextlib.suppress(Exception):
+        # Two separate attempts: an IBKR news timeout must not cost the
+        # reference stats their touch, and vice versa.
+        try:
             await container.symbol_info.prefetch(symbol)
             container.market_data.touch(symbol)
-        # Separately suppressed: an IBKR news timeout must not cost the
-        # reference stats their touch, and vice versa.
-        with contextlib.suppress(Exception):
+        except Exception:
+            logger.warning("Reference stats prefetch failed for %s", symbol, exc_info=True)
+        try:
             await container.news.prefetch(symbol)
+        except Exception:
+            logger.warning("News prefetch failed for %s", symbol, exc_info=True)
         # The watcher follows whichever chart is open; the baseline is taken
         # on its first poll, so opening a company that raised last week does
         # not fire an alarm about it.
@@ -203,6 +263,7 @@ async def _subscribe(
                     "no_data",
                     f"No market data available for {symbol}. "
                     "Check the ticker, or that a data provider is connected.",
+                    action="subscribe",
                 )
             )
         return
@@ -266,7 +327,7 @@ async def _configure_scanner(
         # The filters applied; remember them so the next startup opens with
         # the scan the user actually uses, not the YAML defaults.
         await container.state.save_scanner(command.scanner_id, scanner.state.config.to_dict())
-    connection.send(container.scanner_payload(command.scanner_id))
+    connection.send(container.fanout.scanner_payload(command.scanner_id))
 
 
 async def _stop_scanner(

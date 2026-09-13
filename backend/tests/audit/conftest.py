@@ -25,8 +25,8 @@ pytest.importorskip("yfinance", reason="install the audit extra: pip install -e 
 
 import yfinance as yf
 
+from app.domain.financials import build_statements, convert_to_usd
 from app.providers.edgar import EdgarProvider
-from app.services.financials import build_statements, convert_to_usd
 from app.services.fx import FxService
 
 warnings.filterwarnings("ignore")

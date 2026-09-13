@@ -29,12 +29,13 @@ from collections.abc import Awaitable, Callable
 
 from websockets.asyncio.client import connect as ws_connect
 
+from .alpaca_socket import authenticate, decode
+
 logger = logging.getLogger(__name__)
 
 # Every headline, filtered by the caller. See the module docstring.
 ALL_SYMBOLS = "*"
 
-AUTH_TIMEOUT_SECONDS = 10.0
 MAX_BACKOFF_SECONDS = 30.0
 
 HeadlineHandler = Callable[[dict], Awaitable[None]]
@@ -83,7 +84,7 @@ class AlpacaNewsStream:
         while not self._closing:
             try:
                 async with ws_connect(url, max_size=4 * 1024 * 1024) as websocket:
-                    await self._authenticate(websocket)
+                    await authenticate(websocket, self._settings)
                     await websocket.send(
                         json.dumps({"action": "subscribe", "news": [ALL_SYMBOLS]})
                     )
@@ -108,35 +109,8 @@ class AlpacaNewsStream:
                 break
             await asyncio.sleep(min(2 ** min(attempt, 5), MAX_BACKOFF_SECONDS))
 
-    async def _authenticate(self, websocket) -> None:
-        await websocket.send(
-            json.dumps(
-                {
-                    "action": "auth",
-                    "key": self._settings.key_id,
-                    "secret": self._settings.secret_key,
-                }
-            )
-        )
-        # The server greets first and answers the auth second, so this reads
-        # until one or the other resolves rather than assuming an order.
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + AUTH_TIMEOUT_SECONDS
-        while loop.time() < deadline:
-            raw = await asyncio.wait_for(websocket.recv(), timeout=AUTH_TIMEOUT_SECONDS)
-            for message in _decode(raw):
-                kind = message.get("T")
-                if kind == "success" and message.get("msg") == "authenticated":
-                    return
-                if kind == "error":
-                    raise RuntimeError(
-                        f"Alpaca news auth failed: {message.get('msg')} "
-                        f"(code {message.get('code')})"
-                    )
-        raise RuntimeError("Alpaca news auth timed out")
-
     async def _handle(self, raw: str | bytes) -> None:
-        for message in _decode(raw):
+        for message in decode(raw):
             # 'n' is a news item; the socket also carries subscription and
             # heartbeat frames, which are not one.
             if message.get("T") != "n":
@@ -148,15 +122,3 @@ class AlpacaNewsStream:
                     await handler(message)
                 except Exception:
                     logger.exception("news handler failed")
-
-
-def _decode(raw: str | bytes) -> list[dict]:
-    """Alpaca sends a JSON array of frames, occasionally a bare object."""
-    try:
-        payload = json.loads(raw)
-    except ValueError:
-        logger.warning("Alpaca news sent unparseable frame")
-        return []
-    if isinstance(payload, dict):
-        return [payload]
-    return [entry for entry in payload if isinstance(entry, dict)]

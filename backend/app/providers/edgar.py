@@ -29,11 +29,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 
 import httpx
 
-from ..core.clock import now_epoch
+from ..core.clock import now_epoch, parse_iso_date
 from ..domain.filings import Filing, classify, filing_url
 from ..services.api_budget import ProviderBudget
 
@@ -44,6 +44,9 @@ FILINGS_TTL_SECONDS = 300.0
 FACTS_TTL_SECONDS = 12 * 3600.0
 # A failed lookup is retried sooner than a good one, but not per broadcast.
 MISS_TTL_SECONDS = 900.0
+# SEC blocks a caller that keeps asking. A refused ticker map waits this long
+# before the next attempt rather than being asked for again on every poll.
+MAP_RETRY_SECONDS = 60.0
 
 _TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 _SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
@@ -110,6 +113,7 @@ class EdgarProvider:
         # ticker -> CIK, fetched once and reused for every symbol.
         self._tickers: dict[str, int] | None = None
         self._tickers_at = 0.0
+        self._map_retry_at = 0.0
         # True once a ticker-map fetch has failed and none has ever
         # succeeded — the difference between "unknown symbol" and "SEC would
         # not talk to us", which the panel has to be able to tell apart.
@@ -117,7 +121,10 @@ class EdgarProvider:
         self._profiles: dict[str, tuple[float, CompanyProfile | None]] = {}
         self._filings: dict[str, tuple[float, list[Filing]]] = {}
         self._facts: dict[str, tuple[float, dict | None]] = {}
-        self._lock = asyncio.Lock()
+        self._map_lock = asyncio.Lock()
+        # Per symbol, so two subscribes cannot fetch one company twice while
+        # a 20-second companyfacts download holds up no other symbol.
+        self._locks: dict[str, asyncio.Lock] = {}
 
     async def close(self) -> None:
         if self._client is not None:
@@ -155,7 +162,7 @@ class EdgarProvider:
             self._facts, symbol, FACTS_TTL_SECONDS
         ):
             return
-        async with self._lock:
+        async with self._lock_for(symbol):
             cik = await self._cik(symbol)
             if cik is None:
                 self._profiles[symbol] = (now_epoch(), None)
@@ -170,7 +177,7 @@ class EdgarProvider:
         The live-alert poll uses this: facts move quarterly and must not be
         re-fetched every minute, but a new 424B5 is what is being watched for.
         """
-        async with self._lock:
+        async with self._lock_for(symbol):
             cik = await self._cik(symbol)
             if cik is None:
                 return []
@@ -179,18 +186,23 @@ class EdgarProvider:
 
     # ── fetching ───────────────────────────────────────────────────────
 
+    def _lock_for(self, symbol: str) -> asyncio.Lock:
+        return self._locks.setdefault(symbol, asyncio.Lock())
+
     async def _cik(self, symbol: str) -> int | None:
-        if self._tickers is None or now_epoch() - self._tickers_at > TICKER_MAP_TTL_SECONDS:
-            payload = await self._get_json(_TICKERS_URL)
-            parsed = _parse_ticker_map(payload)
-            if parsed:
-                self._tickers = parsed
-                self._tickers_at = now_epoch()
-                self._map_failed = False
-            elif self._tickers is None:
-                # Only a first failure is fatal; a refresh that fails keeps
-                # serving the map already held.
-                self._map_failed = True
+        async with self._map_lock:
+            now = now_epoch()
+            stale = self._tickers is None or now - self._tickers_at > TICKER_MAP_TTL_SECONDS
+            if stale and now >= self._map_retry_at:
+                parsed = _parse_ticker_map(await self._get_json(_TICKERS_URL))
+                if parsed:
+                    self._tickers, self._tickers_at = parsed, now
+                    self._map_failed = False
+                else:
+                    self._map_retry_at = now + MAP_RETRY_SECONDS
+                    # Only a first failure is fatal; a refresh that fails keeps
+                    # serving the map already held.
+                    self._map_failed = self._tickers is None
         if self._tickers is None:
             return None
         return self._tickers.get(symbol.upper())
@@ -267,7 +279,8 @@ class EdgarProvider:
         if cached is None:
             return False
         age = now_epoch() - cached[0]
-        return age < (ttl if cached[1] else MISS_TTL_SECONDS)
+        # None is a miss. An empty filing list is an answer, held like any other.
+        return age < (ttl if cached[1] is not None else MISS_TTL_SECONDS)
 
 
 # ── parsing ────────────────────────────────────────────────────────────
@@ -326,7 +339,7 @@ def _parse_filings(payload: dict, cik: int) -> list[Filing]:
     for index in range(min(len(column) for column in values)):
         if index >= MAX_FILINGS:
             break
-        filed = _parse_date(dates[index])
+        filed = parse_iso_date(dates[index])
         form = str(forms[index] or "")
         if filed is None or not form:
             continue
@@ -346,15 +359,6 @@ def _parse_filings(payload: dict, cik: int) -> list[Filing]:
             )
         )
     return rows
-
-
-def _parse_date(value: object) -> date | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        return None
 
 
 def _parse_accepted(value: object) -> int | None:

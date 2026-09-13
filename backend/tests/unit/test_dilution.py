@@ -12,18 +12,20 @@ from datetime import date
 
 import pytest
 
-from app.domain.filings import Filing, FilingKind
-from app.services.dilution import (
+from app.domain.dilution import (
     BABY_SHELF_FLOAT,
     BABY_SHELF_REASON,
     UNCAPPED_REASON,
     DilutionTone,
     _annual_flow,
+    _count_offerings,
     _latest_instant,
     _share_growth,
+    _year_before,
     measure,
     shelf_capacity,
 )
+from app.domain.filings import Filing, FilingKind
 
 TODAY = date(2026, 8, 28)
 
@@ -142,7 +144,7 @@ class TestFactSelection:
         payload = facts(
             **{"us-gaap:CommonStockSharesOutstanding": ("shares", [instant("2025-12-31", 42)])}
         )
-        from app.services.dilution import _SHARES_OUTSTANDING
+        from app.domain.dilution import _SHARES_OUTSTANDING
 
         assert _latest_instant(payload, _SHARES_OUTSTANDING).value == 42
 
@@ -204,6 +206,29 @@ class TestShareGrowth:
             **{"dei:EntityCommonStockSharesOutstanding": ("shares", [instant("2025-01-01", 10)])}
         )
         assert _share_growth(payload) is None
+
+    def test_a_count_dated_29_february_is_measured(self):
+        """A 10-K cover date can land on the leap day; ``date.replace`` raised
+        there and took the whole info strip down with it."""
+        payload = facts(
+            **{
+                "dei:EntityCommonStockSharesOutstanding": (
+                    "shares",
+                    [instant("2023-02-28", 100), instant("2024-02-29", 150)],
+                )
+            }
+        )
+        assert _share_growth(payload) == pytest.approx(0.5)
+
+
+class TestTwelveMonthWindows:
+    def test_a_year_before_the_leap_day_is_the_28th(self):
+        assert _year_before(date(2024, 2, 29)) == date(2023, 2, 28)
+        assert _year_before(date(2026, 8, 28)) == date(2025, 8, 28)
+
+    def test_counting_offerings_on_29_february_holds(self):
+        filings = [filing("424B5", date(2027, 6, 1)), filing("424B5", date(2027, 2, 27))]
+        assert _count_offerings(filings, date(2028, 2, 29)) == 1
 
 
 class TestMeasure:

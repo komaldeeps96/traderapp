@@ -131,8 +131,9 @@ class Brief:
 class NewsWindow:
     """The stretch of feed in scope, and the session it feeds."""
 
-    # The trading date this news will move. A 16:05 press release on Tuesday
-    # belongs to Wednesday's session; a Saturday headline belongs to Monday's.
+    # The session the window is read for: `session_for` the reading, so a
+    # weekend read feeds Monday's. A Tuesday 16:05 release is in Tuesday's
+    # window read that evening, and in Wednesday's read the next morning.
     session: date | None = None
     start: int = 0
     end: int = 0

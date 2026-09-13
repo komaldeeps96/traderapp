@@ -167,6 +167,28 @@ class TestBroadcast:
         broadcaster.tick()
         assert broadcaster.tick() == 0
 
+    async def test_one_symbols_failing_info_strip_does_not_stop_the_rest(self, hub):
+        """The tick used to abort on the first raise, taking every later strip
+        and the request-budget meters down with it."""
+        subscriptions, market = hub
+        first, second = await connect(subscriptions), await connect(subscriptions)
+        await subscriptions.subscribe(first, "BAD", Timeframe.M1)
+        await subscriptions.subscribe(second, "RUN", Timeframe.M1)
+
+        class Info:
+            def build(self, symbol):
+                if symbol == "BAD":
+                    raise ValueError("day is out of range for month")
+                return {"type": "info", "symbol": symbol}
+
+        broadcaster = ChartBroadcaster(subscriptions, market, symbol_info=Info())  # type: ignore[arg-type]
+        broadcaster.tick()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        infos = [json.loads(p) for p in second.websocket.sent if json.loads(p)["type"] == "info"]
+        assert infos == [{"type": "info", "symbol": "RUN"}]
+
 
 class TestRelease:
     async def test_unsubscribing_clears_the_extras_too(self, hub):

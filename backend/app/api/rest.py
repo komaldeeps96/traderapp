@@ -13,27 +13,33 @@ always-visible chip needs rides on the ``info`` message.
 from __future__ import annotations
 
 import re
+from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..core.clock import now_epoch
+from ..domain.financials import build_statements, convert_to_usd, search_concepts
 from ..domain.news import to_paragraphs
 from ..domain.protocol import SYMBOL_PATTERN
 from ..domain.scanner import SCAN_CODES, SCANNER_TIERS
+from ..domain.screener import SymbolStats
 from ..domain.sessions import ny_date
 from ..domain.timeframes import Timeframe
 from ..services.container import AppContainer, get_container
-from ..services.financials import build_statements, convert_to_usd, search_concepts
 from ..services.metrics import TTM_QUARTERS, build_metrics
 from ..services.ownership import summarise
 from ..services.scanner import UNAVAILABLE_NOTE
 from ..services.swing import SCREENS, SCREENS_BY_ID
+from .origin import refuse_cross_site
 
 # Twelve years of annual statements, or three of quarterly. Past that the
 # request is a scrape rather than a screen.
 MAX_FINANCIAL_PERIODS = 12
 
-router = APIRouter(prefix="/api")
+Period = Literal["annual", "quarterly"]
+
+router = APIRouter(prefix="/api", dependencies=[Depends(refuse_cross_site)])
 
 _SYMBOL = re.compile(SYMBOL_PATTERN)
 
@@ -54,13 +60,30 @@ def _symbol(raw: str) -> str:
     return symbol
 
 
+def _window(period: Period, limit: int) -> tuple[bool, int]:
+    """Whether the statements are annual, and how many periods, within bounds."""
+    return period == "annual", max(1, min(limit, MAX_FINANCIAL_PERIODS))
+
+
+async def _reference_stats(container: AppContainer, symbol: str) -> SymbolStats | None:
+    """TradingView's reference row for a symbol.
+
+    Fetched rather than peeked: a panel opens the moment a symbol changes, which
+    can beat the subscribe-time warm. Gated on the regime switch as the
+    WebSocket's prefetch is, so a run with it off reaches nothing.
+    """
+    if container.settings.regime.enabled:
+        return await container.tv.get_stats(symbol)
+    return container.tv.peek_stats(symbol)
+
+
 @router.get("/health")
 async def health() -> dict:
     container = _container()
     return {
         "status": "ok",
         "clients": container.hub.connection_count,
-        **container.status_payload(),
+        **container.fanout.status_payload(),
     }
 
 
@@ -105,16 +128,7 @@ async def fundamentals(symbol: str) -> dict:
     resolved = _symbol(symbol)
     # TradingView's ratios ride the row the info strip already fetches, so they
     # are free whether or not EDGAR is on.
-    #
-    # Fetched rather than peeked: this is called the moment a symbol changes,
-    # which can beat the subscribe-time warm, and a peek would leave the
-    # Business group missing until the next switch. Gated on the regime switch
-    # as the WebSocket's prefetch is, so a run with it off reaches nothing.
-    stats = (
-        await container.tv.get_stats(resolved)
-        if container.settings.regime.enabled
-        else container.tv.peek_stats(resolved)
-    )
+    stats = await _reference_stats(container, resolved)
     business = stats.to_dict() if stats is not None else None
 
     if container.edgar is None:
@@ -143,7 +157,7 @@ async def fundamentals(symbol: str) -> dict:
 
 
 @router.get("/financials/{symbol}")
-async def financials(symbol: str, period: str = "annual", limit: int = 8) -> dict:
+async def financials(symbol: str, period: Period = "annual", limit: int = 8) -> dict:
     """Income statement, balance sheet and cash flow, from EDGAR.
 
     Prefetched like the fundamentals panel: a typed symbol can arrive before
@@ -152,15 +166,14 @@ async def financials(symbol: str, period: str = "annual", limit: int = 8) -> dic
     """
     container = _container()
     resolved = _symbol(symbol)
-    annual = period != "quarterly"
-    limit = max(1, min(limit, MAX_FINANCIAL_PERIODS))
+    annual, limit = _window(period, limit)
 
     if container.edgar is None:
         return {
             "symbol": resolved,
             "available": False,
             "note": None,
-            "period": "annual" if annual else "quarterly",
+            "period": period,
             "periods": [],
             "statements": [],
         }
@@ -174,13 +187,13 @@ async def financials(symbol: str, period: str = "annual", limit: int = 8) -> dic
         "symbol": resolved,
         "available": True,
         "note": container.edgar.note(),
-        "period": "annual" if annual else "quarterly",
+        "period": period,
         **built,
     }
 
 
 @router.get("/concepts/{symbol}")
-async def concepts(symbol: str, q: str = "", period: str = "annual", limit: int = 8) -> dict:
+async def concepts(symbol: str, q: str = "", period: Period = "annual", limit: int = 8) -> dict:
     """Every concept a filer tags, searchable — not just the statement lines.
 
     The curated statement is roughly a tenth of what a company reports. Values
@@ -189,8 +202,7 @@ async def concepts(symbol: str, q: str = "", period: str = "annual", limit: int 
     """
     container = _container()
     resolved = _symbol(symbol)
-    annual = period != "quarterly"
-    limit = max(1, min(limit, MAX_FINANCIAL_PERIODS))
+    annual, limit = _window(period, limit)
 
     if container.edgar is None:
         return {"symbol": resolved, "available": False, "query": q, "periods": [], "rows": []}
@@ -203,7 +215,7 @@ async def concepts(symbol: str, q: str = "", period: str = "annual", limit: int 
 
 
 @router.get("/metrics/{symbol}")
-async def metrics(symbol: str, period: str = "annual", limit: int = 8) -> dict:
+async def metrics(symbol: str, period: Period = "annual", limit: int = 8) -> dict:
     """Ratios per period, and valuation against today's market cap.
 
     The multiples mix two sources: the filings for trailing figures and the
@@ -212,21 +224,16 @@ async def metrics(symbol: str, period: str = "annual", limit: int = 8) -> dict:
     """
     container = _container()
     resolved = _symbol(symbol)
-    annual = period != "quarterly"
-    limit = max(1, min(limit, MAX_FINANCIAL_PERIODS))
+    annual, limit = _window(period, limit)
 
-    stats = (
-        await container.tv.get_stats(resolved)
-        if container.settings.regime.enabled
-        else container.tv.peek_stats(resolved)
-    )
+    stats = await _reference_stats(container, resolved)
     market_cap = stats.market_cap if stats is not None else None
 
     if container.edgar is None:
         return {
             "symbol": resolved,
             "available": False,
-            "period": "annual" if annual else "quarterly",
+            "period": period,
             "periods": [],
             "groups": [],
             "valuation": None,
@@ -259,7 +266,7 @@ async def metrics(symbol: str, period: str = "annual", limit: int = 8) -> dict:
     return {
         "symbol": resolved,
         "available": True,
-        "period": "annual" if annual else "quarterly",
+        "period": period,
         **built,
     }
 
@@ -421,27 +428,30 @@ async def swing_rows(screen_id: str) -> dict:
         "screen_id": screen_id,
         "rows": await container.swing.rows(screen_id),
         "config": container.swing.config.to_dict(),
-        "note": container.swing.note,
+        "note": container.swing.note_for(screen_id),
     }
 
 
+class SwingConfigChange(BaseModel):
+    """A JSON body: a page on another site cannot send one without a CORS
+    preflight, where query parameters ride a bare form post."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    min_market_cap: float | None = Field(default=None, ge=0)
+    min_avg_volume: float | None = Field(default=None, ge=0)
+    rows: int | None = Field(default=None, ge=1, le=50)
+
+
 @router.post("/swing/config")
-async def configure_swing(
-    min_market_cap: float | None = None,
-    min_avg_volume: float | None = None,
-    rows: int | None = None,
-) -> dict:
+async def configure_swing(change: SwingConfigChange) -> dict:
     """Retune the screens, and remember it.
 
     One config shared by all four: they are the same universe seen four ways,
     and a per-screen minimum would mean setting the same number four times.
     """
     container = _container()
-    config = container.swing.configure(
-        min_market_cap=min_market_cap,
-        min_avg_volume=min_avg_volume,
-        rows=rows,
-    )
+    config = container.swing.configure(**change.model_dump())
     await container.state.save_swing(config.to_dict())
     return {"config": config.to_dict()}
 

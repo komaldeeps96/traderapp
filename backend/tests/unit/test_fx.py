@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from app.services.financials import build_statements, convert_to_usd
+from app.domain.financials import build_statements, convert_to_usd
 from tests.unit.test_financials import fact, ifrs
 
 

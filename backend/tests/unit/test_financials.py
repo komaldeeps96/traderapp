@@ -12,7 +12,7 @@ from datetime import date
 
 import pytest
 
-from app.services.financials import build_statements, fiscal_year_of
+from app.domain.financials import build_statements, fiscal_year_of
 
 
 def usd(concept: str, rows: list[dict], unit: str = "USD") -> dict:
@@ -466,7 +466,7 @@ class TestForeignPrivateIssuers:
 class TestCurrencyDetection:
     def test_dollars_win_a_tie(self):
         """A filer stating both is reporting to US investors in the dollars."""
-        from app.services.financials import reporting_currency
+        from app.domain.financials import reporting_currency
 
         data = {
             "facts": {
@@ -483,14 +483,14 @@ class TestCurrencyDetection:
         assert reporting_currency(data) == "USD"
 
     def test_nothing_on_record_is_assumed_to_be_dollars(self):
-        from app.services.financials import reporting_currency
+        from app.domain.financials import reporting_currency
 
         assert reporting_currency(None) == "USD"
         assert reporting_currency({"facts": {}}) == "USD"
 
     def test_a_unit_that_is_not_a_currency_is_ignored(self):
         """`shares` and `USD/shares` sit in the same units map."""
-        from app.services.financials import reporting_currency
+        from app.domain.financials import reporting_currency
 
         data = {
             "facts": {

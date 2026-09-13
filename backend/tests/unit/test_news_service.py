@@ -212,6 +212,46 @@ class TestEviction:
             service.add_live(f"SYM{index}", row(f"Story number {index} about things", 1000, f"a{index}"))
         assert len(service._raw) <= MAX_SYMBOLS
 
+    async def test_a_symbol_fed_only_by_the_live_stream_keeps_its_headline(self):
+        """Evicting by fetch time dropped a live-only symbol in the very merge
+        that added it, so its headline was never broadcast."""
+        service = NewsService(FakeIBKR([row("A backfilled story about the company", 1000, "b")]))
+        for index in range(MAX_SYMBOLS):
+            await service.prefetch(f"SYM{index}")
+
+        added = service.add_live("WATCH", row("Watch Corp prices public offering", 2000, "live"))
+        assert added is not None
+        assert service.peek("WATCH")
+
+    async def test_the_symbol_used_longest_ago_is_the_one_evicted(self):
+        service = NewsService(FakeIBKR([row("A backfilled story about the company", 1000, "b")]))
+        for index in range(MAX_SYMBOLS):
+            await service.prefetch(f"SYM{index}")
+        service.peek("SYM0")  # the open chart, read a moment ago
+
+        await service.prefetch("NEW")
+        assert "SYM0" in service._raw
+        assert "SYM1" not in service._raw
+
+
+class TestProviderList:
+    async def test_an_empty_answer_while_tws_is_down_is_asked_again(self):
+        ibkr = FakeIBKR()
+        ibkr.providers = []
+        service = NewsService(ibkr)
+        assert await service.providers() == []
+
+        ibkr.providers = [("DJ-N", "Dow Jones Global Equity Trader")]
+        assert [entry["code"] for entry in await service.providers()] == ["DJ-N"]
+        assert ibkr.provider_calls == 2
+
+    async def test_a_real_answer_is_remembered(self):
+        ibkr = FakeIBKR()
+        service = NewsService(ibkr)
+        await service.providers()
+        await service.providers()
+        assert ibkr.provider_calls == 1
+
 
 class TestTwoSources:
     """The reason there are two.

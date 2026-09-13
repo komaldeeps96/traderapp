@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from statistics import median
 
+from ..core.clock import to_ny
 from ..domain.bars import Bar
 from ..domain.sessions import Session, ny_date, session_of
 
@@ -456,6 +457,30 @@ def _arith_day(epoch: float) -> int:
     return int((epoch - _NY_OFFSET_SECONDS) // 86_400)
 
 
+def _utc_offset(epoch: float) -> int:
+    offset = to_ny(epoch).utcoffset()
+    return int(offset.total_seconds()) if offset is not None else 0
+
+
+class _TimeOfDay:
+    """Seconds since New York midnight, on the wall clock.
+
+    The fixed offset that buckets days would put the same wall-clock minute an
+    hour apart across a DST change, so no prior session would line up. DST
+    switches at 02:00 on a Sunday, so one offset holds for a whole trading day.
+    """
+
+    def __init__(self) -> None:
+        self._offsets: dict[int, int] = {}
+
+    def __call__(self, epoch: float) -> float:
+        day = _arith_day(epoch)
+        offset = self._offsets.get(day)
+        if offset is None:
+            offset = self._offsets[day] = _utc_offset(epoch)
+        return (epoch + offset) % 86_400
+
+
 def _daily_bar_day(epoch: float) -> int:
     """The arithmetic day index of a daily bar.
 
@@ -475,14 +500,14 @@ class _VolumeDay:
     cums: list[float]
 
 
-def _volume_days(minute_bars: Sequence[Bar]) -> list[_VolumeDay]:
+def _volume_days(minute_bars: Sequence[Bar], time_of_day: _TimeOfDay) -> list[_VolumeDay]:
     """Cumulative volume per bar, grouped by New York day."""
     days: list[_VolumeDay] = []
     current: _VolumeDay | None = None
     total = 0.0
     for bar in minute_bars:
-        day = int((bar.time - _NY_OFFSET_SECONDS) // 86_400)
-        tod = (bar.time - _NY_OFFSET_SECONDS) % 86_400
+        day = _arith_day(bar.time)
+        tod = time_of_day(bar.time)
         if current is None or day != current.day:
             total = 0.0
             current = _VolumeDay(day=day, first_tod=tod, tods=[], cums=[])
@@ -529,7 +554,8 @@ def windowed_rvol(
     ``None`` wherever a comparison does not exist: the oldest day in history, a
     bar whose day the minute base has not covered, or no full prior session.
     """
-    days = _volume_days(minute_bars)
+    time_of_day = _TimeOfDay()
+    days = _volume_days(minute_bars, time_of_day)
     by_day = {entry.day: index for index, entry in enumerate(days)}
     daily_volume = {
         _daily_bar_day(bar.time): bar.volume for bar in daily_bars if bar.volume > 0
@@ -592,7 +618,7 @@ def windowed_rvol(
     out: list[Number] = []
     for bar in bars:
         day = _arith_day(bar.time)
-        tod = (bar.time - _NY_OFFSET_SECONDS) % 86_400
+        tod = time_of_day(bar.time)
         day_index = by_day.get(day)
         if day_index is None or day_index == 0:
             out.append(None)

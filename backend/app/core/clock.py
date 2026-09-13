@@ -6,7 +6,7 @@ wall-clock time happens only where market sessions are decided.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
 NY_TZ = ZoneInfo("America/New_York")
@@ -52,6 +52,16 @@ def parse_rfc3339(value: str) -> datetime:
         text = f"{head}.{digits[:6]:0<6}{remainder}" if digits else head + remainder
 
     return to_utc(datetime.fromisoformat(text))
+
+
+def parse_iso_date(value: object) -> date | None:
+    """A ``YYYY-MM-DD`` string as a date; anything else, from untyped JSON, is None."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def rfc3339(dt: datetime) -> str:

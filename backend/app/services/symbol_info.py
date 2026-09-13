@@ -19,16 +19,16 @@ import logging
 from collections.abc import Callable
 from datetime import date, timedelta
 
-from ..core.clock import now_epoch
+from ..core.clock import now_epoch, to_ny
 from ..domain.bars import Bar
+from ..domain.dilution import SHELF_LOOKBACK_DAYS, DilutionRead, ShelfCapacity, shelf_capacity
+from ..domain.dilution import measure as measure_dilution
 from ..domain.sessions import Session, ny_date, session_of
 from ..domain.timeframes import Timeframe
 from ..market.store import BarStore
 from ..providers.edgar import EdgarProvider
 from ..providers.yahoo import YahooFloatProvider
 from .corporate_actions import ReverseSplitService
-from .dilution import SHELF_LOOKBACK_DAYS, DilutionRead, ShelfCapacity, shelf_capacity
-from .dilution import measure as measure_dilution
 from .halts import HaltState
 from .pullback import measure as measure_pullback
 from .tv import TVDataService
@@ -37,10 +37,14 @@ logger = logging.getLogger(__name__)
 
 FIVE_MINUTES = 300
 
-# The fixed band below $0.75, in dollars. The rule states an alternative of
-# 75% of the reference price; at these prices the cents are always the
-# binding half, so only the cents are carried.
+# LULD Appendix A, Tier 2, as amended in 2020 (Amendment 18). Below $0.75 the
+# band is the lesser of 15 cents and 75%, so under $0.20 the percentage binds.
+# Nothing doubles at the open; at or below $3.00 the band doubles from 15:35 to
+# the close.
 SUB_DOLLAR_BAND = 0.15
+SUB_DOLLAR_PERCENT = 0.75
+CLOSING_DOUBLE_FROM = 15 * 3600 + 35 * 60
+CLOSE = 16 * 3600
 
 CALM = HaltState(halted=False, count=0, halted_at=None, resumed_at=None)
 
@@ -55,12 +59,21 @@ HaltLookup = Callable[[str], HaltState]
 
 
 def _tier2_band_percent(prev_close: float) -> float | None:
-    """Band width as a fraction, or ``None`` for the fixed 15-cent band."""
+    """Band width as a fraction, or ``None`` below $0.75, where it is the lesser
+    of 15 cents and 75% of the reference."""
     if prev_close > 3.0:
         return 0.10
     if prev_close >= 0.75:
         return 0.20
     return None
+
+
+def _closing_doubled(prev_close: float, moment: float) -> bool:
+    """Whether ``moment`` is in the closing window where a <= $3 band doubles."""
+    if prev_close > 3.0:
+        return False
+    local = to_ny(moment)
+    return CLOSING_DOUBLE_FROM <= local.hour * 3600 + local.minute * 60 < CLOSE
 
 
 class SymbolInfoService:
@@ -85,8 +98,9 @@ class SymbolInfoService:
         self._splits = splits
         self._yahoo = yahoo
         self._edgar = edgar
-        # symbol -> ((facts identity, filing count), read). See ``dilution``.
-        self._dilution_cache: dict[str, tuple[tuple[int, int], DilutionRead | None]] = {}
+        # symbol -> (facts, filings, read). The documents themselves are held,
+        # not their id(): a freed payload's id can be reused by its replacement.
+        self._dilution_cache: dict[str, tuple[object, object, DilutionRead | None]] = {}
 
     async def prefetch(self, symbol: str) -> None:
         """Warm every reference cache; called at subscribe time.
@@ -160,13 +174,12 @@ class SymbolInfoService:
             return None
         facts = self._edgar.peek_facts(symbol)
         filings = self._edgar.peek_filings(symbol)
-        stamp = (id(facts), len(filings))
         cached = self._dilution_cache.get(symbol)
-        if cached is not None and cached[0] == stamp:
-            read = cached[1]
+        if cached is not None and cached[0] is facts and cached[1] is filings:
+            read = cached[2]
         else:
             read = measure_dilution(facts, filings)
-            self._dilution_cache[symbol] = (stamp, read)
+            self._dilution_cache[symbol] = (facts, filings, read)
         # Attached outside the memo: the shelf capacity is priced off the
         # tape, and caching it against the filings would freeze it at
         # whatever the stock was worth when the documents last changed.
@@ -337,20 +350,24 @@ class SymbolInfoService:
         window = [bar.close for bar in minute_bars[-6:] if bar.time > cutoff]
         reference = sum(window) / len(window) if window else last_price
 
+        # Read off the market's clock, the last bar, rather than this machine's.
+        factor = 2 if _closing_doubled(prev_close, minute_bars[-1].time) else 1
         percent = _tier2_band_percent(prev_close)
-        if percent is None:
-            up = reference + SUB_DOLLAR_BAND
-            down = max(reference - SUB_DOLLAR_BAND, 0.0)
+        if percent is None and SUB_DOLLAR_PERCENT * reference >= SUB_DOLLAR_BAND:
+            width = SUB_DOLLAR_BAND * factor
+            band_pct, band_cents = None, SUB_DOLLAR_BAND * 100 * factor
         else:
-            up, down = reference * (1 + percent), reference * (1 - percent)
+            fraction = (percent if percent is not None else SUB_DOLLAR_PERCENT) * factor
+            width = reference * fraction
+            band_pct, band_cents = fraction * 100, None
 
         return {
             "halt_ref": round(reference, 4),
-            "halt_up": round(up, 4),
-            "halt_down": round(down, 4),
+            "halt_up": round(reference + width, 4),
+            "halt_down": round(max(reference - width, 0.0), 4),
             "halt_active": active,
-            # Exactly one of the two is set: the tier is a percentage band or
-            # a fixed-cent one, never both.
-            "halt_band_pct": percent * 100 if percent is not None else None,
-            "halt_band_cents": None if percent is not None else SUB_DOLLAR_BAND * 100,
+            # Exactly one of the two is set: the band is a percentage or a
+            # fixed number of cents, never both.
+            "halt_band_pct": band_pct,
+            "halt_band_cents": band_cents,
         }

@@ -24,6 +24,7 @@ from ..domain.quotes import Quote
 from ..domain.timeframes import Timeframe
 from ..market.bar_builder import Trade, build_bars
 from ..market.conditions import TradeKind, classify_conditions
+from .alpaca_socket import authenticate, decode
 from .base import MarketDataProvider, ProviderError
 
 logger = logging.getLogger(__name__)
@@ -379,7 +380,8 @@ class AlpacaProvider(MarketDataProvider):
             try:
                 async with ws_connect(url, max_size=4 * 1024 * 1024) as websocket:
                     self._ws = websocket
-                    await self._authenticate(websocket)
+                    await authenticate(websocket, self._settings)
+                    logger.info("Alpaca stream authenticated (%s)", self._settings.feed)
                     attempt = 0
                     self._connected = True
                     await self._emit_status()
@@ -411,70 +413,51 @@ class AlpacaProvider(MarketDataProvider):
                 break
             await asyncio.sleep(min(2 ** min(attempt, 5), 30))
 
-    async def _authenticate(self, websocket) -> None:
-        await websocket.send(
-            json.dumps(
-                {
-                    "action": "auth",
-                    "key": self._settings.key_id,
-                    "secret": self._settings.secret_key,
-                }
-            )
-        )
-        # The server greets, then answers the auth; read until one or the other
-        # resolves so a slow greeting is not mistaken for a failure.
-        deadline = asyncio.get_running_loop().time() + 10
-        while asyncio.get_running_loop().time() < deadline:
-            raw = await asyncio.wait_for(websocket.recv(), timeout=10)
-            for message in _decode(raw):
-                kind = message.get("T")
-                if kind == "success" and message.get("msg") == "authenticated":
-                    logger.info("Alpaca stream authenticated (%s)", self._settings.feed)
-                    return
-                if kind == "error":
-                    raise ProviderError(
-                        f"Alpaca stream auth failed: {message.get('msg')} "
-                        f"(code {message.get('code')})"
-                    )
-        raise ProviderError("Alpaca stream auth timed out")
-
     async def _handle_frame(self, raw: str | bytes) -> None:
-        for message in _decode(raw):
-            kind = message.get("T")
-            if kind == "t":
-                trade = _parse_trade(message.get("S", ""), message)
-                if trade is not None and trade.time > 0:
-                    await self._emit_trade(message["S"], trade)
-            elif kind == "q" and "S" in message:
-                stamp = message.get("t")
-                await self._emit_quote(
-                    message["S"],
-                    Quote(
-                        bid=float(message.get("bp", 0)),
-                        ask=float(message.get("ap", 0)),
-                        # Alpaca quote sizes are round lots; the wire carries
-                        # shares so IBKR and Alpaca read the same on screen.
-                        bid_size=float(message.get("bs", 0)) * 100,
-                        ask_size=float(message.get("as", 0)) * 100,
-                        time=parse_rfc3339(stamp).timestamp() if stamp else time.time(),
-                    ),
-                )
-            elif kind == "b":
-                await self._emit_bar(message["S"], Timeframe.M1, _parse_bar(message))
-            elif kind == "s" and "S" in message:
-                halted = _parse_status(message)
-                if halted is not None:
-                    await self._emit_halt(message["S"], halted)
-            elif kind == "error":
-                logger.error(
-                    "Alpaca stream error %s: %s", message.get("code"), message.get("msg")
-                )
-            elif kind == "subscription":
-                logger.info(
-                    "Alpaca subscription: trades=%s bars=%s",
-                    message.get("trades"),
-                    message.get("bars"),
-                )
+        for message in decode(raw):
+            try:
+                await self._handle_message(message)
+            except (KeyError, TypeError, ValueError) as exc:
+                # One unreadable message must not drop the socket, and with it
+                # every symbol's stream for the length of a reconnect.
+                logger.warning("Alpaca sent a message this cannot read (%s): %.200s", exc, message)
+
+    async def _handle_message(self, message: dict) -> None:
+        kind = message.get("T")
+        if kind == "t":
+            trade = _parse_trade(message.get("S", ""), message)
+            if trade is not None and trade.time > 0:
+                await self._emit_trade(message["S"], trade)
+        elif kind == "q" and "S" in message:
+            stamp = message.get("t")
+            await self._emit_quote(
+                message["S"],
+                Quote(
+                    bid=float(message.get("bp", 0)),
+                    ask=float(message.get("ap", 0)),
+                    # Alpaca quote sizes are round lots; the wire carries
+                    # shares so IBKR and Alpaca read the same on screen.
+                    bid_size=float(message.get("bs", 0)) * 100,
+                    ask_size=float(message.get("as", 0)) * 100,
+                    time=parse_rfc3339(stamp).timestamp() if stamp else time.time(),
+                ),
+            )
+        elif kind == "b":
+            await self._emit_bar(message["S"], Timeframe.M1, _parse_bar(message))
+        elif kind == "s" and "S" in message:
+            halted = _parse_status(message)
+            if halted is not None:
+                await self._emit_halt(message["S"], halted)
+        elif kind == "error":
+            logger.error(
+                "Alpaca stream error %s: %s", message.get("code"), message.get("msg")
+            )
+        elif kind == "subscription":
+            logger.info(
+                "Alpaca subscription: trades=%s bars=%s",
+                message.get("trades"),
+                message.get("bars"),
+            )
 
 
 # Exchange status codes that mean the stock is not trading. "H" is a halt,
@@ -504,17 +487,6 @@ def _channels(symbols: set[str]) -> dict[str, list[str]]:
     """
     listed = sorted(symbols)
     return {"trades": listed, "quotes": listed, "bars": listed}
-
-
-def _decode(raw: str | bytes) -> list[dict]:
-    try:
-        payload = json.loads(raw)
-    except (TypeError, ValueError):
-        logger.debug("Alpaca sent undecodable frame")
-        return []
-    if isinstance(payload, dict):
-        return [payload]
-    return [item for item in payload if isinstance(item, dict)]
 
 
 def _parse_trade(symbol: str, raw: dict) -> Trade | None:

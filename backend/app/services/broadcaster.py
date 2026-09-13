@@ -45,6 +45,7 @@ class ChartBroadcaster:
         self._sent: dict[tuple[str, Timeframe], int] = {}
         self._sent_quotes: dict[str, int] = {}
         self._sent_info: dict[str, int] = {}
+        self._failed_info: set[str] = set()
         self._sent_api: dict | None = None
 
     async def start(self) -> None:
@@ -150,7 +151,17 @@ class ChartBroadcaster:
             revision = self._market.revision(symbol)
             if self._sent_info.get(symbol) == revision:
                 continue
-            message = self._info.build(symbol)
+            try:
+                message = self._info.build(symbol)
+            except Exception:
+                # One company's odd filing must not blank every strip after it.
+                # Retried on the next revision; logged in full only the first time.
+                self._sent_info[symbol] = revision
+                log = logger.debug if symbol in self._failed_info else logger.exception
+                log("info strip failed for %s", symbol, exc_info=True)
+                self._failed_info.add(symbol)
+                continue
+            self._failed_info.discard(symbol)
             if message is None:
                 continue
             self._hub.send_to_symbol(symbol, message)

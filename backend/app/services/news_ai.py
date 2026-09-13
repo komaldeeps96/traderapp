@@ -59,6 +59,13 @@ class NewsAIService:
     def enabled(self) -> bool:
         return self._settings.enabled
 
+    async def stop(self) -> None:
+        """Cancel the readings in flight; each reader kills its own process."""
+        running = list(self._running.values())
+        for task in running:
+            task.cancel()
+        await asyncio.gather(*running, return_exceptions=True)
+
     def resolve_binary(self) -> str | None:
         return self._reader.resolve_binary()
 

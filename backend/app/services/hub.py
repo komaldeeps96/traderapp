@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 
 from ..domain.protocol import Snapshot
 from ..domain.timeframes import Timeframe
@@ -26,6 +27,11 @@ class SubscriptionHub:
         self._market = market_data
         self._connections: dict[int, ClientConnection] = {}
         self._lock = asyncio.Lock()
+        self._release_handlers: list[Callable[[str], None]] = []
+
+    def on_release(self, handler: Callable[[str], None]) -> None:
+        """Called with a symbol once no client is watching it."""
+        self._release_handlers.append(handler)
 
     # ── membership ─────────────────────────────────────────────────────
 
@@ -67,7 +73,9 @@ class SubscriptionHub:
         connection.symbol = symbol
         connection.timeframe = timeframe
         connection.extra_timeframes = extra_timeframes
-        await self._sync()
+        # A newer subscribe cancels this one; the upstream reconciliation it
+        # started still runs to the end rather than stopping halfway.
+        await asyncio.shield(self._sync())
 
         loaded = await self._market.ensure_loaded(symbol, timeframe)
 
@@ -106,9 +114,11 @@ class SubscriptionHub:
         async with self._lock:
             wanted = self.symbols()
             await self._router.set_stream_symbols(wanted)
-            for symbol in self._market.loaded_symbols - wanted:
+            for symbol in self._market.working_symbols - wanted:
                 logger.info("no clients left on %s; releasing it", symbol)
                 self._market.unload(symbol)
+                for handler in self._release_handlers:
+                    handler(symbol)
 
     # ── delivery ───────────────────────────────────────────────────────
 

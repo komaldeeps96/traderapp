@@ -20,6 +20,9 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
+from ..core.clock import parse_iso_date
+from .companyfacts import concept_units
+
 # A duration this long is a year, this short is a quarter, and anything
 # between the two is a year-to-date cumulative that must not enter a series.
 ANNUAL_DAYS = (340, 400)
@@ -77,11 +80,7 @@ def reporting_currency(facts: dict | None) -> str:
     """
     tally: dict[str, int] = {}
     for taxonomy, concept in _CURRENCY_PROBES:
-        if not isinstance(facts, dict):
-            break
-        concepts = (facts.get("facts") or {}).get(taxonomy) or {}
-        units = (concepts.get(concept) or {}).get("units") or {}
-        for unit, entries in units.items():
+        for unit, entries in concept_units(facts, taxonomy, concept).items():
             if len(unit) == 3 and unit.isalpha() and unit.isupper():
                 tally[unit] = tally.get(unit, 0) + len(entries or ())
     if not tally:
@@ -499,25 +498,13 @@ class Fact:
         return (self.end - self.start).days if self.start else None
 
 
-def _to_date(value: object) -> date | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        return None
-
-
 def _facts_for(facts: dict | None, taxonomy: str, concept: str, unit: str) -> list[Fact]:
     """Every fact reported for one concept, in one unit.
 
     The unit is named rather than merged: EPS is quoted in USD/shares and share
     counts in shares, so merging mixes 0.97 with 15 billion in one line.
     """
-    if not isinstance(facts, dict):
-        return []
-    concepts = (facts.get("facts") or {}).get(taxonomy) or {}
-    entries = ((concepts.get(concept) or {}).get("units") or {}).get(unit)
+    entries = concept_units(facts, taxonomy, concept).get(unit)
     if not isinstance(entries, list):
         return []
 
@@ -525,17 +512,17 @@ def _facts_for(facts: dict | None, taxonomy: str, concept: str, unit: str) -> li
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        end = _to_date(entry.get("end"))
+        end = parse_iso_date(entry.get("end"))
         value = entry.get("val")
         if end is None or not isinstance(value, (int, float)) or isinstance(value, bool):
             continue
         out.append(
             Fact(
                 end=end,
-                start=_to_date(entry.get("start")),
+                start=parse_iso_date(entry.get("start")),
                 value=float(value),
                 form=str(entry.get("form") or ""),
-                filed=_to_date(entry.get("filed")),
+                filed=parse_iso_date(entry.get("filed")),
             )
         )
     return out
@@ -720,9 +707,16 @@ def _derive_total_liabilities(lines: list[dict]) -> None:
     ]
 
 
+# Flows whose annual filings date the fiscal year. Revenue first; a filer with
+# none, such as a pre-revenue biotech, still reports its loss and its burn.
+_YEAR_END_LINES = ("revenue", "net_income", "operating_cash_flow")
+
+
 def _year_end_month(facts: dict | None, currency: str) -> int | None:
     """The month the fiscal year closes, read off the annual filings."""
-    for taxonomy, concept in INCOME_STATEMENT[0].concepts + BALANCE_SHEET[5].concepts:
+    specs = {spec.key: spec for spec in (*INCOME_STATEMENT, *CASH_FLOW)}
+    concepts = [concept for key in _YEAR_END_LINES for concept in specs[key].concepts]
+    for taxonomy, concept in concepts:
         rows = _facts_for(facts, taxonomy, concept, unit_key(MONEY, currency))
         annual = _pick(rows, instant=False, annual=True)
         if annual:
@@ -872,8 +866,8 @@ async def convert_to_usd(built: dict, fx) -> dict:
     closing: dict[str, float | None] = {}
     average: dict[str, float | None] = {}
     for period in built.get("periods", []):
-        end = _to_date(period.get("end"))
-        start = _to_date(period.get("start"))
+        end = parse_iso_date(period.get("end"))
+        start = parse_iso_date(period.get("start"))
         if end is None:
             continue
         closing[period["key"]] = await fx.closing_rate(native, end)

@@ -14,11 +14,12 @@ Nested settings use a double underscore, so ``alpaca.key_id`` is set with
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -32,7 +33,13 @@ CONFIG_DIR = BACKEND_ROOT / "config"
 AlpacaFeed = Literal["sip", "iex", "delayed_sip", "otc"]
 
 
-class AlpacaSettings(BaseModel):
+class _Section(BaseModel):
+    # A misspelt or retired key fails at startup, rather than being dropped in
+    # silence with its default left in force.
+    model_config = ConfigDict(extra="forbid")
+
+
+class AlpacaSettings(_Section):
     """Alpaca market data credentials and endpoints.
 
     ``feed`` selects the data entitlement:
@@ -72,7 +79,7 @@ class AlpacaSettings(BaseModel):
         return self.feed == "delayed_sip"
 
 
-class IBKRSettings(BaseModel):
+class IBKRSettings(_Section):
     """Interactive Brokers TWS / Gateway connection."""
 
     enabled: bool = True
@@ -85,7 +92,7 @@ class IBKRSettings(BaseModel):
     max_reconnect_delay_seconds: float = Field(default=30.0, gt=0)
 
 
-class TradingSettings(BaseModel):
+class TradingSettings(_Section):
     """Order entry through IBKR. See docs/order-entry.md.
 
     A second TWS connection on its own client id; the data client is
@@ -136,6 +143,14 @@ class TradingSettings(BaseModel):
     # clicked. Raising the buttons means raising this, in the same file.
     max_order_dollars: float = Field(default=60.0, gt=0)
 
+    # A second order on the same side of the same symbol inside this window is
+    # refused as a double-click. A deliberate second order waits a beat.
+    repeat_guard_seconds: float = Field(default=1.0, ge=0)
+
+    # Buys and sells are accepted only from this machine. The terminal is served
+    # to the LAN so a phone can watch; cancel-all is allowed from anywhere.
+    allow_remote: bool = False
+
     @property
     def is_paper(self) -> bool:
         """True for the paper ports. 7496/4001 are the live ones."""
@@ -156,7 +171,7 @@ class TradingSettings(BaseModel):
         return value
 
 
-class HistorySettings(BaseModel):
+class HistorySettings(_Section):
     """How much history to load for each base timeframe."""
 
     intraday_days: int = Field(default=5, ge=1, le=30)
@@ -174,7 +189,7 @@ class HistorySettings(BaseModel):
     tensec_prior_sessions: int = Field(default=1, ge=0, le=5)
 
 
-class EdgarSettings(BaseModel):
+class EdgarSettings(_Section):
     """SEC EDGAR — fundamentals and filings.
 
     No key, but SEC requires a User-Agent identifying the caller with a contact
@@ -189,7 +204,7 @@ class EdgarSettings(BaseModel):
     filing_poll_seconds: float = Field(default=60.0, ge=15.0)
 
 
-class RegimeSettings(BaseModel):
+class RegimeSettings(_Section):
     """The TradingView market-regime poll — switch and cadence only."""
 
     enabled: bool = True
@@ -201,7 +216,7 @@ class RegimeSettings(BaseModel):
 STOCK_TYPES = frozenset({"CORP", "ADR", "ETF", "ETN", "REIT", "CEF", "ETMF"})
 
 
-class NewsAISettings(BaseModel):
+class NewsAISettings(_Section):
     """The news panel's summary line — the ``claude`` CLI as a child process.
 
     Run in print mode with no tools and no session; see ``services/news_ai.py``.
@@ -228,7 +243,7 @@ class NewsAISettings(BaseModel):
     min_interval_seconds: float = Field(default=120.0, ge=0)
 
 
-class ScannerSettings(BaseModel):
+class ScannerSettings(_Section):
     """Defaults for the IBKR market scanner."""
 
     enabled: bool = True
@@ -298,8 +313,7 @@ class Settings(BaseSettings):
         env_nested_delimiter="__",
         env_file=".env",
         env_file_encoding="utf-8",
-        yaml_file=str(CONFIG_DIR / "settings.yaml"),
-        extra="ignore",
+        extra="forbid",
     )
 
     app_name: str = "TraderApp"
@@ -365,8 +379,14 @@ class Settings(BaseSettings):
             env_settings,
             dotenv_settings,
             file_secret_settings,
-            YamlConfigSettingsSource(settings_cls),
+            YamlConfigSettingsSource(settings_cls, yaml_file=settings_file()),
         )
+
+
+def settings_file() -> Path:
+    """The YAML settings file. ``TRADERAPP_SETTINGS_FILE`` points elsewhere, which
+    is how a test server keeps this machine's own settings out of a run."""
+    return Path(os.environ.get("TRADERAPP_SETTINGS_FILE") or CONFIG_DIR / "settings.yaml")
 
 
 @lru_cache

@@ -8,6 +8,7 @@ cap — that IBKR withholds without a fundamentals entitlement.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 
 
@@ -23,6 +24,20 @@ def finite(value: object) -> float | None:
         return None
     number = float(value)
     return number if math.isfinite(number) else None
+
+
+class RowReader:
+    """A screener row read by column name: numbers through ``finite``, text or ''."""
+
+    def __init__(self, columns: Sequence[str]):
+        self._index = {name: position for position, name in enumerate(columns)}
+
+    def number(self, row: Sequence[object], name: str) -> float | None:
+        return finite(row[self._index[name]])
+
+    def text(self, row: Sequence[object], name: str) -> str:
+        value = row[self._index[name]]
+        return value if isinstance(value, str) else ""
 
 
 @dataclass(slots=True)

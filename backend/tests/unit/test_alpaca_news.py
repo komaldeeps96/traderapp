@@ -12,34 +12,18 @@ because it is a websocket and no test may leave the machine.
 
 from __future__ import annotations
 
-import asyncio
 import json
 
 import pytest
 
 from app.core.settings import AlpacaSettings
-from app.providers.alpaca_news import AlpacaNewsStream, _decode
+from app.providers.alpaca_news import AlpacaNewsStream
 
 
 def settings(**overrides) -> AlpacaSettings:
     base = {"key_id": "k", "secret_key": "s", "news_stream": True}
     base.update(overrides)
     return AlpacaSettings(**base)
-
-
-class TestDecode:
-    def test_reads_the_array_the_socket_sends(self):
-        assert _decode('[{"T":"n","id":1}]') == [{"T": "n", "id": 1}]
-
-    def test_reads_a_bare_object_too(self):
-        assert _decode('{"T":"success"}') == [{"T": "success"}]
-
-    def test_unparseable_bytes_are_not_an_exception(self):
-        """A bad frame must not break the socket the next one arrives on."""
-        assert _decode("not json") == []
-
-    def test_non_objects_in_the_array_are_dropped(self):
-        assert _decode('[{"T":"n"}, 7, null]') == [{"T": "n"}]
 
 
 class TestFrames:
@@ -101,38 +85,3 @@ class TestSwitchedOff:
     async def test_stopping_one_that_never_started_is_not_an_error(self):
         await AlpacaNewsStream(settings(news_stream=False)).stop()
 
-
-class TestAuthentication:
-    class FakeSocket:
-        def __init__(self, replies):
-            self.replies = list(replies)
-            self.sent: list[dict] = []
-
-        async def send(self, raw):
-            self.sent.append(json.loads(raw))
-
-        async def recv(self):
-            if not self.replies:
-                await asyncio.sleep(3600)
-            return self.replies.pop(0)
-
-    async def test_it_sends_the_credentials_and_accepts_the_ack(self):
-        socket = self.FakeSocket([json.dumps([{"T": "success", "msg": "authenticated"}])])
-        await AlpacaNewsStream(settings())._authenticate(socket)
-        assert socket.sent[0]["action"] == "auth"
-        assert socket.sent[0]["key"] == "k"
-
-    async def test_the_greeting_before_the_ack_is_not_a_failure(self):
-        """The server greets first and answers the auth second."""
-        socket = self.FakeSocket(
-            [
-                json.dumps([{"T": "success", "msg": "connected"}]),
-                json.dumps([{"T": "success", "msg": "authenticated"}]),
-            ]
-        )
-        await AlpacaNewsStream(settings())._authenticate(socket)
-
-    async def test_a_refusal_is_raised_rather_than_retried_blindly(self):
-        socket = self.FakeSocket([json.dumps([{"T": "error", "msg": "auth failed", "code": 402}])])
-        with pytest.raises(RuntimeError, match="auth failed"):
-            await AlpacaNewsStream(settings())._authenticate(socket)

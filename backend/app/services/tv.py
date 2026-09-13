@@ -13,12 +13,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from tradingview_screener import Query, col
 from tradingview_screener.query import And
 
-from ..domain.screener import MarketRegime, SymbolStats, finite
+from ..domain.screener import MarketRegime, RowReader, SymbolStats
 from ..domain.sessions import Session, session_of
 
 logger = logging.getLogger(__name__)
@@ -70,12 +70,17 @@ _COLUMNS = [
     "Perf.YTD",
     "earnings_release_next_date",
 ]
-_INDEX = {name: i for i, name in enumerate(_COLUMNS)}
+_ROW = RowReader(_COLUMNS)
 
 STATS_TTL_SECONDS = 300.0
+# A symbol TradingView cannot find is asked about again after this, not on every
+# scanner update: a fresh listing sits in the scan before it is in the index.
+MISS_TTL_SECONDS = 120.0
+# Symbols held at once. A day of charting touches a few hundred names.
+MAX_CACHED_SYMBOLS = 1_000
 
 
-def _common_stock_terms() -> list:
+def common_stock_terms() -> list:
     """Listed US common stock only.
 
     TradingView's ``america`` market includes OTC pink sheets, which would
@@ -89,13 +94,10 @@ def _common_stock_terms() -> list:
     ]
 
 
-def _value(row: list, column: str) -> float | None:
-    return finite(row[_INDEX[column]])
-
-
-def _text(row: list, column: str) -> str:
-    value = row[_INDEX[column]]
-    return value if isinstance(value, str) else ""
+def scan_rows(query: Query, columns: Sequence[str]) -> list[list]:
+    """A screener query's rows, in ``columns`` order. Blocking: run it on a thread."""
+    _, frame = query.get_scanner_data()
+    return frame[list(columns)].values.tolist() if not frame.empty else []
 
 
 class TVDataService:
@@ -104,6 +106,7 @@ class TVDataService:
         self._fetch = fetch or (lambda query: query.get_scanner_data_raw())
         self._stats_cache: dict[str, SymbolStats] = {}
         self._stats_locks: dict[str, asyncio.Lock] = {}
+        self._misses: dict[str, float] = {}
 
     async def _run(self, query: Query) -> dict:
         return await asyncio.to_thread(self._fetch, query)
@@ -126,7 +129,7 @@ class TVDataService:
                 .select("name")
                 .where2(
                     And(
-                        *_common_stock_terms(),
+                        *common_stock_terms(),
                         col(change_col) >= threshold,
                         col(volume_col) >= volume_floor,
                     )
@@ -146,6 +149,8 @@ class TVDataService:
         cached = self._stats_cache.get(symbol)
         if cached and time.time() - cached.fetched_at < STATS_TTL_SECONDS:
             return cached
+        if time.time() - self._misses.get(symbol, 0.0) < MISS_TTL_SECONDS:
+            return cached
 
         lock = self._stats_locks.setdefault(symbol, asyncio.Lock())
         async with lock:
@@ -159,9 +164,27 @@ class TVDataService:
             except Exception as exc:
                 logger.warning("TradingView stats failed for %s: %s", symbol, exc)
                 return cached
-            if stats is not None:
+            if stats is None:
+                self._misses[symbol] = time.time()
+            else:
                 self._stats_cache[symbol] = stats
+                self._misses.pop(symbol, None)
+            self._trim()
             return stats
+
+    def _trim(self) -> None:
+        """Oldest out once the caches pass their bound."""
+        if len(self._stats_cache) > MAX_CACHED_SYMBOLS:
+            by_age = sorted(self._stats_cache, key=lambda name: self._stats_cache[name].fetched_at)
+            for name in by_age[: len(self._stats_cache) - MAX_CACHED_SYMBOLS]:
+                del self._stats_cache[name]
+                lock = self._stats_locks.get(name)
+                if lock is not None and not lock.locked():
+                    del self._stats_locks[name]
+        if len(self._misses) > MAX_CACHED_SYMBOLS:
+            by_age = sorted(self._misses, key=self._misses.__getitem__)
+            for name in by_age[: len(self._misses) - MAX_CACHED_SYMBOLS]:
+                del self._misses[name]
 
     def peek_stats(self, symbol: str) -> SymbolStats | None:
         """The cached value, however stale, without touching the network."""
@@ -173,38 +196,38 @@ class TVDataService:
             return None
         return SymbolStats(
             symbol=symbol,
-            description=_text(row, "description"),
-            exchange=_text(row, "exchange"),
-            sector=_text(row, "sector"),
-            float_shares=_value(row, "float_shares_outstanding"),
-            market_cap=_value(row, "market_cap_basic"),
-            shares_outstanding=_value(row, "total_shares_outstanding_fundamental"),
-            avg_vol_10d=_value(row, "average_volume_10d_calc"),
-            premarket_volume=_value(row, "premarket_volume"),
-            premarket_change=_value(row, "premarket_change"),
-            all_time_high=_value(row, "High.All"),
-            industry=_text(row, "industry"),
-            country=_text(row, "country"),
-            employees=_value(row, "number_of_employees"),
-            price_earnings=_value(row, "price_earnings_ttm"),
-            eps_ttm=_value(row, "earnings_per_share_basic_ttm"),
-            revenue_ttm=_value(row, "total_revenue"),
-            gross_margin=_value(row, "gross_margin"),
-            operating_margin=_value(row, "operating_margin"),
-            net_income=_value(row, "net_income"),
-            total_debt=_value(row, "total_debt"),
-            total_cash=_value(row, "cash_n_short_term_invest_fq"),
-            free_cash_flow=_value(row, "free_cash_flow_ttm"),
-            ebitda=_value(row, "ebitda"),
-            debt_to_equity=_value(row, "debt_to_equity"),
-            current_ratio=_value(row, "current_ratio"),
-            enterprise_value=_value(row, "enterprise_value_current"),
-            return_on_equity=_value(row, "return_on_equity"),
-            price_to_book=_value(row, "price_book_fq"),
-            price_to_sales=_value(row, "price_sales_current"),
-            beta=_value(row, "beta_1_year"),
-            perf_ytd=_value(row, "Perf.YTD"),
-            earnings_next=_value(row, "earnings_release_next_date"),
+            description=_ROW.text(row, "description"),
+            exchange=_ROW.text(row, "exchange"),
+            sector=_ROW.text(row, "sector"),
+            float_shares=_ROW.number(row, "float_shares_outstanding"),
+            market_cap=_ROW.number(row, "market_cap_basic"),
+            shares_outstanding=_ROW.number(row, "total_shares_outstanding_fundamental"),
+            avg_vol_10d=_ROW.number(row, "average_volume_10d_calc"),
+            premarket_volume=_ROW.number(row, "premarket_volume"),
+            premarket_change=_ROW.number(row, "premarket_change"),
+            all_time_high=_ROW.number(row, "High.All"),
+            industry=_ROW.text(row, "industry"),
+            country=_ROW.text(row, "country"),
+            employees=_ROW.number(row, "number_of_employees"),
+            price_earnings=_ROW.number(row, "price_earnings_ttm"),
+            eps_ttm=_ROW.number(row, "earnings_per_share_basic_ttm"),
+            revenue_ttm=_ROW.number(row, "total_revenue"),
+            gross_margin=_ROW.number(row, "gross_margin"),
+            operating_margin=_ROW.number(row, "operating_margin"),
+            net_income=_ROW.number(row, "net_income"),
+            total_debt=_ROW.number(row, "total_debt"),
+            total_cash=_ROW.number(row, "cash_n_short_term_invest_fq"),
+            free_cash_flow=_ROW.number(row, "free_cash_flow_ttm"),
+            ebitda=_ROW.number(row, "ebitda"),
+            debt_to_equity=_ROW.number(row, "debt_to_equity"),
+            current_ratio=_ROW.number(row, "current_ratio"),
+            enterprise_value=_ROW.number(row, "enterprise_value_current"),
+            return_on_equity=_ROW.number(row, "return_on_equity"),
+            price_to_book=_ROW.number(row, "price_book_fq"),
+            price_to_sales=_ROW.number(row, "price_sales_current"),
+            beta=_ROW.number(row, "beta_1_year"),
+            perf_ytd=_ROW.number(row, "Perf.YTD"),
+            earnings_next=_ROW.number(row, "earnings_release_next_date"),
             fetched_at=time.time(),
         )
 
@@ -236,7 +259,7 @@ class TVDataService:
         )
         for entry in payload.get("data") or []:
             row = entry["d"]
-            if _text(row, "name") == symbol:
+            if _ROW.text(row, "name") == symbol:
                 return row
         return None
 

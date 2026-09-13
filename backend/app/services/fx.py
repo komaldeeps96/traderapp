@@ -11,8 +11,9 @@ the closing rate on the balance-sheet date. Using one rate for both is out by
 ~3% where the right one is within 0.06%.
 
 Rates for an ended period never change, so they are cached for the life of the
-process. A failed conversion returns None and the caller reports the statements
-in their own currency.
+process. A failed conversion returns None, is retried after
+``FAILURE_RETRY_SECONDS``, and the caller reports the statements in their own
+currency meanwhile.
 """
 
 from __future__ import annotations
@@ -21,10 +22,14 @@ import asyncio
 import json
 import logging
 import statistics
+import time
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
 import httpx
+
+from ..core.clock import parse_iso_date
 
 logger = logging.getLogger(__name__)
 
@@ -36,18 +41,28 @@ USD = "USD"
 RETRY_DELAY_SECONDS = 1.5
 MAX_ATTEMPTS = 2
 TIMEOUT_SECONDS = 20.0
+# A refused rate is asked for again after this, not on every statement in the
+# meantime: each attempt sits out the 429 it is most likely answering.
+FAILURE_RETRY_SECONDS = 60.0
 
 
 class FxService:
     """Rates into USD, cached forever because history does not move."""
 
     def __init__(
-        self, client: httpx.AsyncClient | None = None, cache_path: str | Path | None = None
+        self,
+        client: httpx.AsyncClient | None = None,
+        cache_path: str | Path | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self._client = client
         self._owned: httpx.AsyncClient | None = None
-        self._closing: dict[tuple[str, date], float | None] = {}
-        self._average: dict[tuple[str, date, date], float | None] = {}
+        self._closing: dict[tuple[str, date], float] = {}
+        self._average: dict[tuple[str, date, date], float] = {}
+        # When each rate last failed, so a burst that drew a 429 does not stop
+        # the same period converting for the rest of the session.
+        self._failed: dict[tuple, float] = {}
+        self._clock = clock
         self._lock = asyncio.Lock()
         # Kept across restarts because a rate for a period that has already
         # closed cannot change. The endpoint rate-limits under a burst, and
@@ -85,12 +100,10 @@ class FxService:
             "closing": {
                 f"{currency}|{on.isoformat()}": rate
                 for (currency, on), rate in self._closing.items()
-                if rate is not None
             },
             "average": {
                 f"{currency}|{start.isoformat()}|{end.isoformat()}": rate
                 for (currency, start, end), rate in self._average.items()
-                if rate is not None
             },
         }
         try:
@@ -128,12 +141,11 @@ class FxService:
         key = (currency, on)
         if key in self._closing:
             return self._closing[key]
+        if self._failed_recently(key):
+            return None
         payload = await self._get(f"/{on.isoformat()}", currency)
         rate = _extract(payload)
-        self._closing[key] = rate
-        if rate is not None:
-            self._dirty = True
-            self._save()
+        self._remember(self._closing, key, rate)
         return rate
 
     async def average_rate(self, currency: str, start: date, end: date) -> float | None:
@@ -149,6 +161,8 @@ class FxService:
         key = (currency, start, end)
         if key in self._average:
             return self._average[key]
+        if self._failed_recently(key):
+            return None
 
         payload = await self._get(f"/{start.isoformat()}..{end.isoformat()}", currency)
         rates: list[float] = []
@@ -158,11 +172,21 @@ class FxService:
                 if isinstance(value, (int, float)) and value > 0:
                     rates.append(float(value))
         rate = statistics.fmean(rates) if rates else None
-        self._average[key] = rate
-        if rate is not None:
-            self._dirty = True
-            self._save()
+        self._remember(self._average, key, rate)
         return rate
+
+    def _failed_recently(self, key: tuple) -> bool:
+        failed = self._failed.get(key)
+        return failed is not None and self._clock() - failed < FAILURE_RETRY_SECONDS
+
+    def _remember(self, store: dict, key: tuple, rate: float | None) -> None:
+        if rate is None:
+            self._failed[key] = self._clock()
+            return
+        self._failed.pop(key, None)
+        store[key] = rate
+        self._dirty = True
+        self._save()
 
     async def _get(self, path: str, base: str) -> dict | None:
         async with self._lock:
@@ -190,7 +214,7 @@ def _extract(payload: dict | None) -> float | None:
 
 def _split_closing(key: str) -> tuple[str, date] | None:
     currency, _, when = key.partition("|")
-    parsed = _parse_date(when)
+    parsed = parse_iso_date(when)
     return (currency, parsed) if currency and parsed else None
 
 
@@ -199,12 +223,5 @@ def _split_average(key: str) -> tuple[str, date, date] | None:
     if len(parts) != 3:
         return None
     currency, start, end = parts
-    first, last = _parse_date(start), _parse_date(end)
+    first, last = parse_iso_date(start), parse_iso_date(end)
     return (currency, first, last) if currency and first and last else None
-
-
-def _parse_date(value: str) -> date | None:
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        return None

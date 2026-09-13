@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
 from ..core.clock import now_epoch
 from ..domain.bars import Bar
@@ -28,7 +29,7 @@ from ..indicators.levels import DailyLevelIndex
 from ..market.bar_builder import BarBuilder, Trade
 from ..market.resample import bucket_start, derive, resample
 from ..market.store import BarStore
-from ..providers.router import TENSEC_WINDOW_SECONDS, FeedRouter
+from ..providers.router import TENSEC_RECENT_SECONDS, TENSEC_WINDOW_SECONDS, FeedRouter
 
 logger = logging.getLogger(__name__)
 
@@ -189,30 +190,41 @@ class MarketDataService:
         requests. The prior sessions behind them are Alpaca REST pages.
         """
         try:
+            recent: list[Bar] | None = None
+            if fast_base is not Timeframe.S10:
+                # Fetched first here: the older slices are measured from it.
+                recent = await self._router.fetch_recent_tensec(symbol)
+            edge = self._tensec_edge(
+                recent if recent is not None else self._store.get(symbol, Timeframe.S10)
+            )
             # Pairs rather than a dict keyed by timeframe: the 10s base is
-            # filled by two independent fetches and merge order matters. `merge`
-            # lets incoming bars win, so prior sessions go in first and IBKR's
-            # own bars overwrite them where the windows overlap.
+            # filled by several fetches and merge order matters. `merge` lets
+            # incoming bars win, so prior sessions go in first and IBKR's own
+            # bars overwrite them where the windows overlap.
             fetches: list[tuple[Timeframe, Awaitable[list[Bar]]]] = [
-                (Timeframe.S10, self._router.fetch_prior_tensec(symbol))
+                (Timeframe.S10, self._router.fetch_prior_tensec(symbol, edge))
             ]
             if fast_base is Timeframe.S10:
-                fetches.append((Timeframe.S10, self._router.fetch_earlier_tensec(symbol)))
+                fetches.append((Timeframe.S10, self._router.fetch_earlier_tensec(symbol, edge)))
                 fetches.append((Timeframe.M1, self._router.fetch_intraday_fast(symbol)))
             elif fast_base is Timeframe.M1:
-                fetches.append((Timeframe.S10, self._router.fetch_earlier_tensec(symbol)))
-                fetches.append((Timeframe.S10, self._router.fetch_recent_tensec(symbol)))
+                fetches.append((Timeframe.S10, self._router.fetch_earlier_tensec(symbol, edge)))
             else:
                 fetches.append((Timeframe.M1, self._router.fetch_intraday_fast(symbol)))
-                fetches.append((Timeframe.S10, self._router.fetch_earlier_tensec(symbol)))
-                fetches.append((Timeframe.S10, self._router.fetch_recent_tensec(symbol)))
+                fetches.append((Timeframe.S10, self._router.fetch_earlier_tensec(symbol, edge)))
 
             results = await asyncio.gather(
                 *(awaitable for _, awaitable in fetches), return_exceptions=True
             )
+            merges = [
+                (timeframe, result)
+                for (timeframe, _), result in zip(fetches, results, strict=True)
+            ]
+            if recent is not None:
+                merges.append((Timeframe.S10, recent))
 
             landed = False
-            for (timeframe, _), result in zip(fetches, results, strict=True):
+            for timeframe, result in merges:
                 if isinstance(result, list) and result:
                     self._store.merge(symbol, timeframe, result)
                     landed = True
@@ -238,6 +250,19 @@ class MarketDataService:
             # may be removed.
             if self._backfills.get(symbol) is asyncio.current_task():
                 self._backfills.pop(symbol, None)
+
+    @staticmethod
+    def _tensec_edge(first_paint: list[Bar]) -> datetime | None:
+        """Where the older 10s slices are measured back from.
+
+        The first paint is the last four hours that actually traded, so with the
+        market shut it ends on Friday; slices measured from the wall clock would
+        ask for the weekend and get nothing. ``None`` leaves the router on now.
+        """
+        if not first_paint:
+            return None
+        edge = min(first_paint[0].time + TENSEC_RECENT_SECONDS, now_epoch())
+        return datetime.fromtimestamp(edge, UTC)
 
     def _refresh_minutes_from_tensec(self, symbol: str) -> bool:
         """Fold the *live* end of the 10s base into fresh minute bars.
@@ -335,6 +360,12 @@ class MarketDataService:
         """
         was_loaded = symbol in self._loaded
         self._loaded.discard(symbol)
+        # Only the hub awaits a load, and it releases a symbol only once no
+        # client wants it; finishing would mark it loaded and start a backfill
+        # spending IBKR requests on a chart nobody has open.
+        load = self._loads.pop(symbol, None)
+        if load is not None:
+            load.cancel()
         backfill = self._backfills.pop(symbol, None)
         if backfill is not None:
             backfill.cancel()
@@ -389,6 +420,11 @@ class MarketDataService:
     @property
     def loaded_symbols(self) -> set[str]:
         return set(self._loaded)
+
+    @property
+    def working_symbols(self) -> set[str]:
+        """Loaded, or still loading: everything ``unload`` has a reason to stop."""
+        return self._loaded | set(self._loads)
 
     def revision(self, symbol: str) -> int:
         return self._revisions.get(symbol, 0)

@@ -8,10 +8,15 @@ all happen while the master switch is off.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import logging
+from types import SimpleNamespace
+
 import pytest
 
 from app.core.settings import TradingSettings
-from app.providers.ibkr_broker import IBKRBroker
+from app.providers.ibkr_broker import UNREPORTED_FILL_SECONDS, IBKRBroker
 
 
 class FakeEvent:
@@ -63,11 +68,18 @@ class FakeIB:
         self._connected = connected
         self._accounts = list(accounts)
         self._positions = list(positions)
+        self.trades: list[FakeTrade] = []
+        self.cancelled: list[int] = []
+        self.disconnects = 0
         for name in self.EVENTS:
             setattr(self, name, FakeEvent())
 
     def isConnected(self) -> bool:
         return self._connected
+
+    def disconnect(self) -> None:
+        self.disconnects += 1
+        self._connected = False
 
     def managedAccounts(self) -> list[str]:
         return self._accounts
@@ -76,11 +88,52 @@ class FakeIB:
         return self._positions
 
     def openTrades(self):
-        return []
+        return [trade for trade in self.trades if trade.orderStatus.status not in DONE]
+
+    def cancelOrder(self, order) -> None:
+        self.cancelled.append(order.orderId)
 
 
-def build(ib: FakeIB, **overrides) -> IBKRBroker:
-    broker = IBKRBroker(TradingSettings(enabled=True, **overrides))
+# ib_async's OrderStatus.DoneStates.
+DONE = frozenset({"Filled", "Cancelled", "ApiCancelled", "Inactive"})
+
+
+class FakeTrade:
+    def __init__(
+        self,
+        symbol: str,
+        action: str,
+        quantity: int,
+        *,
+        filled: int = 0,
+        status: str = "Submitted",
+        order_id: int = 1,
+        ref: str = "traderapp",
+    ):
+        self.contract = FakeContract(symbol)
+        self.order = SimpleNamespace(
+            action=action, totalQuantity=quantity, orderId=order_id, orderRef=ref, lmtPrice=1.0
+        )
+        self.orderStatus = SimpleNamespace(status=status, filled=filled, avgFillPrice=0.0)
+
+
+def fill(symbol: str, shares: int, *, side: str = "SLD", exec_id: str = "e1"):
+    return SimpleNamespace(
+        contract=FakeContract(symbol),
+        execution=SimpleNamespace(side=side, shares=float(shares), execId=exec_id),
+    )
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 1_000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def build(ib: FakeIB, clock: FakeClock | None = None, **overrides) -> IBKRBroker:
+    broker = IBKRBroker(TradingSettings(enabled=True, **overrides), clock=clock or FakeClock())
     broker._ib = ib
     return broker
 
@@ -254,9 +307,24 @@ def test_a_read_only_rejection_latches_and_explains_the_fix() -> None:
     arrives, so this cannot be detected until the first one is tried."""
     broker = build(FakeIB())
     broker._finish_setup()
-    broker._on_error(1, 2148, "Order rejected - reason: read only API", None)
+    broker._on_error(
+        1,
+        321,
+        "Error validating request.-'bN' : cause - The API interface is currently in Read-Only mode.",
+        None,
+    )
     assert broker.read_only is True
     assert "Read-Only API" in broker.last_error
+
+
+def test_another_validation_error_is_an_ordinary_rejection() -> None:
+    """321 is TWS's catch-all for a request it would not validate; only the
+    read-only one means the checkbox."""
+    broker = build(FakeIB())
+    broker._finish_setup()
+    broker._on_error(1, 321, "Error validating request.-'cA' : cause - Invalid account", None)
+    assert broker.read_only is False
+    assert "321" in broker.last_error
 
 
 def test_connection_notices_are_not_reported_as_rejections() -> None:
@@ -284,3 +352,183 @@ def test_a_real_rejection_is_reported_with_its_code() -> None:
     broker._on_error(1, 201, "Order rejected - insufficient funds", None)
     assert "201" in broker.last_error
     assert broker.read_only is False
+
+
+@pytest.mark.parametrize("code", [2100, 2109, 2119, 2150, 2157, 2174, 2199])
+def test_every_tws_warning_is_left_off_the_strip(code: int) -> None:
+    """IBKR numbers its warnings 2100-2199. 2109 is "Outside Regular Trading
+    Hours is ignored", sent on orders this app places on purpose."""
+    broker = build(FakeIB())
+    broker._finish_setup()
+    broker._on_error(1, code, "a warning", None)
+    assert broker.last_error is None
+
+
+async def test_the_answer_to_our_own_cancel_is_not_a_rejection() -> None:
+    ib = FakeIB()
+    broker = build(ib)
+    broker._finish_setup()
+    ib.trades = [FakeTrade("WETO", "BUY", 5, order_id=7)]
+    assert await broker.cancel_all() == 1
+    broker._on_error(7, 202, "Order Canceled - reason:", None)
+    assert broker.last_error is None
+
+
+def test_a_cancel_nobody_asked_for_is_reported() -> None:
+    broker = build(FakeIB())
+    broker._finish_setup()
+    broker._on_error(9, 202, "Order Canceled - reason: price out of range", None)
+    assert "202" in broker.last_error
+
+
+# ── what a sell may take ───────────────────────────────────────────────
+
+
+def ready_broker(position: int = 100, clock: FakeClock | None = None) -> tuple[IBKRBroker, FakeIB]:
+    ib = FakeIB(positions=[FakePosition("WETO", position, 4.21)])
+    broker = build(ib, clock)
+    broker._finish_setup()
+    return broker, ib
+
+
+def test_a_working_sell_claims_its_unfilled_shares() -> None:
+    broker, ib = ready_broker()
+    ib.trades = [FakeTrade("WETO", "SELL", 60, filled=20)]
+    assert broker.committed_to_sells("WETO") == 40
+
+
+def test_buys_other_symbols_and_finished_orders_claim_nothing() -> None:
+    broker, ib = ready_broker()
+    ib.trades = [
+        FakeTrade("WETO", "BUY", 50),
+        FakeTrade("AAPL", "SELL", 10),
+        FakeTrade("WETO", "SELL", 30, status="Cancelled"),
+    ]
+    assert broker.committed_to_sells("WETO") == 0
+
+
+def test_an_order_this_app_did_not_place_is_not_counted() -> None:
+    broker, ib = ready_broker()
+    ib.trades = [FakeTrade("WETO", "SELL", 60, ref="")]
+    assert broker.committed_to_sells("WETO") == 0
+
+
+def test_a_fill_stays_claimed_until_the_position_report_takes_it_in() -> None:
+    """The window a second ALL would short through: the order is done, and
+    IBKR has not yet said the position fell."""
+    broker, _ = ready_broker(100)
+    broker._on_execution(FakeTrade("WETO", "SELL", 100, status="Filled"), fill("WETO", 100))
+    assert broker.committed_to_sells("WETO") == 100
+
+    broker._absorb_position(FakeContract("WETO"), 0, 0.0)
+    assert broker.committed_to_sells("WETO") == 0
+
+
+def test_a_report_takes_in_only_as_many_shares_as_the_position_fell() -> None:
+    broker, _ = ready_broker(100)
+    broker._on_execution(FakeTrade("WETO", "SELL", 100, status="Filled"), fill("WETO", 100))
+    broker._absorb_position(FakeContract("WETO"), 60, 4.21)
+    assert broker.committed_to_sells("WETO") == 60
+
+
+def test_a_report_that_repeats_the_position_takes_nothing_in() -> None:
+    """updatePortfolio and position both report the same number; only a change
+    is evidence that a fill has been counted."""
+    broker, _ = ready_broker(100)
+    broker._on_execution(FakeTrade("WETO", "SELL", 100, status="Filled"), fill("WETO", 100))
+    broker._absorb_position(FakeContract("WETO"), 100, 4.21)
+    assert broker.committed_to_sells("WETO") == 100
+
+
+def test_one_execution_reported_twice_counts_once() -> None:
+    broker, _ = ready_broker(100)
+    trade = FakeTrade("WETO", "SELL", 40, status="Filled")
+    broker._on_execution(trade, fill("WETO", 40, exec_id="same"))
+    broker._on_execution(trade, fill("WETO", 40, exec_id="same"))
+    assert broker.committed_to_sells("WETO") == 40
+
+
+def test_a_buy_fill_claims_nothing() -> None:
+    broker, _ = ready_broker(100)
+    broker._on_execution(FakeTrade("WETO", "BUY", 10, status="Filled"), fill("WETO", 10, side="BOT"))
+    assert broker.committed_to_sells("WETO") == 0
+
+
+def test_a_fill_reported_after_its_position_stops_counting_in_time() -> None:
+    """The other order of arrival would have the fill claim shares already gone,
+    pinning a position bought back later. The bound lets it go."""
+    clock = FakeClock()
+    broker, _ = ready_broker(100, clock)
+    broker._absorb_position(FakeContract("WETO"), 0, 0.0)
+    broker._on_execution(FakeTrade("WETO", "SELL", 100, status="Filled"), fill("WETO", 100))
+    assert broker.committed_to_sells("WETO") == 100
+    clock.now += UNREPORTED_FILL_SECONDS + 1
+    assert broker.committed_to_sells("WETO") == 0
+
+
+def test_the_rail_carries_what_each_position_has_committed() -> None:
+    broker, ib = ready_broker(100)
+    ib.trades = [FakeTrade("WETO", "SELL", 25)]
+    assert broker.positions()[0]["committed"] == 25
+
+
+# ── fan-out ────────────────────────────────────────────────────────────
+
+
+async def test_a_failing_listener_is_logged_and_the_rest_still_hear(caplog) -> None:
+    broker = build(FakeIB())
+    heard: list[bool] = []
+
+    async def broken() -> None:
+        raise RuntimeError("listener broke")
+
+    async def fine() -> None:
+        heard.append(True)
+
+    broker.on_status_change(broken)
+    broker.on_status_change(fine)
+    with caplog.at_level(logging.ERROR, logger="app.providers.ibkr_broker"):
+        await broker._emit_status()
+    assert heard == [True]
+    assert "listener broke" in caplog.text
+
+
+# ── the connect loop ───────────────────────────────────────────────────
+
+
+async def test_a_setup_that_fails_after_the_handshake_is_torn_down_and_retried() -> None:
+    """Connected but not set up reports itself unavailable for good, so the
+    socket is dropped and the whole connection built again."""
+    ib = FakeIB(connected=False)
+    attempts = {"accounts": 0}
+
+    async def connect(*_args, **_kwargs) -> None:
+        ib._connected = True
+
+    def accounts() -> list[str]:
+        attempts["accounts"] += 1
+        if attempts["accounts"] == 1:
+            raise RuntimeError("account not resolved yet")
+        return ["U1"]
+
+    ib.connectAsync = connect
+    ib.managedAccounts = accounts
+    broker = build(ib, max_reconnect_delay_seconds=0.01)
+    ready = asyncio.Event()
+
+    async def on_status() -> None:
+        if broker.is_available:
+            ready.set()
+
+    broker.on_status_change(on_status)
+    broker._should_run = True
+    loop = asyncio.create_task(broker._connect_loop())
+    try:
+        await asyncio.wait_for(ready.wait(), timeout=5)
+    finally:
+        broker._should_run = False
+        loop.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await loop
+    assert ib.disconnects == 1
+    assert broker.account == "U1"

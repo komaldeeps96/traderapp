@@ -19,8 +19,8 @@ from statistics import median
 from tradingview_screener import Query, col
 
 from ..core.clock import now_epoch
-from ..domain.screener import finite
-from .tv import _common_stock_terms
+from ..domain.screener import RowReader
+from .tv import common_stock_terms, scan_rows
 
 logger = logging.getLogger(__name__)
 
@@ -80,28 +80,24 @@ _PERCENT_COLUMNS = frozenset({"gross_margin", "operating_margin", "return_on_equ
 
 
 def _shape(payload) -> list[dict]:
-    index = {name: position for position, name in enumerate(COLUMNS)}
+    read = RowReader(COLUMNS)
 
     def number(row, name):
-        value = finite(row[index[name]])
+        value = read.number(row, name)
         if value is None:
             return None
         return value / 100.0 if name in _PERCENT_COLUMNS else value
 
-    def text(row, name):
-        value = row[index[name]]
-        return value if isinstance(value, str) else ""
-
     rows: list[dict] = []
     for row in payload:
-        symbol = text(row, "name")
+        symbol = read.text(row, "name")
         if not symbol:
             continue
         rows.append(
             {
                 "symbol": symbol,
-                "name": text(row, "description"),
-                "industry": text(row, "industry"),
+                "name": read.text(row, "description"),
+                "industry": read.text(row, "industry"),
                 "market_cap": number(row, "market_cap_basic"),
                 "price_earnings": number(row, "price_earnings_ttm"),
                 "price_sales": number(row, "price_sales_current"),
@@ -211,15 +207,10 @@ class PeerService:
         query = (
             Query()
             .select(*COLUMNS)
-            .where(*_common_stock_terms(), col("industry") == industry)
+            .where(*common_stock_terms(), col("industry") == industry)
             .order_by("market_cap_basic", ascending=False)
             .limit(MAX_PEERS)
         )
         if self._fetch is not None:
             return await self._fetch(query)
-        return await asyncio.to_thread(_scan, query)
-
-
-def _scan(query: Query) -> list[list]:
-    _, frame = query.get_scanner_data()
-    return frame[COLUMNS].values.tolist() if not frame.empty else []
+        return await asyncio.to_thread(scan_rows, query, COLUMNS)

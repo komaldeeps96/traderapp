@@ -23,7 +23,6 @@ from app.providers.alpaca import (
     AlpacaProvider,
     ProviderError,
     _channels,
-    _decode,
     _parse_bar,
     _parse_status,
 )
@@ -76,29 +75,6 @@ class FakeSocket:
             await asyncio.sleep(3600)
         message = self._inbound.pop(0)
         return message if isinstance(message, str) else json.dumps(message)
-
-
-# ── frame decoding ─────────────────────────────────────────────────────
-
-
-class TestDecode:
-    def test_unwraps_the_array_alpaca_sends(self):
-        assert _decode('[{"T":"t"},{"T":"b"}]') == [{"T": "t"}, {"T": "b"}]
-
-    def test_accepts_a_bare_object(self):
-        assert _decode('{"T":"success"}') == [{"T": "success"}]
-
-    def test_accepts_bytes(self):
-        assert _decode(b'[{"T":"t"}]') == [{"T": "t"}]
-
-    def test_survives_malformed_json(self):
-        assert _decode("{not json") == []
-
-    def test_drops_non_object_entries(self):
-        assert _decode('[{"T":"t"}, 5, null, "x"]') == [{"T": "t"}]
-
-    def test_handles_an_empty_batch(self):
-        assert _decode("[]") == []
 
 
 class TestParseBar:
@@ -314,40 +290,6 @@ class TestHandleFrame:
     async def test_survives_a_corrupt_frame(self):
         provider = make_provider()
         await provider._handle_frame("not json at all")
-
-
-# ── authentication ─────────────────────────────────────────────────────
-
-
-class TestAuthenticate:
-    async def test_sends_the_credentials(self):
-        provider = make_provider()
-        socket = FakeSocket([[{"T": "success", "msg": "authenticated"}]])
-
-        await provider._authenticate(socket)
-
-        assert socket.sent[0] == {"action": "auth", "key": "key", "secret": "secret"}
-
-    async def test_accepts_a_greeting_before_the_answer(self):
-        # The server says "connected" first; that must not read as a failure.
-        provider = make_provider()
-        socket = FakeSocket(
-            [[{"T": "success", "msg": "connected"}], [{"T": "success", "msg": "authenticated"}]]
-        )
-        await provider._authenticate(socket)
-
-    async def test_raises_on_rejection(self):
-        provider = make_provider()
-        socket = FakeSocket([[{"T": "error", "code": 402, "msg": "auth failed"}]])
-
-        with pytest.raises(ProviderError, match="auth failed"):
-            await provider._authenticate(socket)
-
-    async def test_reports_the_error_code(self):
-        provider = make_provider()
-        socket = FakeSocket([[{"T": "error", "code": 406, "msg": "connection limit"}]])
-        with pytest.raises(ProviderError, match="406"):
-            await provider._authenticate(socket)
 
 
 # ── subscription diffing ───────────────────────────────────────────────

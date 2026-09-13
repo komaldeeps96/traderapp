@@ -23,6 +23,7 @@ class StateStore:
             "symbol": default_symbol,
             "timeframe": default_timeframe,
         }
+        self._writing = asyncio.Lock()
         self._load()
 
     def _load(self) -> None:
@@ -120,7 +121,7 @@ class StateStore:
     async def save(self, symbol: str, timeframe: str) -> None:
         # Update, not replace: the scanners section must survive a chart save.
         self._cache.update(symbol=symbol, timeframe=timeframe)
-        await asyncio.to_thread(self._write)
+        await self._persist()
 
     async def save_scanner(self, scanner_id: str, config: dict) -> None:
         scanners = self._cache.setdefault("scanners", {})
@@ -128,7 +129,7 @@ class StateStore:
             scanners = {}
             self._cache["scanners"] = scanners
         scanners[scanner_id] = dict(config)
-        await asyncio.to_thread(self._write)
+        await self._persist()
 
     async def save_indicators(self, timeframe: str, overrides: dict[str, bool]) -> None:
         """Record one timeframe's deviations from the configured defaults.
@@ -144,19 +145,31 @@ class StateStore:
             indicators[timeframe] = dict(overrides)
         else:
             indicators.pop(timeframe, None)
-        await asyncio.to_thread(self._write)
+        await self._persist()
 
     async def save_watchlist(self, symbols: list[str]) -> None:
         self._cache["watchlist"] = list(symbols)
-        await asyncio.to_thread(self._write)
+        await self._persist()
 
     async def save_swing(self, config: dict) -> None:
         self._cache["swing"] = dict(config)
-        await asyncio.to_thread(self._write)
+        await self._persist()
 
-    def _write(self) -> None:
+    async def _persist(self) -> None:
+        # Serialised here, on the loop, so the snapshot is consistent while the
+        # cache keeps changing; one write at a time, so an older snapshot
+        # cannot land after a newer one.
+        async with self._writing:
+            text = yaml.safe_dump(self._cache, sort_keys=True)
+            await asyncio.to_thread(self._write, text)
+
+    def _write(self, text: str) -> None:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(yaml.safe_dump(self._cache, sort_keys=True))
+            # Written whole and moved into place: a crash mid-write leaves the
+            # previous file, not a truncated one that loads as nothing.
+            temporary = self._path.with_name(self._path.name + ".tmp")
+            temporary.write_text(text)
+            temporary.replace(self._path)
         except Exception as exc:
             logger.warning("Could not persist state to %s: %s", self._path, exc)

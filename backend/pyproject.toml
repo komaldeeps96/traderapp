@@ -94,10 +94,14 @@ ban-relative-imports = "parents"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-filterwarnings = ["error::DeprecationWarning:app.*"]
+# A leaked socket or a task outliving its loop surfaces only as one of these.
+filterwarnings = [
+    "error::DeprecationWarning:app.*",
+    "error::ResourceWarning",
+    "error::pytest.PytestUnraisableExceptionWarning",
+]
 addopts = "-q --strict-markers -m 'not audit'"
 markers = [
-    "live: hits real market-data APIs; requires credentials (deselect with '-m \"not live\"')",
     # Cross-checks our own figures against TradingView and yfinance over the
     # network. Excluded by default so `pytest tests` never leaves the machine;
     # run deliberately with `pytest -m audit`.

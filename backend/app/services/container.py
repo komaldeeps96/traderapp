@@ -11,19 +11,6 @@ import functools
 import logging
 
 from ..core.settings import Settings, get_settings
-from ..domain.news import to_benzinga_row
-from ..domain.protocol import (
-    DataSource,
-    api_usage_message,
-    filing_message,
-    news_message,
-    order_message,
-    regime_message,
-    scanner_message,
-    status_message,
-    trading_message,
-    watchlist_message,
-)
 from ..domain.scanner import SCANNER_TIERS
 from ..indicators.engine import IndicatorEngine
 from ..indicators.spec import load_indicator_specs
@@ -38,6 +25,7 @@ from ..providers.yahoo import YahooFloatProvider
 from ..services.api_budget import ApiBudget
 from ..services.broadcaster import ChartBroadcaster
 from ..services.corporate_actions import ReverseSplitService
+from ..services.fanout import FanOut
 from ..services.filing_watch import FilingWatchService
 from ..services.fx import FxService
 from ..services.halts import HaltTracker
@@ -81,14 +69,15 @@ class AppContainer:
         # unless settings.trading.enabled says otherwise, which it does not by
         # default and does not in any test.
         self.broker = IBKRBroker(self.settings.trading)
-        self.trading = TradingService(self.broker, self.quotes, self.settings.trading)
-        self.broker.on_position(self._broadcast_trading)
-        self.broker.on_status_change(self._broadcast_trading)
-        self.broker.on_order(self._on_order)
+        self.trading = TradingService(
+            self.broker,
+            self.quotes,
+            self.settings.trading,
+            feed_delayed=lambda: self.router.is_delayed,
+        )
 
         self.tv = TVDataService()
         self.halts = HaltTracker()
-        self.router.on_halt(self._on_halt)
         self.splits = ReverseSplitService(self.alpaca.fetch_reverse_splits)
         self.yahoo = YahooFloatProvider()
         # EDGAR is the fundamentals source, because IBKR is not one on this
@@ -107,32 +96,27 @@ class AppContainer:
             yahoo=self.yahoo,
             edgar=self.edgar,
         )
-        # IBKR is the news provider — the one research feed this account is
-        # entitled to, while every fundamentals request answers error 10358.
-        # Two sources, each optional. IBKR carries the entitled feeds; Alpaca
-        # carries Benzinga, which is the only one that answers with no TWS
-        # running and the one that covers the micro caps IBKR's feeds miss.
+        # Two news sources, each optional. IBKR carries the entitled feeds;
+        # Alpaca carries Benzinga, which answers with no TWS running and covers
+        # the micro caps IBKR's feeds miss.
         self.news = NewsService(
             self.ibkr if self.settings.ibkr.enabled else None,
             self.alpaca if self.settings.alpaca.enabled else None,
         )
-        self.ibkr.on_news(self._on_news)
-
         # The whole market's headlines, live. IBKR's ride generic tick 292 and
         # follow only the open chart; this reaches a watchlist name while it is
         # nowhere on screen, and it answers with no TWS running.
         self.alpaca_news = AlpacaNewsStream(self.settings.alpaca)
-        self.alpaca_news.on_headline(self._on_live_headline)
-
         # A 424B5 landing while a runner is open is the surprise this whole
         # feature exists to remove. One request a minute against SEC's
         # ten-a-second allowance.
         self.filing_watch = FilingWatchService(
             self.edgar, self.settings.edgar.filing_poll_seconds
         )
-        self.filing_watch.on_alert(self._on_filing)
 
         self.hub = SubscriptionHub(self.router, self.market_data)
+        # A quote outliving its chart would size an order off a book hours old.
+        self.hub.on_release(self.quotes.drop)
         self.broadcaster = ChartBroadcaster(
             self.hub,
             self.market_data,
@@ -167,18 +151,42 @@ class AppContainer:
             saved_scanner = self.state.scanner_config(scanner_id)
             if saved_scanner is not None:
                 scanner.adopt_config(saved_scanner)
-            scanner.on_update(functools.partial(self._broadcast_scanner, scanner_id))
 
         self.swing.adopt_config(self.state.swing_config())
         self.watchlist = WatchlistService(
             self.state, quotes_enabled=self.settings.regime.enabled
         )
 
+        self.fanout = FanOut(
+            hub=self.hub,
+            router=self.router,
+            market_data=self.market_data,
+            news=self.news,
+            watchlist=self.watchlist,
+            halts=self.halts,
+            scanners=self.scanners,
+            regime=self.regime,
+            trading=self.trading,
+            api_budget=self.api_budget,
+        )
+        self._wire_events()
         self._wire_readers()
 
-        self.regime.on_update(self._broadcast_regime)
-        self.router.on_status_change(self._on_source_change)
-        self.market_data.on_backfill(self._on_backfill)
+    def _wire_events(self) -> None:
+        """Every service event, to the frames it becomes. See ``fanout.py``."""
+        fanout = self.fanout
+        self.broker.on_position(fanout.trading_changed)
+        self.broker.on_status_change(fanout.trading_changed)
+        self.broker.on_order(fanout.order_changed)
+        self.router.on_halt(fanout.halt)
+        self.router.on_status_change(fanout.source_changed)
+        self.ibkr.on_news(fanout.ibkr_headline)
+        self.alpaca_news.on_headline(fanout.live_headline)
+        self.filing_watch.on_alert(fanout.filing)
+        for scanner_id, scanner in self.scanners.items():
+            scanner.on_update(functools.partial(fanout.scanner_changed, scanner_id))
+        self.regime.on_update(fanout.regime_changed)
+        self.market_data.on_backfill(fanout.backfill)
 
     def _wire_readers(self) -> None:
         """The panel that asks Claude to read something.
@@ -214,159 +222,16 @@ class AppContainer:
         await self.regime.stop()
         await self.filing_watch.stop()
         await self.alpaca_news.stop()
+        await self.news_ai.stop()
         await self.broker.stop()
         await self.router.stop()
         await self.yahoo.close()
+        await self.fx.close()
         if self.edgar is not None:
             await self.edgar.close()
         # Last: the router is quiet by now, so nothing can schedule a new load
         # while this is collecting the outstanding ones.
         await self.market_data.stop()
-
-    # ── status fan-out ─────────────────────────────────────────────────
-
-    def status_payload(self) -> dict:
-        return status_message(
-            source=self.router.active_source,
-            delayed=self.router.is_delayed,
-            ibkr_connected=self.router.ibkr_connected,
-            alpaca_available=self.router.alpaca_available,
-            message=self.router.status_note(),
-        )
-
-    def scanner_payload(self, scanner_id: str) -> dict:
-        scanner = self.scanners[scanner_id]
-        state = scanner.state
-        return scanner_message(
-            scanner_id=scanner_id,
-            label=scanner.label,
-            rows=[row.to_dict() for row in state.rows],
-            config=state.config.to_dict(),
-            running=state.running,
-        )
-
-    async def watchlist_payload(self) -> dict:
-        return watchlist_message(
-            symbols=self.watchlist.symbols(),
-            rows=await self.watchlist.rows(),
-            note=self.watchlist.note,
-        )
-
-    def trading_payload(self) -> dict:
-        return trading_message(
-            state=self.trading.state(),
-            positions=self.trading.positions(),
-            orders=self.trading.working_orders(),
-        )
-
-    def api_payload(self) -> dict:
-        return api_usage_message(self.api_budget.snapshot())
-
-    def regime_payload(self) -> dict:
-        state = self.regime.state
-        return regime_message(
-            regime=state.regime.to_dict(),
-            running=state.running,
-            error=state.error,
-        )
-
-    async def _broadcast_scanner(self, scanner_id: str, _state) -> None:
-        self.hub.broadcast(self.scanner_payload(scanner_id))
-
-    async def _broadcast_trading(self) -> None:
-        """Positions, working orders and connection state, to every client.
-
-        The whole picture every time, like the watchlist: an account holds a
-        handful of names, so a diff costs more to reason about than the list
-        costs to send.
-        """
-        self.hub.broadcast(self.trading_payload())
-
-    async def _on_order(self, order: dict) -> None:
-        """One order changed. The order itself goes out for the strip's
-        acknowledgement, and the whole picture follows because a fill moves a
-        position and empties a working-order slot."""
-        self.hub.broadcast(order_message(order))
-        self.hub.broadcast(self.trading_payload())
-
-    async def _broadcast_regime(self, _state) -> None:
-        self.hub.broadcast(self.regime_payload())
-
-    async def _on_source_change(self) -> None:
-        """A provider connected or dropped: tell clients and re-check scanning."""
-        self.hub.broadcast(self.status_payload())
-        for scanner in self.scanners.values():
-            await scanner.refresh_availability()
-        # The real-time source arriving means anything loaded from the
-        # delayed fallback ends ~15 minutes short of the live stream. Repair
-        # every loaded symbol's recent slice so no chart keeps that seam.
-        if self.router.active_source is DataSource.IBKR:
-            for symbol in self.market_data.loaded_symbols:
-                self.market_data.schedule_recent_repair(symbol)
-
-    async def _on_news(self, symbol: str, row: dict) -> None:
-        """A live headline: fold it in and push it, if it is genuinely new.
-
-        ``add_live`` returns ``None`` when the headline collapsed into a story
-        already on screen, so the panel does not flash the same story twice.
-        """
-        headline = self.news.add_live(symbol, row)
-        if headline is not None:
-            self.hub.broadcast(news_message(symbol, headline.to_dict()))
-
-    def _tracked_symbols(self) -> set[str]:
-        """The names this terminal is actually following.
-
-        The stream carries every headline published, so something has to decide
-        which to keep: charts open now, plus the watchlist.
-        """
-        return self.hub.symbols() | set(self.watchlist.symbols())
-
-    async def _on_live_headline(self, entry: dict) -> None:
-        """One Benzinga headline off the socket, routed to whoever wants it.
-
-        A story names every company it mentions, so one headline can belong to
-        several open charts at once, or to none.
-        """
-        row = to_benzinga_row(entry)
-        if row is None:
-            return
-        named = entry.get("symbols")
-        if not isinstance(named, list):
-            return
-        wanted = {str(s).upper() for s in named if isinstance(s, str)} & self._tracked_symbols()
-        if not wanted:
-            return
-        # The body ships with the headline, so an article opened from this is
-        # already paid for.
-        self.news.remember_article(row["article_id"], entry.get("content") or "")
-        for symbol in sorted(wanted):
-            headline = self.news.add_live(symbol, row)
-            if headline is not None:
-                self.hub.broadcast(news_message(symbol, headline.to_dict()))
-
-    async def _on_filing(self, symbol: str, filing) -> None:
-        self.hub.broadcast(filing_message(symbol, filing.to_dict()))
-
-    async def _on_halt(self, symbol: str, halted: bool) -> None:
-        self.halts.mark(symbol, halted)
-        # A halt changes the info strip now, not at the next trade — and a
-        # halted tape prints no trades, so without this touch the strip
-        # would only learn about the halt at the resume.
-        self.market_data.touch(symbol)
-
-    async def _on_backfill(self, symbol: str) -> None:
-        """Background history landed: refresh every chart on the symbol.
-
-        Clients treat a repeat snapshot as a silent data replacement — the
-        viewport stays put — so the chart simply grows more history.
-        """
-        for pair_symbol, timeframe in self.hub.pairs():
-            if pair_symbol != symbol:
-                continue
-            snapshot = self.market_data.snapshot(pair_symbol, timeframe)
-            if snapshot is not None:
-                self.hub.send_to_pair(pair_symbol, timeframe, snapshot)
 
 
 _container: AppContainer | None = None
