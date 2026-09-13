@@ -13,17 +13,18 @@ import { expect, test } from '../../fixtures/test';
  * every value the chart draws.
  */
 async function scan(page: Page) {
-  // Contrast measured mid-transition is a blend of two themes. Waiting on the
-  // running transitions themselves, rather than a pause, is what makes a slow
-  // runner see the settled colours.
-  await page.evaluate(() =>
-    Promise.all(
+  // Contrast measured mid-transition is a blend of two themes. Styles are
+  // flushed first — WebKit's getAnimations() does not, so a theme swap's
+  // transitions would not exist yet — and the running ones are waited out.
+  await page.evaluate(async () => {
+    document.documentElement.getBoundingClientRect();
+    await Promise.all(
       document
         .getAnimations()
         .filter((animation) => animation instanceof CSSTransition)
         .map((animation) => animation.finished.catch(() => undefined)),
-    ),
-  );
+    );
+  });
   return new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     // The chart is a canvas; its content is exposed through the readout and
@@ -33,7 +34,7 @@ async function scan(page: Page) {
 }
 
 test.describe('accessibility', () => {
-  // index.css honours reduced motion, so the theme swap lands in one frame.
+  // index.css honours reduced motion, so the theme swap has no transition.
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
 
   test('the terminal has no violations', async ({ page, terminal }) => {

@@ -1,34 +1,4 @@
-import type { TerminalPage } from '../../pages/TerminalPage';
 import { expect, test } from '../../fixtures/test';
-
-/** The time scale applies range changes on its own frame, so reads are polled. */
-function rangeWidth(terminal: TerminalPage) {
-  return async () => {
-    const range = (await terminal.chartState()).visibleRange!;
-    return range.to - range.from;
-  };
-}
-
-/**
- * The width once it has stopped moving. The layout keeps settling after the
- * first snapshot — panels mount, the canvas resizes — and a baseline read in
- * that window belongs to a view that is about to change.
- */
-async function settledWidth(terminal: TerminalPage): Promise<number> {
-  let previous = Number.NaN;
-  await expect
-    .poll(
-      async () => {
-        const width = await rangeWidth(terminal)();
-        const still = width === previous;
-        previous = width;
-        return still;
-      },
-      { intervals: [250] },
-    )
-    .toBe(true);
-  return previous;
-}
 
 test.describe('chart rendering', () => {
   test('loads the session symbol on open', async ({ terminal }) => {
@@ -204,22 +174,22 @@ test.describe('chart navigation', () => {
 
   test('zooming in narrows the visible range', async ({ terminal }) => {
     await terminal.waitForChart();
-    const before = (await terminal.chartState()).visibleRange!;
+    const before = await terminal.settledRangeWidth();
     await terminal.chartControls.getByRole('button', { name: 'Zoom in' }).click();
-    await expect.poll(rangeWidth(terminal)).toBeLessThan(before.to - before.from);
+    await expect.poll(() => terminal.visibleRangeWidth()).toBeLessThan(before);
   });
 
   test('zooming out widens it', async ({ terminal }) => {
     await terminal.waitForChart();
     // Zoom in first so there is room to widen: the opening view already shows
     // the whole fixture, and the time scale clamps past that.
-    const opened = await settledWidth(terminal);
+    const opened = await terminal.settledRangeWidth();
     await terminal.chartControls.getByRole('button', { name: 'Zoom in' }).click();
-    await expect.poll(rangeWidth(terminal)).toBeLessThan(opened);
-    const zoomed = await settledWidth(terminal);
+    await expect.poll(() => terminal.visibleRangeWidth()).toBeLessThan(opened);
+    const zoomed = await terminal.settledRangeWidth();
 
     await terminal.chartControls.getByRole('button', { name: 'Zoom out' }).click();
-    await expect.poll(rangeWidth(terminal)).toBeGreaterThan(zoomed);
+    await expect.poll(() => terminal.visibleRangeWidth()).toBeGreaterThan(zoomed);
   });
 
   test('zooming out lands back exactly where zooming in started', async ({ terminal }) => {
@@ -227,22 +197,22 @@ test.describe('chart navigation', () => {
     // tenth off each edge for 0.8x, zoom out added a tenth back for 1.2x, so
     // a round trip returned 0.96x and repeated tapping crept the view inwards.
     await terminal.waitForChart();
-    const opened = await settledWidth(terminal);
+    const opened = await terminal.settledRangeWidth();
 
     await terminal.chartControls.getByRole('button', { name: 'Zoom in' }).click();
-    await expect.poll(rangeWidth(terminal)).toBeLessThan(opened);
+    await expect.poll(() => terminal.visibleRangeWidth()).toBeLessThan(opened);
     await terminal.chartControls.getByRole('button', { name: 'Zoom out' }).click();
-    await expect.poll(rangeWidth(terminal)).toBeCloseTo(opened, 1);
+    await expect.poll(() => terminal.visibleRangeWidth()).toBeCloseTo(opened, 1);
   });
 
   test('the zoom survives a reload', async ({ terminal }) => {
     // The whole point of persisting it: restart the terminal, keep the width
     // that was dialled in instead of reopening at the 240-bar default.
     await terminal.waitForChart();
-    const opened = await rangeWidth(terminal)();
+    const opened = await terminal.visibleRangeWidth();
     await terminal.chartControls.getByRole('button', { name: 'Zoom in' }).click();
-    await expect.poll(rangeWidth(terminal)).toBeLessThan(opened);
-    const zoomed = await rangeWidth(terminal)();
+    await expect.poll(() => terminal.visibleRangeWidth()).toBeLessThan(opened);
+    const zoomed = await terminal.visibleRangeWidth();
 
     // The write is debounced behind the gesture, and the initial view reset
     // writes the default width first — so wait for the zoomed width itself
@@ -259,19 +229,19 @@ test.describe('chart navigation', () => {
 
     await terminal.page.reload();
     await terminal.waitForChart();
-    await expect.poll(rangeWidth(terminal)).toBeCloseTo(zoomed, 0);
+    await expect.poll(() => terminal.visibleRangeWidth()).toBeCloseTo(zoomed, 0);
   });
 
   test('the Reset button returns to the default width, not the saved one', async ({
     terminal,
   }) => {
     await terminal.waitForChart();
-    const opened = await rangeWidth(terminal)();
+    const opened = await terminal.visibleRangeWidth();
     await terminal.chartControls.getByRole('button', { name: 'Zoom in' }).click();
-    await expect.poll(rangeWidth(terminal)).toBeLessThan(opened);
+    await expect.poll(() => terminal.visibleRangeWidth()).toBeLessThan(opened);
 
     await terminal.chartControls.getByRole('button', { name: 'Reset view' }).click();
-    await expect.poll(rangeWidth(terminal)).toBeCloseTo(opened, 0);
+    await expect.poll(() => terminal.visibleRangeWidth()).toBeCloseTo(opened, 0);
   });
 
   test('the measure tool reads a dragged region and Escape puts the drag back', async ({
@@ -344,7 +314,7 @@ test.describe('chart navigation', () => {
     await expect
       .poll(async () => (await terminal.chartState()).visibleRange!.from)
       .toBeLessThan(before.from);
-    await expect.poll(rangeWidth(terminal)).toBeCloseTo(before.to - before.from, 1);
+    await expect.poll(() => terminal.visibleRangeWidth()).toBeCloseTo(before.to - before.from, 1);
   });
 
   test('reset returns to the opening view', async ({ terminal }) => {

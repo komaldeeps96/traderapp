@@ -273,6 +273,33 @@ export class TerminalPage {
     return this.page.evaluate(() => window.__traderapp!.chart() as ChartState);
   }
 
+  /** Bars across the visible range. The time scale applies changes on its own frame. */
+  async visibleRangeWidth(): Promise<number> {
+    const range = (await this.chartState()).visibleRange!;
+    return range.to - range.from;
+  }
+
+  /**
+   * The width once it has stopped moving. The layout keeps settling after the
+   * first snapshot — panels mount, the canvas resizes — and a baseline read in
+   * that window belongs to a view that is about to change.
+   */
+  async settledRangeWidth(): Promise<number> {
+    let previous = Number.NaN;
+    await expect
+      .poll(
+        async () => {
+          const width = await this.visibleRangeWidth();
+          const still = width === previous;
+          previous = width;
+          return still;
+        },
+        { intervals: [250] },
+      )
+      .toBe(true);
+    return previous;
+  }
+
   /** What a mini chart actually drew. Null when the column is not rendered. */
   miniChartState(timeframe: string): Promise<ChartState | null> {
     return this.page.evaluate(

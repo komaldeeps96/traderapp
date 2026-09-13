@@ -199,7 +199,7 @@ test.describe('mini charts', () => {
     await terminal.waitForChart();
     await terminal.waitForMiniCharts();
 
-    const before = (await terminal.chartState()).visibleRange!;
+    const before = await terminal.settledRangeWidth();
     const miniWidth = async () => {
       const range = (await terminal.miniChartState('5m'))!.visibleRange!;
       return range.to - range.from;
@@ -212,7 +212,6 @@ test.describe('mini charts', () => {
     // frame too, so the assertion would pass before the damage was done.
     await expect.poll(miniWidth).toBeLessThan(miniBefore);
 
-    const after = (await terminal.chartState()).visibleRange!;
-    expect(after.to - after.from).toBeCloseTo(before.to - before.from, 5);
+    expect(await terminal.settledRangeWidth()).toBeCloseTo(before, 5);
   });
 });

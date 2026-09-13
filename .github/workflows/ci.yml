@@ -25,8 +25,11 @@ jobs:
       - name: Install
         working-directory: backend
         # ib-async is deliberately left out: the suite must pass without it,
-        # which is what proves IBKR is genuinely optional.
-        run: pip install -e ".[dev]" pip-audit
+        # which is what proves IBKR is genuinely optional. The interpreter
+        # ships a setuptools with known advisories, so it is upgraded first.
+        run: |
+          pip install --upgrade pip setuptools
+          pip install -e ".[dev]" pip-audit
 
       - name: Lint
         working-directory: backend

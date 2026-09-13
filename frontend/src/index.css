@@ -152,12 +152,15 @@ body {
   outline-offset: 1px;
 }
 
+/* Transitions go to zero rather than a hair above it: a 0.01ms transition still
+   starts from the old value, so a theme swap read in that frame is half dark.
+   Nothing here listens for transitionend. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important;
   }
 }
 
