@@ -41,6 +41,18 @@ const DEFAULTS = {
   maxBackoffMs: 15_000,
 };
 
+/** How long a link must hold before a drop counts as a fresh failure. */
+const STABLE_AFTER_MS = 10_000;
+
+/** The one shape every frame shares; the switch on `type` does the rest. */
+function isServerMessage(value: unknown): value is ServerMessage {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { type?: unknown }).type === 'string'
+  );
+}
+
 export class WsClient {
   private socket: WebSocket | null = null;
   private readonly options: Required<WsClientOptions>;
@@ -49,6 +61,7 @@ export class WsClient {
 
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private stableTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private pongTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -90,7 +103,12 @@ export class WsClient {
     // can deliver its close after a new one has opened.
     socket.onopen = () => {
       if (this.socket !== socket) return;
-      this.reconnectAttempts = 0;
+      // Reset only once the link has held: a server closing a slow client
+      // straight after the snapshot would otherwise be redialled every 500ms.
+      this.clearStableTimer();
+      this.stableTimer = setTimeout(() => {
+        this.reconnectAttempts = 0;
+      }, STABLE_AFTER_MS);
       this.emitStatus(true);
       this.startHeartbeat();
       // Restore whatever the user was looking at before the drop.
@@ -102,19 +120,28 @@ export class WsClient {
 
     socket.onmessage = (event: MessageEvent) => {
       if (this.socket !== socket) return;
-      let parsed: ServerMessage;
+      let parsed: unknown;
       try {
-        parsed = JSON.parse(event.data as string) as ServerMessage;
+        parsed = JSON.parse(event.data as string);
       } catch {
         return;
       }
       // Any frame proves the link is alive, not just a pong.
       this.clearPongTimer();
-      this.messageHandlers.forEach((handler) => handler(parsed));
+      if (!isServerMessage(parsed)) return;
+      for (const handler of this.messageHandlers) {
+        // One throwing handler must not starve the rest of the frame.
+        try {
+          handler(parsed);
+        } catch (error) {
+          console.error('WebSocket handler failed', parsed.type, error);
+        }
+      }
     };
 
     socket.onclose = () => {
       if (this.socket !== socket) return;
+      this.clearStableTimer();
       this.stopHeartbeat();
       this.emitStatus(false);
       if (!this.closedByUs) this.scheduleReconnect();
@@ -242,6 +269,7 @@ export class WsClient {
   private abandon(): void {
     const socket = this.socket;
     this.socket = null;
+    this.clearStableTimer();
     this.stopHeartbeat();
     if (socket) {
       socket.onopen = null;
@@ -260,6 +288,13 @@ export class WsClient {
       this.heartbeatTimer = null;
     }
     this.clearPongTimer();
+  }
+
+  private clearStableTimer(): void {
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
+    }
   }
 
   private clearPongTimer(): void {

@@ -445,7 +445,9 @@ export class ChartEngine {
     this.renderPanes();
     this.renderIndicators(input.series);
     this.renderDollarLines();
-    this.crowded.clear();
+    // Rebuilt series come back in their configured colours; restyled here, in
+    // the same frame, rather than a React effect later.
+    this.setLevelStyles(this.levelStyles);
     this.tickCountdown();
 
     if (input.resetView) {
@@ -456,11 +458,17 @@ export class ChartEngine {
       this.chart.priceScale('right').applyOptions({ autoScale: true });
       this.resetView(this.zoom.saved(this.timeframe));
     } else if (keepLogical) {
-      const shift = anchorTime !== undefined ? (this.data.indexOf(anchorTime) ?? 0) : 0;
-      this.timeScale.setVisibleLogicalRange({
-        from: keepLogical.from + shift,
-        to: keepLogical.to + shift,
-      });
+      const shift = anchorTime !== undefined ? this.data.indexOf(anchorTime) : 0;
+      if (shift === undefined) {
+        // The window moved past the old first bar — a laptop waking overnight —
+        // so the old range means nothing against the new data.
+        this.resetView(this.zoom.saved(this.timeframe));
+      } else {
+        this.timeScale.setVisibleLogicalRange({
+          from: keepLogical.from + shift,
+          to: keepLogical.to + shift,
+        });
+      }
     }
   }
 
@@ -566,7 +574,7 @@ export class ChartEngine {
   }
 
   applyBar(bar: WireBar, values: Record<string, number>): void {
-    this.data.upsert(bar);
+    if (!this.data.upsert(bar)) return;
 
     const time = bar.t as UTCTimestamp;
     this.candles.update({ time, open: bar.o, high: bar.h, low: bar.l, close: bar.c });

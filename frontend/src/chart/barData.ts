@@ -9,6 +9,8 @@ export class BarData {
   private list: WireBar[] = [];
   private index = new Map<number, number>();
   private values = new Map<string, Map<number, number>>();
+  /** Each series' newest [time, value], kept as points arrive in any order. */
+  private newest = new Map<string, [number, number]>();
   /** Session-cumulative volume per bar; built when first asked for. */
   private sessionVolume: number[] | null = null;
 
@@ -21,27 +23,37 @@ export class BarData {
   }
 
   load(bars: WireBar[]): void {
-    this.list = bars;
-    this.index = new Map(bars.map((bar, position) => [bar.t, position]));
+    // A copy: one snapshot feeds the main chart and a mini on the same
+    // timeframe, and each appends its live bars.
+    this.list = bars.slice();
+    this.index = new Map(this.list.map((bar, position) => [bar.t, position]));
     this.sessionVolume = null;
   }
 
-  /** A new period is appended; a period already held is revised in place. */
-  upsert(bar: WireBar): void {
+  /**
+   * A new period is appended; a period already held is revised in place. A
+   * bar older than the last is refused — the library throws on it, and kept
+   * here it would leave the list out of order. Returns whether it was applied.
+   */
+  upsert(bar: WireBar): boolean {
     const position = this.index.get(bar.t);
     if (position === undefined) {
+      const last = this.list.at(-1);
+      if (last !== undefined && bar.t < last.t) return false;
       this.list.push(bar);
       this.index.set(bar.t, this.list.length - 1);
     } else {
       this.list[position] = bar;
     }
     this.sessionVolume = null;
+    return true;
   }
 
   clear(): void {
     this.list = [];
     this.index.clear();
     this.values.clear();
+    this.newest.clear();
     this.sessionVolume = null;
   }
 
@@ -75,14 +87,18 @@ export class BarData {
 
   setSeries(id: string, points: readonly SeriesPoint[]): void {
     this.values.set(id, new Map(points));
+    this.newest.delete(id);
+    for (const [time, value] of points) this.noteNewest(id, time, value);
   }
 
   dropSeries(id: string): void {
     this.values.delete(id);
+    this.newest.delete(id);
   }
 
   clearSeries(): void {
     this.values.clear();
+    this.newest.clear();
   }
 
   remember(id: string, time: number, value: number): void {
@@ -92,6 +108,12 @@ export class BarData {
       this.values.set(id, lookup);
     }
     lookup.set(time, value);
+    this.noteNewest(id, time, value);
+  }
+
+  private noteNewest(id: string, time: number, value: number): void {
+    const held = this.newest.get(id);
+    if (held === undefined || time >= held[0]) this.newest.set(id, [time, value]);
   }
 
   /**
@@ -122,24 +144,9 @@ export class BarData {
     return values;
   }
 
-  /**
-   * The newest value of one series.
-   *
-   * Points are not in time order — a live update appends to whatever the
-   * snapshot left — so this scans rather than peeking at the end.
-   */
+  /** The newest value of one series; read four times a second per chart. */
   latestValue(id: string): number | undefined {
-    const lookup = this.values.get(id);
-    if (!lookup) return undefined;
-    let bestTime = -Infinity;
-    let bestValue: number | undefined;
-    for (const [pointTime, value] of lookup) {
-      if (pointTime > bestTime) {
-        bestTime = pointTime;
-        bestValue = value;
-      }
-    }
-    return bestValue;
+    return this.newest.get(id)?.[1];
   }
 
   latestValues(): Record<string, number> {

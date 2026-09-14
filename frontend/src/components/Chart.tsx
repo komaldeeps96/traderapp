@@ -77,7 +77,9 @@ export function Chart() {
  * The snapshot counter forces a reapply after the series are rebuilt.
  */
 function useLevelStyling(): void {
-  const { clusters } = useKeyLevels();
+  // The live price's bands, not the hovered bar's: hovering history must not
+  // recolour the levels or move their axis labels.
+  const { clusters } = useKeyLevels({ followHover: false });
   const theme = useTerminalStore((state) => state.theme);
   const snapshotEpoch = useTerminalStore((state) => state.snapshotEpoch);
   const appliedRef = useRef<string>('');
@@ -105,6 +107,8 @@ function publishHover(time: number | null): void {
     if (store.hovered) store.setHovered(null);
     return;
   }
+  // Same bar object, nothing to redraw: a live revision replaces the object.
+  if (store.hovered?.bar === bar) return;
 
   store.setHovered({
     bar,

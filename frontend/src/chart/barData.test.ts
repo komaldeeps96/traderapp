@@ -19,6 +19,39 @@ function loaded(...bars: WireBar[]): BarData {
 }
 
 describe('BarData', () => {
+  it('keeps its own copy, so a second chart on one snapshot appends nothing to it', () => {
+    const snapshot = [bar(0, 10), bar(1, 11)];
+    const main = new BarData();
+    const mini = new BarData();
+    main.load(snapshot);
+    mini.load(snapshot);
+
+    main.upsert(bar(2, 12));
+    mini.upsert(bar(2, 12));
+
+    expect(main.count).toBe(3);
+    expect(main.previousClose(OPEN + 120)).toBe(11);
+    expect(snapshot).toHaveLength(2);
+  });
+
+  it('refuses a bar older than its last', () => {
+    const data = loaded(bar(0, 10), bar(2, 12));
+    expect(data.upsert(bar(1, 11))).toBe(false);
+    expect(data.count).toBe(2);
+  });
+
+  it('knows each series’ newest value whatever order points arrive in', () => {
+    const data = loaded(bar(0, 10));
+    data.setSeries('ema', [
+      [OPEN + 60, 2],
+      [OPEN, 1],
+    ]);
+    data.remember('ema', OPEN + 30, 9);
+    expect(data.latestValue('ema')).toBe(2);
+    data.remember('ema', OPEN + 120, 3);
+    expect(data.latestValue('ema')).toBe(3);
+  });
+
   it('appends a new period and revises one it already holds', () => {
     const data = loaded(bar(0, 10), bar(1, 11));
 

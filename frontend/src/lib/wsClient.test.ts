@@ -215,6 +215,23 @@ describe('WsClient', () => {
       expect(FakeSocket.instances).toHaveLength(3);
     });
 
+    it('keeps backing off when a link drops straight after opening', () => {
+      // A server closing a slow client after its snapshot would otherwise be
+      // redialled at the first step every time.
+      const client = makeClient({ initialBackoffMs: 100 });
+      client.connect();
+      FakeSocket.latest().open();
+      FakeSocket.latest().close();
+      vi.advanceTimersByTime(100);
+      FakeSocket.latest().open();
+      FakeSocket.latest().close();
+
+      vi.advanceTimersByTime(100);
+      expect(FakeSocket.instances).toHaveLength(2);
+      vi.advanceTimersByTime(100);
+      expect(FakeSocket.instances).toHaveLength(3);
+    });
+
     it('caps the backoff', () => {
       const client = makeClient({ initialBackoffMs: 1000, maxBackoffMs: 2000 });
       client.connect();

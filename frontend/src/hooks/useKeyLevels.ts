@@ -59,11 +59,11 @@ const computeLevels = memoizeLast(
   },
 );
 
-export function useKeyLevels(): KeyLevelsView {
+export function useKeyLevels({ followHover = true } = {}): KeyLevelsView {
   const specs = useTerminalStore((state) => state.specs);
   const visibility = useTerminalStore((state) => state.visibility);
   const theme = useTerminalStore((state) => state.theme);
-  const hovered = useTerminalStore((state) => state.hovered);
+  const hovered = useTerminalStore((state) => (followHover ? state.hovered : null));
   const live = useTerminalStore((state) => state.live);
   const info = useTerminalStore((state) => state.info);
 

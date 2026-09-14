@@ -484,7 +484,10 @@ function minisFor(symbol: string, timeframe: string): ChartEngine[] {
 const lastMiniSnapshots = new Map<string, SnapshotMessage>();
 
 function applyMiniSnapshot(message: SnapshotMessage): void {
-  if (message.symbol === useTerminalStore.getState().symbol) {
+  const { symbol, miniTimeframes } = useTerminalStore.getState();
+  // Only timeframes a mini shows: every bar copies its cached snapshot, and
+  // the main chart's 10s one is thousands of bars no mini draws.
+  if (message.symbol === symbol && miniTimeframes.includes(message.timeframe)) {
     lastMiniSnapshots.set(miniKey(message.symbol, message.timeframe), message);
   }
   for (const engine of minisFor(message.symbol, message.timeframe))

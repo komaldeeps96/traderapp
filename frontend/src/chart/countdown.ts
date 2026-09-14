@@ -22,6 +22,10 @@ import type {
 
 /** Keeps the automatic placement of ordinary labels from reserving a slot. */
 const OFF_AXIS = -1000;
+/** A digit's width, so padding matches the price labels' tabular figures. */
+const FIGURE_SPACE = ' ';
+/** "10.07", "0.3712", "123.45": what a price label holds. */
+const LABEL_CHARS = 6;
 
 export interface CountdownState {
   /** Price the last-value label is sitting at. */
@@ -48,7 +52,9 @@ class CountdownAxisView implements ISeriesPrimitiveAxisView {
   }
 
   text(): string {
-    return this.primitive.state?.text ?? '';
+    // A primitive's box is as wide as its text; padded to a price label's
+    // width it covers the axis tick beneath instead of leaving its tail out.
+    return (this.primitive.state?.text ?? '').padStart(LABEL_CHARS, FIGURE_SPACE);
   }
 
   textColor(): string {

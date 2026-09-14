@@ -28,7 +28,17 @@ import {
   saveNewsAi,
   visibilityOverrides,
   type Theme,
+  loadTheme,
 } from "@/lib/storage";
+
+/** The backfill plus any held row it lacks, newest first. */
+function mergeHeadlines(backfill: Headline[], held: Headline[]): Headline[] {
+  const ids = new Set(backfill.map((row) => row.article_id));
+  const extra = held.filter((row) => !ids.has(row.article_id));
+  return extra.length === 0
+    ? backfill
+    : [...extra, ...backfill].sort((a, b) => b.time - a.time);
+}
 import type {
   ApiUsageMessage,
   DataSource,
@@ -337,7 +347,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   regimeError: null,
   regime: null,
 
-  theme: "dark",
+  // Read at construction so a chart built before App's effects never paints a
+  // frame in the wrong theme.
+  theme: loadTheme(),
 
   setConnected: (connected) => set({ connected }),
 
@@ -485,7 +497,14 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   },
 
   setNews: (newsSymbol, news, newsProviders) =>
-    set({ newsSymbol, news, newsProviders }),
+    set((state) => ({
+      newsSymbol,
+      // Merged, not replaced: a live headline that landed while the backfill
+      // was in flight is not in the response.
+      news:
+        state.newsSymbol === newsSymbol ? mergeHeadlines(news, state.news) : news,
+      newsProviders,
+    })),
 
   setNewsStatus: (newsStatus) => set({ newsStatus }),
 
