@@ -36,6 +36,7 @@ test.describe('armed', () => {
   test.beforeEach(async ({ terminal }) => {
     await terminal.waitForChart();
     await expect(terminal.page.getByTestId('order-panel')).toBeVisible();
+    await terminal.page.getByTestId('order-arm').click();
   });
 
   test('names the symbol it will trade, where the click starts', async ({ terminal }) => {
@@ -143,7 +144,7 @@ test.describe('armed', () => {
 function trades(backend: MockBackend): string[] {
   return backend
     .commands()
-    .filter((command) => String(command.action).startsWith('trade.'))
+    .filter((command) => String(command.action).startsWith('trade.') && command.action !== 'trade.arm')
     .map((command) => `${String(command.action)}:${String(command.dollars ?? command.fraction)}`);
 }
 
@@ -154,6 +155,7 @@ test.describe('one click, one order', () => {
 
   test.beforeEach(async ({ terminal, backend }) => {
     await terminal.waitForChart();
+    await terminal.page.getByTestId('order-arm').click();
     await backend.pushTrading({ ...ARMED, repeat_guard_seconds: 0.3, positions: [makePosition('AAPL', 14)] });
     await expect(terminal.page.getByTestId('order-sell-0.5')).toBeEnabled();
   });
@@ -192,6 +194,7 @@ test.describe('the side just used is held, visibly', () => {
     terminal,
   }) => {
     await terminal.waitForChart();
+    await terminal.page.getByTestId('order-arm').click();
     await terminal.page.getByTestId('order-buy-25').click();
     await expect(terminal.page.getByTestId('order-buy-25')).toContainText('···');
     await expect(terminal.page.getByTestId('order-buy-50')).toBeDisabled();

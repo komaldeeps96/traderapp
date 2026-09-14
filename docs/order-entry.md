@@ -132,7 +132,7 @@ Both, and the split is the important part:
 The formula therefore exists twice, in Python and in TypeScript, which is a
 drift risk. It is handled the way the wire protocol already handles it: one
 shared table of cases asserted in both suites, the way
-`tests/unit/test_protocol.py` locks the TypedDicts against
+`tests/unit/test_protocol_contract.py` locks the TypedDicts against
 `frontend/src/types/protocol.ts`.
 
 ## Where the panel goes
@@ -300,6 +300,10 @@ protection is elsewhere:
    A request whose `Host` is not this machine (`allowed_host_regex`) is
    refused outright, which is what stops a DNS-rebinding page in this
    browser counting as loopback.
+9. **Armed per window.** With the switch on, the strip still draws dead until
+   ARM is pressed in that window, and the server refuses buys and sells from a
+   connection that has not sent `trade.arm`. A reload or reconnect is a new
+   connection, so it starts disarmed. Cancel-all needs no arming.
    The socket itself refuses pages whose origin is not the terminal's own,
    because browsers exempt WebSockets from CORS.
 

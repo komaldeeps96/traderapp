@@ -30,15 +30,6 @@ import {
   type Theme,
   loadTheme,
 } from "@/lib/storage";
-
-/** The backfill plus any held row it lacks, newest first. */
-function mergeHeadlines(backfill: Headline[], held: Headline[]): Headline[] {
-  const ids = new Set(backfill.map((row) => row.article_id));
-  const extra = held.filter((row) => !ids.has(row.article_id));
-  return extra.length === 0
-    ? backfill
-    : [...extra, ...backfill].sort((a, b) => b.time - a.time);
-}
 import type {
   ApiUsageMessage,
   DataSource,
@@ -61,6 +52,15 @@ import type {
 import { SCANNER_TIER_IDS, SCANNER_TIER_LABELS } from "@/types/protocol";
 
 import { ATH_LEVEL_ID } from "./selectors";
+
+/** The backfill plus any held row it lacks, newest first. */
+function mergeHeadlines(backfill: Headline[], held: Headline[]): Headline[] {
+  const ids = new Set(backfill.map((row) => row.article_id));
+  const extra = held.filter((row) => !ids.has(row.article_id));
+  return extra.length === 0
+    ? backfill
+    : [...extra, ...backfill].sort((a, b) => b.time - a.time);
+}
 
 export interface ScannerTierState {
   label: string;
@@ -196,6 +196,8 @@ interface TerminalState {
   /** A refusal addressed to this window alone, such as an order from a machine
    *  that may not place one. The broadcast `trading.note` carries the rest. */
   orderNote: string | null;
+  /** This window has armed the order strip; the server holds the same flag. */
+  orderArmed: boolean;
 
   // market regime
   regimeRunning: boolean;
@@ -280,6 +282,7 @@ interface TerminalState {
   buy: (symbol: string, dollars: number) => void;
   sell: (symbol: string, fraction: number) => void;
   cancelAllOrders: () => void;
+  setOrderArmed: (armed: boolean) => void;
   setInfo: (info: InfoMessage) => void;
   setApiUsage: (usage: ApiUsageMessage) => void;
   setRegime: (payload: {
@@ -342,6 +345,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   workingOrders: [],
   lastOrder: null,
   orderNote: null,
+  orderArmed: false,
 
   regimeRunning: false,
   regimeError: null,
@@ -351,7 +355,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   // frame in the wrong theme.
   theme: loadTheme(),
 
-  setConnected: (connected) => set({ connected }),
+  // Any change of connection disarms: the server's new connection starts
+  // disarmed, and the strip must not claim otherwise.
+  setConnected: (connected) =>
+    set((state) => (state.connected === connected ? {} : { connected, orderArmed: false })),
 
   setTrading: ({ state, positions, orders }) =>
     set({ trading: state, positions, workingOrders: orders }),
@@ -371,6 +378,11 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     sendCommand({ action: "trade.sell", symbol, fraction });
   },
   cancelAllOrders: () => sendCommand({ action: "trade.cancel_all" }),
+
+  setOrderArmed: (orderArmed) => {
+    sendCommand({ action: "trade.arm", armed: orderArmed });
+    set({ orderArmed });
+  },
 
   setSourceStatus: ({
     source,

@@ -185,6 +185,8 @@ export function OrderPanel({
   const buy = useTerminalStore((state) => state.buy);
   const sell = useTerminalStore((state) => state.sell);
   const cancelAllOrders = useTerminalStore((state) => state.cancelAllOrders);
+  const armed = useTerminalStore((state) => state.orderArmed);
+  const setArmed = useTerminalStore((state) => state.setOrderArmed);
 
   const { holds, claim } = useRepeatGuard(
     (trading?.repeat_guard_seconds ?? 0) * 1000,
@@ -217,6 +219,10 @@ export function OrderPanel({
     trading.note ??
     orderNote ??
     (halted ? "Halted — orders will not fill." : null);
+  // Below a fill acknowledgement, not above it: a fill that lands after a
+  // reconnect disarmed the strip must still show.
+  const hint = armed ? null : "Disarmed — press ARM to let the buttons send orders.";
+  const shown = note ?? (lastOrder ? null : hint);
 
   const heldBy = (side: Side) =>
     holds[side]?.symbol === symbol ? holds[side].key : null;
@@ -297,6 +303,25 @@ export function OrderPanel({
         />
 
         <span className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setArmed(!armed)}
+            disabled={!connected}
+            aria-pressed={armed}
+            data-testid="order-arm"
+            title={
+              armed
+                ? "Armed — the buttons send orders. Click to disarm."
+                : "Disarmed — click to let the buttons send orders. A reload or reconnect disarms."
+            }
+            className={`rounded-sm border px-1.5 py-0.5 font-mono text-[10px] font-bold ${
+              armed
+                ? "border-down bg-down text-panel"
+                : "border-line text-ink-3 hover:text-ink-2 disabled:opacity-50"
+            }`}
+          >
+            {armed ? "ARMED" : "ARM"}
+          </button>
           {workingOrders.length > 0 && (
             <button
               type="button"
@@ -348,7 +373,7 @@ export function OrderPanel({
               label={heldBy("buy") === key ? "···" : `$${dollars}`}
               plan={plan}
               tone="buy"
-              disabled={frozen || !symbol || heldBy("buy") !== null}
+              disabled={frozen || !armed || !symbol || heldBy("buy") !== null}
               onClick={(event) =>
                 press("buy", key, event, () => buy(symbol, dollars))
               }
@@ -375,7 +400,7 @@ export function OrderPanel({
               label={heldBy("sell") === key ? "···" : sellLabel(fraction)}
               plan={plan}
               tone="sell"
-              disabled={frozen || !symbol || heldBy("sell") !== null}
+              disabled={frozen || !armed || !symbol || heldBy("sell") !== null}
               onClick={(event) =>
                 press("sell", key, event, () => sell(symbol, fraction))
               }
@@ -383,13 +408,13 @@ export function OrderPanel({
           );
         })}
 
-        {note && (
+        {shown && (
           <span
             role="status"
             data-testid="order-note"
             className="ml-2 min-w-0 flex-1 truncate text-[11px] font-semibold text-down"
           >
-            {note}
+            {shown}
           </span>
         )}
         {!note && lastOrder && (

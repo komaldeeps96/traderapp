@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 POLICY_VIOLATION = 1008
 
 REMOTE_REFUSAL = "Orders are accepted only from this machine (trading.allow_remote is off)."
+DISARMED_REFUSAL = "This window has not armed the order strip; press ARM first."
 
 
 async def websocket_endpoint(websocket: WebSocket) -> None:
@@ -155,6 +156,9 @@ async def _handle(container: AppContainer, connection: ClientConnection, command
     elif action in ("watchlist.add", "watchlist.remove"):
         await _edit_watchlist(container, command)
 
+    elif action == "trade.arm":
+        connection.armed = command.armed
+
     elif action in ("trade.buy", "trade.sell", "trade.cancel_all"):
         await _trade(container, connection, command)
 
@@ -179,6 +183,9 @@ async def _trade(
         connection.is_local or container.settings.trading.allow_remote
     ):
         connection.send(error_message("trade", REMOTE_REFUSAL, action=command.action))
+        return
+    if places and container.trading.enabled and not connection.armed:
+        connection.send(error_message("trade", DISARMED_REFUSAL, action=command.action))
         return
 
     if command.action == "trade.buy":

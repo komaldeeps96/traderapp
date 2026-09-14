@@ -37,6 +37,9 @@ class ClientConnection:
         self.websocket = websocket
         client = getattr(websocket, "client", None)
         self.is_local = client is not None and client.host in LOOPBACK
+        # Buys and sells wait for this window to arm the strip. Per connection,
+        # so a reload or a reconnect starts disarmed.
+        self.armed = False
         self.symbol: str | None = None
         self.timeframe: Timeframe | None = None
         # Secondary timeframes on the same symbol — the mini charts. They are

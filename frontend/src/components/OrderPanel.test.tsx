@@ -66,6 +66,7 @@ function arm(overrides: Partial<ReturnType<typeof useTerminalStore.getState>> = 
     quote: QUOTE,
     trading: tradingState(),
     positions: [position(14)],
+    orderArmed: true,
     ...overrides,
   });
   render(<OrderPanel onSelect={() => {}} />);
@@ -179,3 +180,25 @@ describe("sells against shares already claimed", () => {
     expect(button("order-sell-1")).toHaveTextContent("working");
   });
 });
+
+describe("arming", () => {
+  it("keeps the buttons dead until the strip is armed", () => {
+    arm({ orderArmed: false });
+    expect(button("order-buy-25")).toBeDisabled();
+    expect(screen.getByTestId("order-note")).toHaveTextContent("press ARM");
+  });
+
+  it("tells the server when it is armed", () => {
+    arm({ orderArmed: false });
+    fireEvent.click(button("order-arm"));
+    expect(sent).toContainEqual({ action: "trade.arm", armed: true });
+    expect(button("order-buy-25")).not.toBeDisabled();
+  });
+
+  it("disarms when the connection drops", () => {
+    arm();
+    act(() => useTerminalStore.getState().setConnected(false));
+    expect(useTerminalStore.getState().orderArmed).toBe(false);
+  });
+});
+

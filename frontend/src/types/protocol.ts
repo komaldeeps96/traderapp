@@ -647,6 +647,7 @@ export type ClientCommand =
   | { action: "trade.buy"; symbol: string; dollars: number }
   | { action: "trade.sell"; symbol: string; fraction: number }
   | { action: "trade.cancel_all" }
+  | { action: "trade.arm"; armed: boolean }
   | { action: "ping" };
 
 // ── REST payloads ──────────────────────────────────────────────────────

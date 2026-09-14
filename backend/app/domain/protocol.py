@@ -204,6 +204,11 @@ class CancelAllCommand(_Command):
     action: Literal["trade.cancel_all"]
 
 
+class ArmCommand(_Command):
+    action: Literal["trade.arm"]
+    armed: bool
+
+
 class PingCommand(_Command):
     action: Literal["ping"]
 
@@ -219,6 +224,7 @@ ClientCommand = Annotated[
     | BuyCommand
     | SellCommand
     | CancelAllCommand
+    | ArmCommand
     | PingCommand,
     Field(discriminator="action"),
 ]

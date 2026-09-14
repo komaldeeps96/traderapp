@@ -189,6 +189,7 @@ class TestArmedButUnreachable:
         """An order that quietly waits for a reconnect is the worst outcome
         here: it would arrive minutes later, into a different market."""
         with armed_client.websocket_connect("/ws") as socket:
+            socket.send_json({"action": "trade.arm", "armed": True})
             socket.send_json({"action": "trade.buy", "symbol": "AAPL", "dollars": 25})
             error = receive_until(socket, "error", limit=20)
             assert error["code"] == "trade"
@@ -240,6 +241,7 @@ class TestOnlyThisMachinePlacesOrders:
             client.websocket_connect("/ws") as socket,
         ):
             drain_opening_frames(socket)
+            socket.send_json({"action": "trade.arm", "armed": True})
             socket.send_json({"action": "trade.buy", "symbol": "AAPL", "dollars": 25})
             assert "not connected" in receive_until(socket, "error", limit=20)["message"]
 
@@ -249,3 +251,39 @@ class TestOnlyThisMachinePlacesOrders:
             drain_opening_frames(socket)
             socket.send_json({"action": "trade.buy", "symbol": "AAPL", "dollars": 25})
             assert "disabled" in receive_until(socket, "error")["message"]
+
+
+class TestArming:
+    """Buys and sells wait for the window to arm the strip. A reload or a
+    reconnect is a new connection, so it starts disarmed."""
+
+    @pytest.fixture
+    def armed_client(self, arm):
+        with arm() as client:
+            yield client
+
+    def test_a_buy_before_arming_is_refused(self, armed_client):
+        with armed_client.websocket_connect("/ws") as socket:
+            socket.send_json({"action": "trade.buy", "symbol": "AAPL", "dollars": 25})
+            assert "not armed" in receive_until(socket, "error", limit=20)["message"]
+
+    def test_disarming_refuses_again(self, armed_client):
+        with armed_client.websocket_connect("/ws") as socket:
+            socket.send_json({"action": "trade.arm", "armed": True})
+            socket.send_json({"action": "trade.arm", "armed": False})
+            socket.send_json({"action": "trade.sell", "symbol": "AAPL", "fraction": 1.0})
+            assert "not armed" in receive_until(socket, "error", limit=20)["message"]
+
+    def test_a_new_connection_starts_disarmed(self, armed_client):
+        with armed_client.websocket_connect("/ws") as first:
+            first.send_json({"action": "trade.arm", "armed": True})
+            with armed_client.websocket_connect("/ws") as second:
+                second.send_json({"action": "trade.buy", "symbol": "AAPL", "dollars": 25})
+                assert "not armed" in receive_until(second, "error", limit=20)["message"]
+
+    def test_cancel_all_needs_no_arming(self, armed_client):
+        """Cancelling only ever reduces risk."""
+        with armed_client.websocket_connect("/ws") as socket:
+            socket.send_json({"action": "trade.cancel_all"})
+            frames = frames_until(socket, "trading")
+            assert not [frame for frame in frames if frame["type"] == "error"]
