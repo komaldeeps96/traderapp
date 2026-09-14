@@ -157,14 +157,14 @@ function useCentreOnLast(anchor: string) {
 }
 
 const EMPHASIS_TEXT = {
-  resistance: 'text-down',
-  support: 'text-up',
+  resistance: 'text-overhead',
+  support: 'text-beneath',
   normal: 'text-ink-3',
 } as const;
 
 const EMPHASIS_BAR = {
-  resistance: 'bg-down',
-  support: 'bg-up',
+  resistance: 'bg-overhead',
+  support: 'bg-beneath',
   normal: 'bg-ink-3/40',
 } as const;
 

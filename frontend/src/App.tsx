@@ -14,6 +14,7 @@ import { SwingPanel } from "@/components/SwingPanel";
 import { WatchlistPanel } from "@/components/WatchlistPanel";
 import { Toolbar } from "@/components/Toolbar";
 import { TopPanel } from "@/components/TopPanel";
+import { useHotkeys } from "@/hooks/useHotkeys";
 import { useTerminal } from "@/hooks/useTerminal";
 import { useTerminalStore } from "@/store/useTerminalStore";
 import { SCANNER_TIER_IDS } from "@/types/protocol";
@@ -60,6 +61,8 @@ export default function App() {
   const status = useTerminalStore((state) => state.status);
   const mainTab = useTerminalStore((state) => state.mainTab);
   const scannerTab = useTerminalStore((state) => state.scannerTab);
+  const halted = useTerminalStore((state) => state.info?.halted === true);
+  useHotkeys(setTimeframe);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-surface">
@@ -145,6 +148,17 @@ export default function App() {
               centre themselves on the seam between the two. */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="relative min-h-0 min-w-0 flex-1">
+              {/* A halt stops every tab's decision, so it frames them all. */}
+              {halted && (
+                <div
+                  className="pointer-events-none absolute inset-0 z-30 ring-2 ring-inset ring-down"
+                  data-testid="halt-frame"
+                >
+                  <span className="absolute left-1/2 top-2 -translate-x-1/2 rounded-sm bg-down px-3 py-0.5 text-[13px] font-bold tracking-widest text-panel">
+                    HALTED
+                  </span>
+                </div>
+              )}
               {/* Hidden with `visibility`, never unmounted or `display:none`.
                 A collapsed container is zero-height and lightweight-charts
                 cannot size a pane inside one — the dock hit exactly that and
@@ -158,7 +172,7 @@ export default function App() {
                 data-testid="main-panel-chart"
                 data-active={mainTab === "chart"}
                 aria-hidden={mainTab !== "chart"}
-                className={`absolute inset-0 ${
+                className={`group absolute inset-0 ${
                   mainTab === "chart" ? "" : "invisible pointer-events-none"
                 }`}
               >

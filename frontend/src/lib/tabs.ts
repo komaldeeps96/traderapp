@@ -1,5 +1,12 @@
 import type { KeyboardEvent } from 'react';
 
+/** One look for every tab strip, so the three cannot drift apart. */
+export function tabClass(active: boolean): string {
+  return `border-b-2 px-2.5 font-mono text-[10px] font-bold uppercase tracking-wide transition-colors ${
+    active ? 'border-accent text-accent-text' : 'border-transparent text-ink-3 hover:text-ink-2'
+  }`;
+}
+
 /**
  * Arrow-key movement along a tab strip, as the ARIA tabs pattern has it: the
  * arrows step and wrap, Home and End jump, and focus follows the selection so

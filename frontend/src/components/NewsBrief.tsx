@@ -30,7 +30,7 @@ const VERDICT_CLASS: Record<NewsVerdict, string> = {
   tradeable: 'text-up',
   mixed: 'text-ink-2',
   weak: 'text-down',
-  avoid: 'bg-down/20 text-down',
+  avoid: 'bg-down/20 text-down-text',
 };
 
 const VERDICT_TITLE: Record<NewsVerdict, string> = {

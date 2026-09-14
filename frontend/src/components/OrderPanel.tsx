@@ -251,7 +251,9 @@ export function OrderPanel({
     <section
       data-testid="order-panel"
       aria-label="Order entry"
-      className="flex shrink-0 flex-col gap-1 border-t border-line bg-panel px-2 py-1.5"
+      className={`flex shrink-0 flex-col gap-1 bg-panel px-2 py-1.5 ${
+        trading.paper ? "border-t border-line" : "border-t-2 border-down"
+      }`}
     >
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
         <span
@@ -260,6 +262,15 @@ export function OrderPanel({
         >
           {symbol || "—"}
         </span>
+        {info?.description && (
+          <span
+            className="max-w-[12rem] truncate text-[10px] text-ink-3"
+            data-testid="order-company"
+            title={info.description}
+          >
+            {info.description}
+          </span>
+        )}
 
         <span
           className="tnum font-mono text-ink-2"
@@ -318,7 +329,7 @@ export function OrderPanel({
                 : "LIVE account — these buttons spend real money."
             }
             className={`rounded-sm px-1.5 py-0.5 font-mono text-[10px] font-bold ${
-              trading.paper ? "bg-ink-3/20 text-ink-2" : "bg-down/20 text-down"
+              trading.paper ? "bg-ink-3/20 text-ink-2" : "bg-down/20 text-down-text"
             }`}
           >
             {trading.paper ? "PAPER" : "LIVE"}

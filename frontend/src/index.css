@@ -25,6 +25,11 @@
   /* Accent as text, and accent as a solid fill behind white text, each need a
      darker step than accent as a tint. */
   --color-accent-text: #1c5cab;
+  /* Red text on a 20% red chip: 5.4:1 where --color-down gives 3.7:1. */
+  --color-down-text: #a40e26;
+  /* Key levels, as chart/theme draws them: violet overhead, amber beneath. */
+  --color-overhead: #8250df;
+  --color-beneath: #9a6700;
   --color-accent-solid: #1c5cab;
 
   --font-mono:
@@ -64,6 +69,9 @@
   --color-warn: #d29922;
   --color-accent: #3987e5;
   --color-accent-text: #7cb3f0;
+  --color-down-text: #ff7b72;
+  --color-overhead: #a371f7;
+  --color-beneath: #d29922;
   --color-accent-solid: #1c5cab;
 }
 
@@ -147,7 +155,7 @@ body {
   display: none !important;
 }
 
-:where(button, input, select, a):focus-visible {
+:where(button, input, select, a, [tabindex]):focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }

@@ -1,5 +1,5 @@
 import { MAIN_TAB_IDS, MAIN_TAB_LABELS, MAIN_TAB_TITLES } from '@/lib/mainTabs';
-import { onTabListKey } from '@/lib/tabs';
+import { onTabListKey, tabClass } from '@/lib/tabs';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
 /**
@@ -34,11 +34,7 @@ export function MainTabs() {
           title={MAIN_TAB_TITLES[id]}
           data-testid={`main-tab-${id}`}
           onClick={() => setTab(id)}
-          className={`border-b-2 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wide transition-colors ${
-            tab === id
-              ? 'border-accent text-accent-text'
-              : 'border-transparent text-ink-3 hover:text-ink-2'
-          }`}
+          className={`py-1 ${tabClass(tab === id)}`}
         >
           {MAIN_TAB_LABELS[id]}
         </button>

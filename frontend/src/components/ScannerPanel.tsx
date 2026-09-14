@@ -3,6 +3,7 @@ import { useState, type FormEvent } from 'react';
 import { formatCompact, formatMoney, formatPercent, formatPrice } from '@/lib/format';
 import { parseFilter } from '@/lib/scannerFilters';
 import { useTerminalStore } from '@/store/useTerminalStore';
+import { SCANNER_TIER_IDS } from '@/types/protocol';
 import type { ClientCommand, ScannerConfig, ScannerTierId } from '@/types/protocol';
 
 type ScannerOverrides = Omit<
@@ -87,12 +88,15 @@ export function ScannerPanel({ scannerId, onSelect, onConfigure }: ScannerPanelP
       )}
 
       {!available ? (
-        <p
-          className="px-2 py-2 text-[10px] leading-snug text-ink-3"
-          data-testid={`scanner-${scannerId}-note`}
-        >
-          {note ?? 'Market scanner is unavailable.'}
-        </p>
+        // One note for the whole Day tab: every tier shares the one cause.
+        scannerId === SCANNER_TIER_IDS[0] && (
+          <p
+            className="px-2 py-2 text-[10px] leading-snug text-ink-3"
+            data-testid={`scanner-${scannerId}-note`}
+          >
+            {note ?? 'Market scanner is unavailable.'}
+          </p>
+        )
       ) : (
         <div className="scroll-thin min-h-0 flex-1 overflow-auto">
           <table className="w-full border-collapse text-left">
@@ -175,13 +179,13 @@ export function ScannerPanel({ scannerId, onSelect, onConfigure }: ScannerPanelP
                     {/* Emphasised on a flashing row so the reason for the
                         flash is in the row, not just in the trader's head. */}
                     <td
-                      className={`tnum py-0.5 pr-1 text-right font-mono text-[9px] ${
-                        hot ? 'font-bold text-up' : 'text-ink-3'
+                      className={`tnum py-0.5 pr-1 text-right font-mono text-[10px] ${
+                        hot ? 'font-bold text-up' : 'text-ink-2'
                       }`}
                     >
                       {formatCompact(row.trades_1m)}
                     </td>
-                    <td className="tnum py-0.5 pr-2 text-right font-mono text-[9px] text-ink-3">
+                    <td className="tnum py-0.5 pr-2 text-right font-mono text-[10px] text-ink-2">
                       {formatMoney(row.dollar_vol_1m)}
                     </td>
                   </tr>
@@ -364,7 +368,7 @@ function RankMove({ delta, entered }: { delta: number | null; entered: boolean }
     return (
       <span
         title="Not on the list a moment ago"
-        className="ml-1 align-middle font-mono text-[8px] font-bold text-accent"
+        className="ml-1 align-middle font-mono text-[8px] font-bold text-accent-text"
       >
         NEW
       </span>

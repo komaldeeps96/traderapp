@@ -125,7 +125,7 @@ function Row({
       data-catalyst={headline.catalyst}
       aria-expanded={active}
       title={CATALYST_TITLE[headline.catalyst]}
-      className={`grid w-full grid-cols-[46px_44px_1fr] items-baseline gap-2 border-b border-line px-2 py-1 text-left outline-none hover:bg-elevated focus-visible:bg-elevated ${
+      className={`grid w-full grid-cols-[46px_44px_1fr] items-baseline gap-2 border-b border-line px-2 py-1 text-left hover:bg-elevated focus-visible:bg-elevated ${
         active ? 'bg-elevated' : ''
       } ${headline.roundup ? 'opacity-60' : ''}`}
     >
@@ -193,7 +193,7 @@ function Reader({
             rel="noopener noreferrer"
             data-testid="news-source-link"
             title="Open the original on the publisher's site"
-            className="shrink-0 rounded-sm px-1 text-[10px] leading-none text-ink-3 outline-none hover:text-accent-text focus-visible:text-accent-text"
+            className="shrink-0 rounded-sm px-1 text-[10px] leading-none text-ink-3 hover:text-accent-text focus-visible:text-accent-text"
           >
             Source ↗
           </a>
@@ -203,7 +203,7 @@ function Reader({
           onClick={onClose}
           aria-label="Close article"
           data-testid="news-close"
-          className="shrink-0 rounded-sm px-1 text-[12px] leading-none text-ink-3 outline-none hover:text-ink focus-visible:text-ink"
+          className="shrink-0 rounded-sm px-1 text-[12px] leading-none text-ink-3 hover:text-ink focus-visible:text-ink"
         >
           ×
         </button>

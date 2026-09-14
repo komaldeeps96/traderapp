@@ -76,7 +76,7 @@ export function FilingsTab() {
           type="button"
           onClick={() => setShowOlder(true)}
           data-testid="filings-older"
-          className="w-full border-b border-line px-2 py-1 text-left text-[10px] text-ink-3 outline-none hover:text-ink-2 focus-visible:text-ink-2"
+          className="w-full border-b border-line px-2 py-1 text-left text-[10px] text-ink-3 hover:text-ink-2 focus-visible:text-ink-2"
         >
           ▸ {hiddenLeading} older offering and distress filings
         </button>
@@ -94,7 +94,7 @@ export function FilingsTab() {
             onClick={() => setShowAll((open) => !open)}
             data-testid="filings-toggle"
             aria-expanded={showAll}
-            className="mt-2 w-full border-y border-line px-2 py-1 text-left text-[9px] font-bold uppercase tracking-[0.13em] text-ink-3 outline-none hover:text-ink-2 focus-visible:text-ink-2"
+            className="mt-2 w-full border-y border-line px-2 py-1 text-left text-[9px] font-bold uppercase tracking-[0.13em] text-ink-3 hover:text-ink-2 focus-visible:text-ink-2"
           >
             {showAll ? '▾' : '▸'} Everything else ({rest.length})
           </button>
@@ -146,7 +146,7 @@ function Row({ row, isLive }: { row: FilingRow; isLive: boolean }) {
       data-kind={row.kind}
       data-form={row.form}
       title={`${row.note || row.form} — opens on sec.gov`}
-      className="grid grid-cols-[62px_60px_1fr] items-baseline gap-2 border-b border-line px-2 py-1 outline-none hover:bg-elevated focus-visible:bg-elevated"
+      className="grid grid-cols-[62px_60px_1fr] items-baseline gap-2 border-b border-line px-2 py-1 hover:bg-elevated focus-visible:bg-elevated"
     >
       <span className="tnum text-[10px] text-ink-3">{row.filed}</span>
       <span className={`truncate text-[10px] ${KIND_CLASS[row.kind]}`}>{row.form}</span>

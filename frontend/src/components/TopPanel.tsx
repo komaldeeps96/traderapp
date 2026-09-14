@@ -43,13 +43,13 @@ const SPREAD_TONE_CLASS: Record<SpreadTone, string> = {
   tight: 'text-up',
   ok: 'text-ink',
   wide: 'text-down',
-  untradeable: 'bg-down/20 text-down',
+  untradeable: 'bg-down/20 text-down-text',
 };
 
 const BORROW_CLASS: Record<BorrowStatus, string> = {
   easy: 'text-ink-3',
   locate: 'text-down',
-  none: 'bg-down/20 text-down',
+  none: 'bg-down/20 text-down-text',
 };
 
 const BORROW_LABEL: Record<BorrowStatus, string> = {
@@ -61,7 +61,7 @@ const BORROW_LABEL: Record<BorrowStatus, string> = {
 const PULLBACK_CLASS: Record<PullbackTone, string> = {
   healthy: 'text-up',
   ok: 'text-ink-2',
-  failed: 'bg-down/20 text-down',
+  failed: 'bg-down/20 text-down-text',
   stale: 'text-ink-3',
 };
 
@@ -75,7 +75,7 @@ const PULLBACK_CLASS: Record<PullbackTone, string> = {
 const REOPEN_CLASS: Record<ReopenTone, string> = {
   aligned: 'text-up',
   late: 'text-ink-3',
-  extended: 'bg-down/20 text-down',
+  extended: 'bg-down/20 text-down-text',
 };
 
 /** The band tier, as a suffix on the LULD label: " 20%", " 15¢", or "". */
@@ -103,8 +103,8 @@ function bandTierTitle(info: InfoView): string {
  * after the event, and "ERN -3d" reads as a date to avoid.
  */
 function earningsClass(days: number): string {
-  if (days <= EARNINGS_URGENT_DAYS) return 'bg-down/20 text-down';
-  if (days <= EARNINGS_NEAR_DAYS) return 'bg-elevated text-accent-text';
+  if (days <= EARNINGS_URGENT_DAYS) return 'bg-down/20 text-down-text';
+  if (days <= EARNINGS_NEAR_DAYS) return 'bg-warn/15 text-warn';
   return 'bg-elevated text-ink-3';
 }
 
@@ -123,7 +123,7 @@ function earningsLabel(days: number): string {
 const HEADROOM_CLASS: Record<HeadroomTone, string> = {
   'blue-sky': 'bg-up/15 text-up',
   clear: 'text-ink-2',
-  capped: 'bg-down/20 text-down',
+  capped: 'bg-down/20 text-down-text',
 };
 
 /**
@@ -154,7 +154,7 @@ const REOPEN_TITLE: Record<ReopenTone, string> = {
 const DILUTION_CLASS: Record<Exclude<DilutionTone, 'clean'>, string> = {
   watch: 'text-ink-3',
   heavy: 'text-warn',
-  serial: 'bg-down/20 text-down',
+  serial: 'bg-down/20 text-down-text',
 };
 
 const PULLBACK_TITLE: Record<PullbackTone, string> = {
@@ -187,6 +187,8 @@ export function TopPanel() {
   const hovered = useTerminalStore((state) => state.hovered);
   const quoteMessage = useTerminalStore((state) => state.quote);
   const infoMessage = useTerminalStore((state) => state.info);
+  const connected = useTerminalStore((state) => state.connected);
+  const delayed = useTerminalStore((state) => state.delayed);
 
   const lastPrice = live?.bar.c ?? null;
   const quote = buildQuoteView(quoteMessage);
@@ -203,11 +205,23 @@ export function TopPanel() {
 
   return (
     <section
-      className="shrink-0 border-b border-line bg-panel px-2 py-1"
+      className={`shrink-0 border-b border-line bg-panel px-2 py-1 ${connected ? '' : 'opacity-60 grayscale'}`}
       data-testid="top-panel"
+      data-stale={connected ? undefined : 'true'}
       aria-label="Symbol information"
     >
       <Row>
+        {/* A frozen feed looks exactly like a quiet tape; say which it is. */}
+        {!connected && (
+          <span className="rounded-sm bg-down px-1 text-[10px] font-bold text-panel" data-testid="tp-stale">
+            NOT LIVE
+          </span>
+        )}
+        {connected && delayed && (
+          <span className="rounded-sm bg-warn/20 px-1 text-[10px] font-bold text-warn" data-testid="tp-delayed">
+            DELAYED 15m
+          </span>
+        )}
         <span
           className={`text-[15px] font-bold ${
             change ? (change.direction === 'down' ? 'text-down' : 'text-up') : 'text-ink'
@@ -269,8 +283,8 @@ export function TopPanel() {
 
         {info && (info.halted || info.haltsToday > 0) && (
           <span
-            className={`rounded-sm px-1 text-[10px] font-bold ${
-              info.halted ? 'bg-down/20 text-down' : 'text-down'
+            className={`rounded-sm px-1 font-bold ${
+              info.halted ? 'bg-down text-[12px] text-panel' : 'text-[10px] text-down'
             }`}
             data-testid="tp-halted"
             title={
@@ -384,7 +398,7 @@ export function TopPanel() {
 
         {info?.listedDays != null && info.listedDays <= RECENT_IPO_DAYS && (
           <span
-            className="rounded-sm bg-accent/15 px-1 text-[10px] font-semibold text-accent"
+            className="rounded-sm bg-accent/15 px-1 text-[10px] font-semibold text-accent-text"
             data-testid="tp-ipo"
             title="Days since listing — recent IPOs have no overhead resistance and dilute freely"
           >

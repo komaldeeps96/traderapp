@@ -14,7 +14,7 @@ export function SourceBadge() {
   const note = useTerminalStore((state) => state.sourceNote);
 
   const label = !connected ? 'Disconnected' : source === 'none' ? 'No data source' : source.toUpperCase();
-  const tone = !connected || source === 'none' ? 'bg-down' : delayed ? 'bg-ink-3' : 'bg-up';
+  const tone = !connected || source === 'none' ? 'bg-down' : delayed ? 'bg-warn' : 'bg-up';
 
   return (
     <div
@@ -29,7 +29,7 @@ export function SourceBadge() {
       <span className="text-[11px] font-semibold text-ink-2">{label}</span>
       {delayed && (
         <span
-          className="rounded bg-elevated px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-ink-3"
+          className="rounded bg-warn/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-warn"
           data-testid="delayed-badge"
         >
           15-min delayed

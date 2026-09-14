@@ -4,7 +4,7 @@ import { MINI_COLUMN_QUERY } from '@/chart/mini';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useNewsFeed } from '@/hooks/useNewsFeed';
 import { DOCK_TAB_IDS, DOCK_TAB_LABELS, DOCK_TAB_TITLES, clampDockWidth } from '@/lib/dock';
-import { onTabListKey } from '@/lib/tabs';
+import { onTabListKey, tabClass } from '@/lib/tabs';
 import type { Timeframe } from '@/types/protocol';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
@@ -98,11 +98,7 @@ export function Dock({
             title={DOCK_TAB_TITLES[id]}
             data-testid={`dock-tab-${id}`}
             onClick={() => setTab(id)}
-            className={`border-b-2 px-2.5 text-[10px] font-bold uppercase tracking-wider outline-none transition-colors focus-visible:bg-accent/15 ${
-              tab === id
-                ? 'border-accent text-ink'
-                : 'border-transparent text-ink-3 hover:text-ink-2'
-            }`}
+            className={tabClass(tab === id)}
           >
             {DOCK_TAB_LABELS[id]}
             {/* Only live pushes raise one — a 424B5 landing on a chart you
@@ -111,7 +107,7 @@ export function Dock({
             {(alerts[id] ?? 0) > 0 && (
               <span
                 data-testid={`dock-alert-${id}`}
-                className="ml-1 rounded-full bg-down px-1 text-[9px] font-bold text-white"
+                className="ml-1 rounded-full bg-down px-1 text-[9px] font-bold text-panel"
               >
                 {alerts[id]}
               </span>
@@ -143,6 +139,7 @@ export function Dock({
  * capture the drag stops when the cursor leaves the strip.
  */
 function ResizeHandle() {
+  const width = useTerminalStore((state) => state.dockWidth);
   const setWidth = useTerminalStore((state) => state.setDockWidth);
   const dragging = useRef(false);
 
@@ -166,7 +163,17 @@ function ResizeHandle() {
       role="separator"
       aria-label="Resize dock"
       aria-orientation="vertical"
+      aria-valuenow={width}
+      tabIndex={0}
       data-testid="dock-resize"
+      // The rail is on the right, so the left arrow widens it.
+      onKeyDown={(event) => {
+        const step = event.shiftKey ? 64 : 16;
+        if (event.key === 'ArrowLeft') setWidth(width + step);
+        else if (event.key === 'ArrowRight') setWidth(width - step);
+        else return;
+        event.preventDefault();
+      }}
       onPointerDown={(event) => {
         dragging.current = true;
         event.currentTarget.setPointerCapture?.(event.pointerId);

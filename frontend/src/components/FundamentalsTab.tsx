@@ -115,7 +115,7 @@ const TONE_CLASS: Record<DilutionRead['tone'], string> = {
   clean: 'bg-up/15 text-up',
   watch: 'bg-ink-3/15 text-ink-2',
   heavy: 'bg-warn/20 text-warn',
-  serial: 'bg-down/20 text-down',
+  serial: 'bg-down/20 text-down-text',
 };
 
 export function ToneChip({ tone }: { tone: DilutionRead['tone'] }) {
@@ -406,7 +406,8 @@ function Dated({
       label={label}
       value={`${format(value.value)}${suffix}`}
       asOf={value.as_of}
-      tone={stale ? undefined : tone}
+      tone={tone}
+      stale={stale}
       title={`Reported for ${value.as_of} on a ${value.form}, ${value.stale_days} days ago`}
     />
   );

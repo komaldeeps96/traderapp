@@ -45,6 +45,7 @@ export function DockRow({
   value,
   asOf,
   tone,
+  stale = false,
   title,
   testId,
 }: {
@@ -52,6 +53,8 @@ export function DockRow({
   value: ReactNode;
   asOf?: string | null;
   tone?: 'bad' | 'warn' | 'good';
+  /** Dimmed, keeping its tone: an old warning is still a warning. */
+  stale?: boolean;
   title?: string;
   testId?: string;
 }) {
@@ -71,7 +74,7 @@ export function DockRow({
       data-testid={testId}
     >
       <span className="shrink-0 text-ink-3">{label}</span>
-      <span className={`tnum truncate text-right ${toneClass}`}>
+      <span className={`tnum truncate text-right ${toneClass} ${stale ? 'opacity-60' : ''}`}>
         {value}
         {asOf && <span className="ml-1 text-[10px] font-normal text-ink-3">· {asOf}</span>}
       </span>

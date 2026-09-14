@@ -3,7 +3,7 @@ import {
   SCANNER_TAB_LABELS,
   SCANNER_TAB_TITLES,
 } from '@/lib/scannerTabs';
-import { onTabListKey } from '@/lib/tabs';
+import { onTabListKey, tabClass } from '@/lib/tabs';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
 /** Day movers or swing setups — the two questions the left column answers. */
@@ -29,11 +29,7 @@ export function ScannerTabs() {
           title={SCANNER_TAB_TITLES[id]}
           data-testid={`scanner-tab-${id}`}
           onClick={() => setTab(id)}
-          className={`border-b-2 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wide transition-colors ${
-            tab === id
-              ? 'border-accent text-accent-text'
-              : 'border-transparent text-ink-3 hover:text-ink-2'
-          }`}
+          className={`py-1 ${tabClass(tab === id)}`}
         >
           {SCANNER_TAB_LABELS[id]}
         </button>

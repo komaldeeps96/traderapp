@@ -21,7 +21,7 @@ export function ChartControls() {
 
   return (
     <div
-      className="pointer-events-none absolute inset-x-0 z-10 flex justify-center"
+      className="pointer-events-none absolute inset-x-0 z-10 flex justify-center transition-opacity [@media(hover:hover)]:opacity-0 group-hover:opacity-100 focus-within:opacity-100"
       style={{ bottom: offset + GAP_ABOVE_PANES }}
       data-testid="chart-controls"
     >
