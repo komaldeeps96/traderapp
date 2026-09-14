@@ -152,16 +152,14 @@ validated against TradingView at IF MAE 0.118 and ~94% low-float agreement. It
 is consumed **only** through `pit_float()`: amendment resolution, owner-group
 carry-forward, role-aware staleness and split restatement all live in that
 function, and a hand join silently re-derives at least one of them wrong. That
-repository still has it; only the replay harness here is gone.
+repository has it; this one has no replay harness.
 
-**The first label was wrong, and finding that out was the point.** Grading on
-maximum favourable and adverse excursion from a fixed clock made "below VWAP"
-look far better than "above VWAP" — that is, *buy the ones that have already
-fallen*, the opposite of the method under test. A fixed clock measures
-extension, not edge. The replacement was R-based with a first-touch rule: a bar
-that breaks the stop closes the trade at −1R even if its high cleared the
-target, because that is the order the tape actually filled them in. Any rebuilt
-harness starts there rather than rediscovering it.
+**Label with realized R, first touch.** Grading on maximum favourable and
+adverse excursion from a fixed clock makes "below VWAP" look far better than
+"above VWAP" — *buy the ones that have already fallen*, the opposite of the
+method under test: a fixed clock measures extension, not edge. With a
+first-touch rule a bar that breaks the stop closes the trade at −1R even if its
+high cleared the target, because that is the order the tape filled them in.
 
 **The honest baseline**, buying every candidate blind at 08:00:
 

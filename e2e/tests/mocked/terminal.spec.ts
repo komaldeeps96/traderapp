@@ -324,8 +324,8 @@ test.describe('session clock', () => {
     await expect(terminal.page.getByTestId('session-badge')).toBeVisible();
   });
 
-  test('no longer carries the candle countdown', async ({ terminal }) => {
-    // It moved onto each chart's price axis, under the last-price label.
+  test('carries no candle countdown in the toolbar', async ({ terminal }) => {
+    // The countdown sits on each chart's price axis, under the last-price label.
     await terminal.waitForChart();
     await expect(terminal.page.getByTestId('candle-countdown')).toHaveCount(0);
   });
@@ -388,8 +388,7 @@ test.describe('news slot clock', () => {
 
 test.describe('market regime', () => {
   test('shows the regime counts in the toolbar', async ({ terminal }) => {
-    // The screener panel that used to carry these was removed from the UI;
-    // the counts are a market-wide read and outlived it.
+    // A market-wide read, so it sits in the toolbar rather than in a panel.
     await terminal.waitForChart();
     await expect(terminal.page.getByTestId('regime')).toContainText('↑50%:4');
     await expect(terminal.page.getByTestId('regime')).toContainText('↑100%:1');

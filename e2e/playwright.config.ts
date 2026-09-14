@@ -171,7 +171,8 @@ export default defineConfig({
         // on this machine. Switched off outright, and no YAML is read at all.
         TRADERAPP_TRADING__ENABLED: 'false',
         TRADERAPP_SETTINGS_FILE: '/dev/null',
-        TRADERAPP_STATE_FILE: '/tmp/traderapp-e2e-state.yaml',
+        // Fresh per run: an aborted run's watchlist must not seed the next.
+        TRADERAPP_STATE_FILE: `/tmp/traderapp-e2e-state-${Date.now()}.yaml`,
         TRADERAPP_LOG_LEVEL: 'WARNING',
       },
     },

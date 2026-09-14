@@ -114,7 +114,7 @@ export function loadVisibility(
 }
 
 /**
- * What the user had toggled back when this was a browser preference.
+ * Indicator toggles a browser saved under the legacy localStorage key.
  *
  * Read once and deleted, so an upgrade keeps the toggles rather than resetting
  * to defaults. Anything the server already knows wins, being newer.

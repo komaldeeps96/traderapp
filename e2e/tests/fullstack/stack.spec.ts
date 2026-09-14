@@ -328,6 +328,8 @@ test.describe('indicator toggles, against the real server', () => {
  * and persistence do not depend on a price being fetched.
  */
 test.describe('watchlist, against the real server', () => {
+  // Each test builds on the state file the one before it left.
+  test.describe.configure({ mode: 'serial' });
   async function openWatch(terminal: TerminalPage): Promise<void> {
     await terminal.waitForChart();
     await terminal.page.getByTestId('scanner-tab-watch').click();

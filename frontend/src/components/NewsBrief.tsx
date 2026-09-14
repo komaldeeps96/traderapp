@@ -6,24 +6,10 @@ import { useTerminalStore } from '@/store/useTerminalStore';
 import type { NewsBrief as Brief, NewsVerdict } from '@/types/protocol';
 
 /**
- * The news panel's top half: one session, read and scored, so the list below can
- * be skimmed rather than opened.
- *
- * The server runs the `claude` CLI installed on this machine — no tools, no
- * session, a JSON schema — against the session's headlines and their bodies,
- * against Ross Cameron's catalyst rubric.
- *
- * **It reads one session, not thirty days.** The window runs from the previous
- * close to now, because a release at 16:05 is tomorrow's gap. Session and
- * window are both on the header, being different facts.
- *
- * **The score is catalyst quality, not a trade signal.** The reader sees
- * headlines and nothing else — no float, gap, relative volume or regime — so a
- * 2 means the news is not a reason to be long, never that the stock is
- * untradeable. The chip's tooltip says so.
- *
- * **It costs about a cent and a dozen seconds**, hence the toolbar switch and
- * the cache keyed on the article ids covered.
+ * The news panel's top half: one session read and scored by the local `claude`
+ * CLI, so the list below can be skimmed. docs/news-summary.md is the design.
+ * The score is catalyst quality, not a trade signal — the reader sees headlines
+ * and bodies only — and the chip's tooltip says so.
  */
 const VERDICT_CLASS: Record<NewsVerdict, string> = {
   strong: 'bg-up/20 text-up',

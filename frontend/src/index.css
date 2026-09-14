@@ -40,12 +40,9 @@
    it rather than derived from the light one.
  *
  * THE NEUTRALS ARE COOL, DELIBERATELY
- * The dark grounds sit at hue 224° (blue). The text steps used to be lifted
- * straight from the light palette — `--color-ink-2` was literally light
- * mode's `--color-line-strong` — which put 45-60° yellow-greys on a blue
- * ground. Nearly opposite hues, so they read dingy rather than quiet, and the
- * effect got worse the smaller the type. They are now hue-matched to the
- * ground at low chroma, so a grey reads as grey.
+ * The dark grounds sit at hue 224° (blue) and the text steps are hue-matched
+ * to them at low chroma, so a grey reads as grey. The light palette's warm
+ * greys on this ground are nearly opposite hues: dingy, worse at small sizes.
  *
  * The muted steps also gained contrast: they carry 9-11px labels, where the
  * old values sat close enough to the 4.5:1 floor to be a squint. Measured

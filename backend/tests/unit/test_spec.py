@@ -58,9 +58,9 @@ class TestShippedConfig:
     def test_daily_and_weekly_compute_every_daily_level(self):
         """Every level derived from daily bars is available on 1d and 1w.
 
-        These used to be computed for intraday timeframes only, so a daily
-        chart carried four indicators and no levels at all — the 200-day
-        average was missing from the one timeframe it is named after. The
+        Computed for intraday timeframes only, a daily chart would carry no
+        levels at all — not even the 200-day average, on the one timeframe
+        it is named after. The
         backend now computes them everywhere and the frontend decides what to
         draw, which is what makes toggling a level instant rather than a
         round trip.
@@ -129,9 +129,9 @@ class TestShippedConfig:
     def test_every_key_level_looks_the_same(self):
         """One solid neutral line, no exceptions.
 
-        They used to be tiered by weight and dash pattern, which made a
-        handful conspicuously unlike the rest for a distinction the eye had
-        to be taught — and most of it was overwritten each frame by the
+        Tiered by weight and dash pattern, a handful would look conspicuously
+        unlike the rest for a distinction the eye has to be taught — and most
+        of it would be overwritten each frame by the
         confluence pass anyway. What a level is worth is shown by the band
         colouring, not by its configured style.
         """

@@ -6,34 +6,17 @@
  * date, so a screenshot taken today matches one taken next month.
  */
 
-export interface WireBar {
-  t: number;
-  o: number;
-  h: number;
-  l: number;
-  c: number;
-  v: number;
-  n: number;
-  x?: number;
-}
+// The app's own wire types, so a renamed field breaks this file, not a spec.
+import type {
+  IndicatorSpec,
+  OrderRow,
+  PositionRow,
+  SeriesPoint,
+  TradingState,
+  WireBar,
+} from '../../frontend/src/types/protocol';
 
-export type SeriesPoint = [number, number];
-
-export interface IndicatorSpec {
-  id: string;
-  type: string;
-  label: string;
-  color: string;
-  color_dark: string;
-  pane: 'price' | 'volume' | 'macd';
-  readout_only?: boolean;
-  line_width: number;
-  line_style: 'solid' | 'dashed' | 'dotted';
-  price_line: boolean;
-  last_value: boolean;
-  group: string;
-  timeframes: Record<string, { enabled: boolean; label?: string }>;
-}
+export type { IndicatorSpec, SeriesPoint, WireBar };
 
 const INTRADAY = {
   '10s': { enabled: true },
@@ -62,6 +45,7 @@ function line(
     color,
     color_dark: colorDark,
     pane: 'price',
+    readout_only: false,
     line_width: 1,
     line_style: 'solid',
     price_line: false,
@@ -154,6 +138,7 @@ export const INDICATORS: IndicatorSpec[] = [
     color: '#898781',
     color_dark: '#898781',
     pane: 'volume',
+    readout_only: false,
     line_width: 1,
     line_style: 'solid',
     price_line: false,
@@ -168,6 +153,7 @@ export const INDICATORS: IndicatorSpec[] = [
     color: '#2a78d6',
     color_dark: '#3987e5',
     pane: 'macd',
+    readout_only: false,
     line_width: 1,
     line_style: 'solid',
     price_line: false,
@@ -1110,16 +1096,10 @@ export function makeWatchlistMessage(symbols: string[], note: string | null = nu
  * terminal's default appearance and every visual baseline has no strip. A spec
  * that wants one arms it deliberately.
  */
-export function makeTradingMessage(overrides: Record<string, unknown> = {}) {
-  const {
-    positions = [],
-    orders = [],
-    ...state
-  } = overrides as {
-    positions?: unknown[];
-    orders?: unknown[];
-    [key: string]: unknown;
-  };
+export function makeTradingMessage(
+  overrides: Partial<TradingState> & { positions?: PositionRow[]; orders?: OrderRow[] } = {},
+) {
+  const { positions = [], orders = [], ...state } = overrides;
   return {
     type: 'trading' as const,
     state: {
@@ -1138,7 +1118,7 @@ export function makeTradingMessage(overrides: Record<string, unknown> = {}) {
       positions_known: true,
       note: null,
       ...state,
-    },
+    } satisfies TradingState,
     positions,
     orders,
   };
@@ -1147,12 +1127,12 @@ export function makeTradingMessage(overrides: Record<string, unknown> = {}) {
 export function makePosition(
   symbol = 'AAPL',
   shares = 14,
-  overrides: Record<string, unknown> = {},
-) {
+  overrides: Partial<PositionRow> = {},
+): PositionRow {
   return { symbol, shares, committed: 0, avg_cost: 9.87, unrealized: 1.84, ...overrides };
 }
 
-export function makeOrder(overrides: Record<string, unknown> = {}) {
+export function makeOrder(overrides: Partial<OrderRow> = {}) {
   return {
     type: 'order' as const,
     order: {
@@ -1167,7 +1147,7 @@ export function makeOrder(overrides: Record<string, unknown> = {}) {
       message: null,
       at: SESSION_START,
       ...overrides,
-    },
+    } satisfies OrderRow,
   };
 }
 

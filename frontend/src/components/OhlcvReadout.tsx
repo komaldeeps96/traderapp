@@ -9,9 +9,8 @@ import { Divider, Field } from './PanelField';
  * The bar row: the hovered candle, or the live one with the crosshair off.
  *
  * The bar's own clock leads the row, which is where it belongs — it labels
- * the numbers beside it. It used to sit at the right-hand end of the row
- * above, close enough to the wall clock in the toolbar to read as a broken
- * copy of it: a 10-second bar opens up to ten seconds before the time it is
+ * the numbers beside it. Anywhere near the toolbar's wall clock it reads as
+ * a broken copy of it: a 10-second bar opens up to ten seconds before the time it is
  * read at, so the two were never going to agree. Here it is labelled BAR,
  * carries no date while the bar is from the session on screen, and the
  * numbers it stamps are next to it.

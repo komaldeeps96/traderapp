@@ -178,9 +178,8 @@ wins, being the newer of the two.
   and they came back off. 1D still showed both — the timeframes do not leak.
   Toggling back emptied the section and left the rest of the file untouched.
 
-One thing the mocked suite can no longer prove: it used to verify the toggle
-survived a reload, which worked when the browser was the store. Its session
-is a fixed fixture, so that test now asserts the *command* goes out, and the
+The mocked suite cannot prove a toggle survives a reload: its session is a
+fixed fixture, so it asserts the *command* goes out, and the
 round trip is proved in the fullstack suite instead.
 
 ## Phase 3 — statements from companyfacts
@@ -537,18 +536,13 @@ the arithmetic version.
 
 - 1148 backend, 344 frontend, 311 chromium, 19 fullstack, 5 visual.
 - The e2e counts from the fixture's own frozen clock rather than wall time —
-  the fixtures sit in March 2024 so runs stay byte-identical, and the first
-  version of the test measured a gap of two and a half years.
+  the fixtures sit in March 2024 so runs stay byte-identical, and wall time
+  would measure a gap of years.
 
 ## Phase 10 — foreign private issuers
 
-The SEC tabs were empty for SNDL, and I said closing that gap needed a
-different data source. **That was wrong.** The data was already in hand: the
-same free `companyfacts` endpoint the terminal fetches for every symbol
-returns 200 for SNDL with 240 concepts. The tabs were empty because
-`financials.py` only looked in the `us-gaap` taxonomy.
-
-A company filing a 40-F or 20-F tags under **`ifrs-full`**. Every line the
+The same free `companyfacts` endpoint covers foreign private issuers — SNDL
+returns 240 concepts — under a different taxonomy. A company filing a 40-F or 20-F tags under **`ifrs-full`**. Every line the
 terminal draws has an IFRS equivalent, so each `LineSpec` chain simply gained
 its counterparts. No branching: a filer that *switched* taxonomies — Canopy
 Growth carries both — gets one continuous series from the same period-by-period

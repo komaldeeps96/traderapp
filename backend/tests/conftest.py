@@ -16,6 +16,18 @@ from app.core.clock import NY_TZ
 from app.domain.bars import Bar
 
 
+def pytest_configure(config):
+    """Before collection, not per test: importing ``app.main`` builds the app,
+    and ``get_settings()`` caches whichever file it read first."""
+    markexpr = config.option.markexpr or ""
+    if "audit" in markexpr and "not audit" not in markexpr:
+        return
+    os.environ["TRADERAPP_SETTINGS_FILE"] = os.devnull
+    from app.core.settings import get_settings
+
+    get_settings.cache_clear()
+
+
 @pytest.fixture(autouse=True)
 def _no_machine_settings(request, monkeypatch):
     """Keep this machine's ``config/settings.yaml`` out of every test but the

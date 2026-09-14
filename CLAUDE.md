@@ -119,7 +119,8 @@ before touching source. All three engines pass in full sequentially.
 Three columns. `docs/terminal-expansion.md` is the design.
 
 **Left** has its own tab strip: *Day* holds the four IBKR market-cap scanners,
-*Swing* four TradingView setups that need no TWS. Key levels sit beneath both.
+*Swing* four TradingView setups that need no TWS, *Watch* the watchlist. Key
+levels sit beneath all three.
 
 **Middle** is tabbed — Chart, Financials, Metrics, Insiders, Peers. The chart
 is **hidden with `visibility`, never unmounted**: a `display:none` container
@@ -210,7 +211,7 @@ be long*, never *do not trade this*. A test asserts the sentence is there.
 **The flags are the sandbox.** `--tools ""`, `--safe-mode`,
 `--strict-mcp-config`, `--permission-prompts none`, `cwd` at `$HOME`. Not
 `--bare`: it demands `ANTHROPIC_API_KEY` and never reads this machine's OAuth.
-`test_the_reader_runs_with_no_tools_and_no_project_config` asserts argv flag
+`test_the_reader_has_no_tools_and_no_project_configuration` asserts argv flag
 by flag.
 
 **It is off in every test** — `news_ai.enabled=False` in integration settings,
@@ -256,7 +257,7 @@ staleness and split restatement all live there. `pit_market_cap()` is its twin.
 
 ## Visual baselines
 
-Tolerance is `maxDiffPixelRatio: 0.004`, so a small added chip is well under
+Tolerance is `maxDiffPixelRatio: 0.004` (0.01 on three chart shots), so a small added chip is well under
 it: **a green visual run is not evidence that a small component change was
 noticed.** After any toolbar or strip change, assert the new element renders,
 then regenerate.

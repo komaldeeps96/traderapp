@@ -3,7 +3,7 @@ import { expect, test } from '../../fixtures/test';
 /**
  * The right-hand dock.
  *
- * The rail that used to be the mini-chart column. What matters in a browser
+ * What matters in a browser
  * rather than a unit test is that switching tabs does not disturb the layout
  * or the main chart: the width is shared, the charts tab is genuinely
  * unmounted when another is open (a hidden chart container is zero-height and

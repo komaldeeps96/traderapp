@@ -7,8 +7,8 @@ strict pattern before it goes anywhere.
 Outbound messages are built as plain dicts. A snapshot carries thousands of
 bars and is rebuilt per subscription, so routing it through model validation
 on every send buys nothing. The shapes are declared as TypedDicts and mirrored
-in ``frontend/src/types/protocol.ts``; ``tests/unit/test_protocol.py`` locks
-them down.
+in ``frontend/src/types/protocol.ts``; ``tests/unit/test_protocol_contract.py``
+locks them down.
 """
 
 from __future__ import annotations

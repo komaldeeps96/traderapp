@@ -126,9 +126,8 @@ test.describe('news tab', () => {
     terminal,
     page,
   }) => {
-    // This used to read "News needs a running IBKR TWS or Gateway
-    // connection", which stopped being true the moment Benzinga arrived on
-    // Alpaca's connection: it answers with no TWS at all.
+    // Not "News needs a running IBKR TWS": Benzinga arrives on Alpaca's
+    // connection and answers with no TWS at all.
     await page.route('**/api/news/*', (route) =>
       route.fulfill({
         status: 200,

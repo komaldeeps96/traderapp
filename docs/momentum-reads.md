@@ -54,8 +54,8 @@ Everything below marks which tier it came from.
       series and the once-a-second paths. 993 backend tests, ruff clean,
       98% on `functions.py`.
 
-      `windowed_rvol` was already time-of-day matched — the earlier claim
-      that it was not was wrong. Two real defects, both fixed:
+      `windowed_rvol` is time-of-day matched, and guards two ways it could
+      mislead:
 
       *Mean → median.* One 45x session anywhere in the lookback made a
       genuinely 4x day read **0.41x** — the meter said "quiet" on a stock
@@ -138,13 +138,6 @@ Everything below marks which tier it came from.
         it, which is right: prime is about managing what is open, and this is
         about not starting something. Every documented post-open disaster is
         an initiation; several post-open triumphs are continuations.
-
-      Worth recording: **the visual baselines passed while stale.** A chip
-      added to the toolbar is far under the 0.4% tolerance, so the suite went
-      green against a screenshot that no longer matched what ships. Caught by
-      checking whether the chip rendered at the frozen time rather than
-      trusting the pass; baselines regenerated. The tolerance comment already
-      warned about exactly this and it still nearly slipped through.
 
 - [x] **6 — Headroom to the next daily level** — DONE
       `store/selectors/levels.ts` (`headroom`, `HeadroomView`,

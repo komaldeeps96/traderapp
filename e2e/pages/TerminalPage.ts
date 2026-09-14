@@ -236,7 +236,7 @@ export class TerminalPage {
     for (let attempt = 0; attempt < 6; attempt += 1) {
       // Park outside the chart so entering it is a genuine crossing.
       await this.page.mouse.move(box.x + box.width * 0.5, Math.max(1, box.y - 20));
-      await this.page.waitForTimeout(20);
+      await nextFrames(this.page, 1);
 
       // Approach from the far side of the target; the extreme edges are dead
       // zones and entering at the target itself gives the chart no movement.
@@ -247,7 +247,7 @@ export class TerminalPage {
         { steps: 4 },
       );
       await this.page.mouse.move(targetX, targetY, { steps: 12 });
-      await this.page.waitForTimeout(80);
+      await nextFrames(this.page, 2);
 
       if ((await this.ohlcv.getAttribute('data-hovering')) === 'true') return;
     }
@@ -266,7 +266,7 @@ export class TerminalPage {
       await this.page.mouse.move(box.x + box.width / 2, box.y + 4, { steps: 6 });
     }
     await this.page.mouse.move(2, 2, { steps: 6 });
-    await this.page.waitForTimeout(60);
+    await nextFrames(this.page, 2);
   }
 
   // ── introspection ────────────────────────────────────────────────────
@@ -349,4 +349,20 @@ declare global {
       ready: () => boolean;
     };
   }
+}
+
+/**
+ * Let the page paint: the crosshair publishes on animation frames, so a frame
+ * is the unit to wait in, not milliseconds that stretch on a loaded machine.
+ */
+async function nextFrames(page: Page, count: number): Promise<void> {
+  await page.evaluate(
+    (frames) =>
+      new Promise<void>((resolve) => {
+        const step = (left: number) =>
+          left === 0 ? resolve() : requestAnimationFrame(() => step(left - 1));
+        step(frames);
+      }),
+    count,
+  );
 }

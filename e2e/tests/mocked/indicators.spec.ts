@@ -51,8 +51,7 @@ test.describe('indicator toggles', () => {
   });
 
   test('reports the choice to the server', async ({ terminal, backend }) => {
-    // This used to be a localStorage round trip verified with a reload. The
-    // toggle now lives in state.yaml, so what the page owes is the command —
+    // The toggle lives in state.yaml, so what the page owes is the command —
     // the reload half is proved against the real backend, in the fullstack
     // suite, where the session that comes back is not a fixed fixture.
     await terminal.waitForChart();
@@ -88,8 +87,8 @@ test.describe('indicator toggles', () => {
 });
 
 test.describe('toggles the server remembers', () => {
-  // Visibility used to be a browser preference. It now arrives with the
-  // session, so a chart opens the same way on any machine the terminal runs on.
+  // Visibility arrives with the session, so a chart opens the same way on any
+  // machine the terminal runs on.
   test.use({ backendOptions: { sessionIndicators: { '10s': { ema9: false } } } });
 
   test('opens with an indicator the server has switched off', async ({ terminal }) => {

@@ -61,10 +61,14 @@ dev:
 	@echo
 	@$(MAKE) -j2 backend frontend
 
-# The whole gate, in the order that fails fastest: linters, then types, then
-# the suites cheapest first. CI runs the same steps, less the macOS-only visual
-# baselines.
+# The local gate, in the order that fails fastest: linters, then types, then
+# the suites cheapest first. CI adds the dependency audits, the coverage floor
+# and the build, and leaves out the macOS-only visual baselines.
 check: lint typecheck test
+
+# Pin CI to the versions this machine's suite passes on.
+constraints:
+	cd backend && { head -3 constraints.txt; .venv/bin/pip freeze --exclude-editable; } > constraints.new && mv constraints.new constraints.txt
 
 lint: lint-backend lint-frontend
 

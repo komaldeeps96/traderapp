@@ -12,25 +12,11 @@ import { useTerminalStore } from "@/store/useTerminalStore";
 import type { BlockedReason, PositionRow } from "@/types/protocol";
 
 /**
- * Order entry — the strip under the chart. See docs/order-entry.md.
- *
- * **Where it sits.** The chart's bottom edge is the nearest fixed anchor to a
- * live price that moves vertically, and *outside* the tab panel, so a position
- * stays visible while a balance sheet is read. Far from the toolbar's symbol
- * input, where buy buttons would be one mistyped ticker from an unintended
- * order. It costs height rather than width, which the right dock owns.
- *
- * **What the layout does.** The ticker is leftmost and largest: buying the
- * symbol you were looking at a moment ago is the worst failure mode of a
- * six-button trading UI. Buys ascend from the left, sells to the right, with
- * dead space between — the innermost pair is `$50` and `25%`, the cheapest
- * mis-click available, and `ALL` sits furthest from every buy button. Widths
- * are fixed and figures tabular, so a share count going 9 to 10 does not shift
- * the row under a moving finger.
- *
- * **There is no confirmation dialog**, which would defeat a one-click momentum
- * entry. The protection is on the server (services/trading.py); the strip
- * mirrors its repeat window so a second click is visibly dead, not refused.
+ * Order entry — the strip under the chart; docs/order-entry.md is the design.
+ * The ticker leads because buying the symbol viewed a moment ago is the worst
+ * failure here; ALL sits furthest from every buy. No confirmation dialog: the
+ * guards are on the server (services/trading.py), and the strip mirrors its
+ * repeat window so a second click is visibly dead.
  */
 
 /** What a dead button says, in the space a dead button has. */

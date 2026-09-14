@@ -89,8 +89,7 @@ class TestAdoptConfig:
         carries the old number, and adopting that would pin the panel back to
         it silently and permanently."""
         svc = service()
-        # Ten is what small cap used to run at, so this is the exact state
-        # file that exists on disk from before the depth changed.
+        # A state file saved at a shallower depth than the tier now runs.
         svc.adopt_config({"number_of_rows": 10})
         assert svc.state.config.number_of_rows == 5
 

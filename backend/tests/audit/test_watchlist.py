@@ -2,9 +2,9 @@
 
 Marked `audit` and excluded from the default run: it leaves the machine.
 
-It exists because reusing the screeners' universe filter here was wrong in a
-way no unit test could have caught — every symbol still produced a row, and
-every one of those rows was empty. The panel looked like it worked. Only
+A unit test cannot see the fault it guards: reuse the screeners' universe
+filter here and every symbol still produces a row, every one of them empty.
+The panel looks like it works. Only
 asking the real source about real symbols shows which of them answer.
 
 The three classes below are the ones that were blank, each named with why:

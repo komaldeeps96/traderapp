@@ -65,9 +65,8 @@ export const CHART_PALETTES: Record<ThemeName, ChartPalette> = {
   dark: {
     surface: '#131722',
     textPrimary: '#ffffff',
-    // Axis labels and tick marks. The old warm grey measured 4.98:1 on the
-    // chart surface — the weakest text anywhere in the terminal, on the
-    // smallest type. This is 6.7:1 at worst and shares the surface's hue.
+    // Axis labels and tick marks: the smallest type in the terminal, so the
+    // firmest muted contrast — 6.7:1 at worst, in the surface's hue.
     textMuted: '#9ba6ba',
     grid: '#1e222d',
     border: '#39414f',

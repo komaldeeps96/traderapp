@@ -531,10 +531,6 @@ function SessionRow({
         testId="tp-prevclose"
         title="Previous session's close — the gap and halt-band reference"
       />
-      {/* The all-time high used to sit here. It is a price, so it belongs in
-          the key levels ladder with the 52-week high, sorted by where it
-          actually is — not as a field whose distance percentage ran to eleven
-          digits on a reverse-split name. */}
     </Row>
   );
 }

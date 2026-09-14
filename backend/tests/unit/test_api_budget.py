@@ -37,9 +37,11 @@ class TestProviderBudget:
     async def test_expired_requests_leave_the_count(self):
         budget = ProviderBudget("alpaca", limit=5, window_seconds=1)
         budget._bucket.rates[0].interval = 100  # milliseconds
+        clock = StepClock()
+        budget._clock = clock
         await budget.acquire()
         assert budget.used() == 1
-        await asyncio.sleep(0.15)
+        clock.ms += 150
         assert budget.used() == 0
 
     async def test_concurrent_acquires_never_exceed_the_limit(self):
@@ -59,3 +61,13 @@ class TestApiBudget:
         await budget.alpaca.acquire()
         assert budget.alpaca.used() == 1
         assert budget.ibkr.used() == 0
+
+
+class StepClock:
+    """pyrate-limiter's clock surface, advanced by hand instead of by sleeping."""
+
+    def __init__(self) -> None:
+        self.ms = 1_000_000
+
+    def now(self) -> int:
+        return self.ms
