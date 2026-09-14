@@ -111,8 +111,7 @@ function Instrument() {
 
   return (
     <div
-      // Seven rem keeps a name readable: it is the identity check before an order.
-      className="flex min-w-[7rem] flex-1 items-baseline gap-1.5 overflow-hidden"
+      className="flex min-w-0 flex-1 items-baseline gap-1.5 overflow-hidden"
       data-testid="tb-instrument"
     >
       <span
