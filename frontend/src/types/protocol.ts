@@ -370,33 +370,9 @@ export interface CompanyProfile {
   fiscal_year_end: string;
 }
 
-/**
- * TradingView's ratios and statements — the slow half of the panel. They ride
- * the same row the info strip already fetches, so they cost nothing, which is
- * the only reason they are here.
- */
+/** From the TradingView row the info strip already fetches. */
 export interface BusinessStats {
   industry: string;
-  country: string;
-  employees: number | null;
-  price_earnings: number | null;
-  eps_ttm: number | null;
-  revenue_ttm: number | null;
-  gross_margin: number | null;
-  operating_margin: number | null;
-  net_income: number | null;
-  total_debt: number | null;
-  total_cash: number | null;
-  free_cash_flow: number | null;
-  ebitda: number | null;
-  debt_to_equity: number | null;
-  current_ratio: number | null;
-  enterprise_value: number | null;
-  return_on_equity: number | null;
-  price_to_book: number | null;
-  price_to_sales: number | null;
-  beta: number | null;
-  perf_ytd: number | null;
   /** Epoch seconds of the next scheduled report. */
   earnings_next: number | null;
 }

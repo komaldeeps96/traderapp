@@ -43,31 +43,7 @@ _COLUMNS = [
     # Split-adjusted all-time high since listing — unreachable from our own
     # bars, which only go back three years.
     "High.All",
-    # The fundamentals panel's lower section. All thirty-odd columns resolve
-    # in the one request the row already costs, so carrying them is free —
-    # which is the only reason they are here at all, since none of them
-    # decides whether a trade is possible.
     "industry",
-    "country",
-    "number_of_employees",
-    "price_earnings_ttm",
-    "earnings_per_share_basic_ttm",
-    "total_revenue",
-    "gross_margin",
-    "operating_margin",
-    "net_income",
-    "total_debt",
-    "cash_n_short_term_invest_fq",
-    "free_cash_flow_ttm",
-    "ebitda",
-    "debt_to_equity",
-    "current_ratio",
-    "enterprise_value_current",
-    "return_on_equity",
-    "price_book_fq",
-    "price_sales_current",
-    "beta_1_year",
-    "Perf.YTD",
     "earnings_release_next_date",
 ]
 _ROW = RowReader(_COLUMNS)
@@ -207,26 +183,6 @@ class TVDataService:
             premarket_change=_ROW.number(row, "premarket_change"),
             all_time_high=_ROW.number(row, "High.All"),
             industry=_ROW.text(row, "industry"),
-            country=_ROW.text(row, "country"),
-            employees=_ROW.number(row, "number_of_employees"),
-            price_earnings=_ROW.number(row, "price_earnings_ttm"),
-            eps_ttm=_ROW.number(row, "earnings_per_share_basic_ttm"),
-            revenue_ttm=_ROW.number(row, "total_revenue"),
-            gross_margin=_ROW.number(row, "gross_margin"),
-            operating_margin=_ROW.number(row, "operating_margin"),
-            net_income=_ROW.number(row, "net_income"),
-            total_debt=_ROW.number(row, "total_debt"),
-            total_cash=_ROW.number(row, "cash_n_short_term_invest_fq"),
-            free_cash_flow=_ROW.number(row, "free_cash_flow_ttm"),
-            ebitda=_ROW.number(row, "ebitda"),
-            debt_to_equity=_ROW.number(row, "debt_to_equity"),
-            current_ratio=_ROW.number(row, "current_ratio"),
-            enterprise_value=_ROW.number(row, "enterprise_value_current"),
-            return_on_equity=_ROW.number(row, "return_on_equity"),
-            price_to_book=_ROW.number(row, "price_book_fq"),
-            price_to_sales=_ROW.number(row, "price_sales_current"),
-            beta=_ROW.number(row, "beta_1_year"),
-            perf_ytd=_ROW.number(row, "Perf.YTD"),
             earnings_next=_ROW.number(row, "earnings_release_next_date"),
             fetched_at=time.time(),
         )

@@ -328,13 +328,11 @@ function Habit({ read }: { read: DilutionRead }) {
   );
 }
 
-/**
- * The ratios, last — context rather than a decision in a workflow measured in
- * minutes. The next earnings date is the exception, and the reason the group is
- * here at all.
- */
+/** Last, because it is context rather than a decision; the earnings date is the
+ *  row worth planning around. */
 function Business({ stats }: { stats: BusinessStats }) {
   const earnings = stats.earnings_next;
+  if (!stats.industry && earnings == null) return null;
   return (
     <>
       <DockGroup label="Business" />
@@ -347,37 +345,8 @@ function Business({ stats }: { stats: BusinessStats }) {
           title="TradingView's scheduled report date"
         />
       )}
-      <Ratio label="Revenue TTM" value={stats.revenue_ttm} format={formatMoney} />
-      <Ratio label="Net income" value={stats.net_income} format={formatMoney} />
-      <Ratio label="Free cash flow" value={stats.free_cash_flow} format={formatMoney} />
-      <Ratio label="Gross margin" value={stats.gross_margin} format={percent} />
-      <Ratio label="P/E" value={stats.price_earnings} format={ratio} />
-      <Ratio label="EPS TTM" value={stats.eps_ttm} format={formatPrice} />
-      <Ratio label="Debt / equity" value={stats.debt_to_equity} format={ratio} />
-      <Ratio label="Current ratio" value={stats.current_ratio} format={ratio} />
-      <Ratio label="Beta" value={stats.beta} format={ratio} />
-      <Ratio label="Perf YTD" value={stats.perf_ytd} format={percent} />
-      <Ratio label="Employees" value={stats.employees} format={formatCompact} />
     </>
   );
-}
-
-const percent = (value: number | null) => (value == null ? '—' : `${value.toFixed(1)}%`);
-const ratio = (value: number | null) => (value == null ? '—' : value.toFixed(2));
-
-/** A ratio that is simply absent for many small caps — a loss-maker has no
- *  P/E, and negative equity has no debt-to-equity. Absent means absent. */
-function Ratio({
-  label,
-  value,
-  format,
-}: {
-  label: string;
-  value: number | null;
-  format: (value: number | null) => string;
-}) {
-  if (value == null) return null;
-  return <DockRow label={label} value={format(value)} />;
 }
 
 /**

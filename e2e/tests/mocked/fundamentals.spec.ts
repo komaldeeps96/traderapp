@@ -244,31 +244,20 @@ test.describe('dilution chip', () => {
   });
 });
 
-test.describe('business ratios', () => {
-  test('carries the ratios below the dilution read', async ({ terminal }) => {
+test.describe('business', () => {
+  test('names the industry below the dilution read', async ({ terminal }) => {
     await terminal.waitForChart();
     await terminal.dockTab('fundamentals').click();
 
     const panel = terminal.dockPanel('fundamentals');
     await expect(panel).toContainText('Business');
     await expect(panel).toContainText('Miscellaneous Commercial Services');
-    await expect(panel).toContainText('Current ratio');
   });
 
   test('shows the next earnings date', async ({ terminal }) => {
-    // The one row in this group worth planning around.
     await terminal.waitForChart();
     await terminal.dockTab('fundamentals').click();
 
     await expect(terminal.page.getByTestId('next-earnings')).toContainText('2026-');
-  });
-
-  test('omits a ratio the company has no value for', async ({ terminal }) => {
-    // A loss-maker has no P/E and negative equity has no debt-to-equity;
-    // absent means absent, not "—".
-    await terminal.waitForChart();
-    await terminal.dockTab('fundamentals').click();
-
-    await expect(terminal.dockPanel('fundamentals')).not.toContainText('Debt / equity');
   });
 });
