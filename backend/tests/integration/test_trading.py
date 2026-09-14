@@ -26,7 +26,7 @@ from app.core.settings import (
     Settings,
     TradingSettings,
 )
-from tests.integration.conftest import receive_until
+from tests.integration.conftest import TEST_HOSTS, receive_until
 
 
 class TestHandshake:
@@ -143,6 +143,7 @@ def arm(tmp_path, alpaca_api):
             state_file=tmp_path / "state.yaml",
             indicators_file=CONFIG_DIR / "indicators.yaml",
             log_level="WARNING",
+            allowed_host_regex=TEST_HOSTS,
         )
         with TestClient(create_app(settings), client=peer) as client:
             yield client

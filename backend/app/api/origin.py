@@ -16,12 +16,22 @@ from ..core.settings import Settings
 from ..services.container import get_container
 
 
+def host_allowed(host: str | None, settings: Settings) -> bool:
+    """Whether ``host`` names this machine, as opposed to a rebound DNS name.
+
+    A browser always sends Host; a missing one is not a browser.
+    """
+    return host is None or re.fullmatch(settings.allowed_host_regex, host) is not None
+
+
 def origin_allowed(origin: str | None, host: str | None, settings: Settings) -> bool:
     """Whether a page at ``origin`` may talk to this server.
 
     No Origin means no browser, and anything that is not one can claim whatever
     origin it likes; the loopback rule on orders covers it.
     """
+    if not host_allowed(host, settings):
+        return False
     if origin is None:
         return True
     if origin in settings.cors_origins:

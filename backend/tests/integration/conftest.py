@@ -32,6 +32,8 @@ from app.providers.alpaca import AlpacaProvider
 from tests.conftest import daily_bars_for, minute_bars_for, trades_for
 
 ALPACA_HOST = "https://data.alpaca.markets"
+# Starlette's TestClient dials "testserver".
+TEST_HOSTS = r"^(localhost|testserver)(:\d+)?$"
 
 
 @pytest.fixture
@@ -67,6 +69,7 @@ def settings(tmp_path) -> Settings:
         state_file=tmp_path / "state.yaml",
         indicators_file=CONFIG_DIR / "indicators.yaml",
         log_level="WARNING",
+        allowed_host_regex=TEST_HOSTS,
     )
 
 

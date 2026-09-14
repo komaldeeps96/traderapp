@@ -57,6 +57,19 @@ class TestOriginRule:
         assert origin_allowed("http://localhost:3000", "localhost:8000", settings)
         assert not origin_allowed("http://192.168.1.20:3000", "localhost:8000", settings)
 
+    @pytest.mark.parametrize("host", ["evil.example:8000", "evil.example", "10.0.0.5.nip.io:8000"])
+    def test_a_dns_name_rebound_onto_this_machine_is_refused(self, host):
+        """The page's own origin and Host agree, so only the Host's name gives it away."""
+        origin = f"http://{host}"
+        assert not origin_allowed(origin, host, Settings())
+        assert not origin_allowed(None, host, Settings())
+
+    @pytest.mark.parametrize(
+        "host", ["localhost:8000", "127.0.0.1:8000", "[::1]:8000", "192.168.1.20:8000", "mac.local"]
+    )
+    def test_this_machine_by_any_of_its_names_is_same_origin(self, host):
+        assert origin_allowed(f"http://{host}", host, Settings())
+
     def test_a_lookalike_host_does_not_match_the_lan_pattern(self):
         assert not origin_allowed(
             "http://192.168.1.20.evil.example:3000", "localhost:8000", Settings()

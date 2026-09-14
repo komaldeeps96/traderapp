@@ -30,6 +30,16 @@ from pydantic_settings import (
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = BACKEND_ROOT / "config"
 
+# Loopback, the three RFC 1918 ranges and Bonjour names.
+HOME_NETWORK = (
+    r"localhost"
+    r"|127\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|192\.168\.\d{1,3}\.\d{1,3}"
+    r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+    r"|[A-Za-z0-9-]+\.local"
+)
+
 AlpacaFeed = Literal["sip", "iex", "delayed_sip", "otc"]
 
 
@@ -334,16 +344,10 @@ class Settings(BaseSettings):
     # allow_credentials. Empty binds the terminal back to this laptop:
     #
     #     TRADERAPP_CORS_ORIGIN_REGEX= make backend
-    cors_origin_regex: str = (
-        r"^http://("
-        r"localhost"
-        r"|127\.\d{1,3}\.\d{1,3}\.\d{1,3}"
-        r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
-        r"|192\.168\.\d{1,3}\.\d{1,3}"
-        r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
-        r"|[A-Za-z0-9-]+\.local"
-        r"):(3000|4173)$"
-    )
+    cors_origin_regex: str = r"^http://(" + HOME_NETWORK + r"):(3000|4173)$"
+    # The Host a browser sends is the name it dialled, so a DNS name rebound onto
+    # this machine arrives under its own name and passes a same-origin check.
+    allowed_host_regex: str = r"^(" + HOME_NETWORK + r"|\[::1\])(:\d+)?$"
 
     default_symbol: str = "AAPL"
     default_timeframe: str = "10s"

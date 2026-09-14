@@ -21,6 +21,13 @@ class TestWhereARequestComesFrom:
     def test_a_foreign_origin_is_refused(self, client, origin):
         assert client.get("/api/health", headers={"origin": origin}).status_code == 403
 
+    def test_a_page_on_a_rebound_dns_name_is_refused(self, client):
+        """Same-origin fetches carry no Origin, so the Host is the only tell."""
+        response = client.get(
+            "/api/health", headers={"host": "evil.example:8000", "sec-fetch-site": "same-origin"}
+        )
+        assert response.status_code == 403
+
     @pytest.mark.parametrize(
         "headers",
         [
