@@ -18,11 +18,17 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from ..core.clock import parse_iso_date
 from ..domain.financials import build_statements
 
 # Four quarters make a trailing year. Fewer than four is not a year, and
 # annualising two quarters is a guess the terminal does not make.
 TTM_QUARTERS = 4
+# Four contiguous quarters end ~273 days apart (280 for 52/53-week filers);
+# a missing quarter pushes the fourth back to ~364.
+MAX_TTM_END_SPREAD_DAYS = 300
+# A year back, allowing 52/53-week drift.
+YEAR_APART_DAYS = (350, 380)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,15 +48,24 @@ def _safe_divide(top: float | None, bottom: float | None, *, positive_only: bool
     return top / bottom
 
 
-def _growth(series: Sequence[float | None], index: int) -> float | None:
+def _growth(
+    series: Sequence[float | None],
+    index: int,
+    step: int = 1,
+    periods: Sequence[dict] = (),
+) -> float | None:
     """Change against the same period a year earlier.
 
-    Periods run newest first, so the comparison is the *next* entry along.
+    Periods run newest first, so a year back is ``step`` entries along: one on
+    the annual axis, four on the quarterly. Given the dates, the two must sit a
+    year apart, or a missing quarter compares the wrong one.
     Growth from a negative base is refused: -2 to 1 is a sign change, not 150%.
     """
-    if index + 1 >= len(series):
+    if index + step >= len(series):
         return None
-    now, before = series[index], series[index + 1]
+    if periods and not _a_year_apart(periods, index, index + step):
+        return None
+    now, before = series[index], series[index + step]
     if now is None or before is None or before <= 0:
         return None
     return (now - before) / before
@@ -91,7 +106,21 @@ METRIC_GROUPS: tuple[tuple[str, tuple[MetricSpec, ...]], ...] = (
 )
 
 
-def _per_period(values: dict[str, list[float | None]], count: int) -> dict[str, list[float | None]]:
+def _end(periods: Sequence[dict], index: int):
+    return parse_iso_date(periods[index].get("end")) if index < len(periods) else None
+
+
+def _a_year_apart(periods: Sequence[dict], newer: int, older: int) -> bool:
+    later, earlier = _end(periods, newer), _end(periods, older)
+    if later is None or earlier is None:
+        return False
+    low, high = YEAR_APART_DAYS
+    return low <= (later - earlier).days <= high
+
+
+def _per_period(
+    values: dict[str, list[float | None]], periods: Sequence[dict], annual: bool
+) -> dict[str, list[float | None]]:
     """Every ratio, one list per key, aligned with the period axis."""
 
     def col(key: str, index: int) -> float | None:
@@ -99,7 +128,8 @@ def _per_period(values: dict[str, list[float | None]], count: int) -> dict[str, 
         return series[index] if series and index < len(series) else None
 
     out: dict[str, list[float | None]] = {}
-    for index in range(count):
+    step = 1 if annual else TTM_QUARTERS
+    for index in range(len(periods)):
         revenue = col("revenue", index)
         operating = col("operating_income", index)
         capex = col("capex", index)
@@ -123,9 +153,9 @@ def _per_period(values: dict[str, list[float | None]], count: int) -> dict[str, 
             "return_on_assets": _safe_divide(
                 col("net_income", index), col("total_assets", index), positive_only=True
             ),
-            "revenue_growth": _growth(values.get("revenue", []), index),
-            "net_income_growth": _growth(values.get("net_income", []), index),
-            "operating_income_growth": _growth(values.get("operating_income", []), index),
+            "revenue_growth": _growth(values.get("revenue", []), index, step, periods),
+            "net_income_growth": _growth(values.get("net_income", []), index, step, periods),
+            "operating_income_growth": _growth(values.get("operating_income", []), index, step, periods),
             "current_ratio": _safe_divide(
                 col("current_assets", index), col("current_liabilities", index), positive_only=True
             ),
@@ -133,7 +163,7 @@ def _per_period(values: dict[str, list[float | None]], count: int) -> dict[str, 
             "interest_coverage": _safe_divide(
                 operating, col("interest_expense", index), positive_only=True
             ),
-            "net_cash": None if cash is None else cash - (debt or 0.0),
+            "net_cash": None if cash is None or debt is None else cash - debt,
             "free_cash_flow": free_cash,
             "fcf_margin": _safe_divide(free_cash, revenue, positive_only=True),
             "capex_intensity": _safe_divide(capex, revenue, positive_only=True),
@@ -143,21 +173,35 @@ def _per_period(values: dict[str, list[float | None]], count: int) -> dict[str, 
     return out
 
 
-def _trailing(values: dict[str, list[float | None]], key: str, annual: bool) -> float | None:
+def _trailing(
+    values: dict[str, list[float | None]],
+    key: str,
+    annual: bool,
+    periods: Sequence[dict] = (),
+) -> float | None:
     """A year of a flow: the latest year, or the last four quarters.
 
     Three quarters and a gap is not a year, so a missing quarter refuses the
     whole figure — understating it would read as cheaper than the company is.
+    A quarter never filed has no column at all, so the four must also be
+    contiguous by date.
     """
     series = values.get(key) or []
     if not series:
         return None
     if annual:
         return series[0]
-    if len(series) < TTM_QUARTERS:
+    if len(series) < TTM_QUARTERS or not _contiguous(periods):
         return None
     window = series[:TTM_QUARTERS]
     return None if any(value is None for value in window) else sum(window)  # type: ignore[arg-type]
+
+
+def _contiguous(periods: Sequence[dict]) -> bool:
+    newest, fourth = _end(periods, 0), _end(periods, TTM_QUARTERS - 1)
+    return newest is not None and fourth is not None and (
+        (newest - fourth).days <= MAX_TTM_END_SPREAD_DAYS
+    )
 
 
 def _line_values(statements: dict | None) -> dict[str, list[float | None]]:
@@ -193,7 +237,7 @@ def build_metrics(
     currency = statements.get("currency", "USD")
     values = _line_values(statements)
     periods = statements["periods"]
-    rows = _per_period(values, len(periods))
+    rows = _per_period(values, periods, annual)
 
     return {
         "periods": periods,
@@ -223,6 +267,7 @@ def build_metrics(
             values,
             trailing,
             stats,
+            periods=periods,
             annual=annual,
             market_cap=market_cap,
             currency=currency,
@@ -282,6 +327,7 @@ def _valuation_on_best_basis(
     trailing: dict | None,
     stats: dict | None,
     *,
+    periods: Sequence[dict],
     annual: bool,
     market_cap: float | None,
     currency: str,
@@ -294,20 +340,26 @@ def _valuation_on_best_basis(
     With no quarterly set supplied the caller's own basis stands.
     """
     trailing_values = _line_values(trailing)
-    if trailing_values and _trailing(trailing_values, "revenue", annual=False) is not None:
-        return _valuation(trailing_values, annual=False, market_cap=market_cap, currency=currency)
+    quarters = (trailing or {}).get("periods", [])
+    if trailing_values and _trailing(trailing_values, "revenue", False, quarters) is not None:
+        return _valuation(
+            trailing_values, periods=quarters, annual=False, market_cap=market_cap, currency=currency
+        )
     # Our own filings first, somebody else's trailing year second, and the
     # fiscal year only when neither is available.
     if stats:
         borrowed = _valuation_from_stats(stats, market_cap)
         if borrowed is not None:
             return borrowed
-    return _valuation(own_values, annual=annual, market_cap=market_cap, currency=currency)
+    return _valuation(
+        own_values, periods=periods, annual=annual, market_cap=market_cap, currency=currency
+    )
 
 
 def _valuation(
     values: dict[str, list[float | None]],
     *,
+    periods: Sequence[dict] = (),
     annual: bool,
     market_cap: float | None,
     currency: str = "USD",
@@ -317,22 +369,25 @@ def _valuation(
     Market cap comes from the quote side rather than the filings: a book value
     is as of a quarter end, and dividing today's price by it is the point.
 
-    That is also why a foreign private issuer gets no multiples: market cap for
-    a US listing is quoted in USD while its statements are in the filer's own
-    currency, so every multiple would be quietly wrong by the exchange rate.
-    Converting needs an FX rate the terminal does not have, so it declines.
+    Statements left in the filer's own currency get no multiples: market cap
+    for a US listing is quoted in USD, so every multiple would be wrong by the
+    exchange rate. financials.convert_to_usd converts where it has the rates.
     """
     mismatched = currency != "USD" and market_cap is not None
-    revenue = _trailing(values, "revenue", annual)
-    earnings = _trailing(values, "net_income", annual)
-    cash_flow = _trailing(values, "operating_cash_flow", annual)
-    capex = _trailing(values, "capex", annual)
+    revenue = _trailing(values, "revenue", annual, periods)
+    earnings = _trailing(values, "net_income", annual, periods)
+    cash_flow = _trailing(values, "operating_cash_flow", annual, periods)
+    capex = _trailing(values, "capex", annual, periods)
     free_cash = None if cash_flow is None or capex is None else cash_flow - capex
 
     equity = (values.get("equity") or [None])[0]
     cash = (values.get("cash") or [None])[0]
     debt = (values.get("long_term_debt") or [None])[0]
-    enterprise = None if market_cap is None else market_cap + (debt or 0.0) - (cash or 0.0)
+    # Both sides or none: untagged debt read as zero understates EV on the
+    # small caps whose only debt is convertible notes.
+    enterprise = (
+        None if market_cap is None or debt is None or cash is None else market_cap + debt - cash
+    )
 
     if mismatched:
         return {

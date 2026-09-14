@@ -326,6 +326,27 @@ class TestFiscalYears:
         built = build_statements(facts(usd(REVENUE, rows)), annual=False)
         assert [period["key"] for period in built["periods"]] == ["FY2026 Q2", "FY2026 Q1"]
 
+    @pytest.mark.parametrize(
+        ("end", "year_end_month", "expected"),
+        [
+            ("2026-01-03", 12, "FY2025 Q4"),  # a 52/53-week December filer
+            ("2028-01-01", 12, "FY2027 Q4"),
+            ("2028-12-30", 12, "FY2028 Q4"),
+            ("2026-01-02", 3, "FY2026 Q3"),  # a March year end
+        ],
+    )
+    def test_a_quarter_closing_in_early_january_takes_the_anchored_year(
+        self, end, year_end_month, expected
+    ):
+        """Labelled off the raw year, 3 January 2026 read FY2026 Q4 beside an
+        annual column calling the same year FY2025, and two quarters could share
+        one label — and FX rates are stored by label."""
+        from datetime import date
+
+        from app.domain.financials import _period_key
+
+        assert _period_key(date.fromisoformat(end), False, year_end_month) == expected
+
     def test_a_fiscal_close_that_drifts_past_month_end_still_counts(self):
         """Fiscal calendars run in weeks, so a quarter can close on 3 May.
 

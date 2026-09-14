@@ -18,6 +18,7 @@ from app.domain.dilution import (
     UNCAPPED_REASON,
     DilutionTone,
     _annual_flow,
+    _convertible_notes,
     _count_offerings,
     _latest_instant,
     _share_growth,
@@ -134,6 +135,28 @@ class TestFactSelection:
         )
         assert _latest_instant(payload, (("us-gaap", "CommonStockSharesIssued"),)).value == 150
 
+    def test_a_stale_figure_under_the_first_concept_loses_to_a_current_one(self):
+        """First-concept-with-data read runway off 2019's cash."""
+        cash = "CashAndCashEquivalentsAtCarryingValue"
+        total = "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"
+        payload = facts(
+            **{
+                f"us-gaap:{cash}": ("USD", [instant("2019-12-31", 5_000_000)]),
+                f"us-gaap:{total}": ("USD", [instant("2025-12-31", 800_000)]),
+            }
+        )
+        got = _latest_instant(payload, (("us-gaap", cash), ("us-gaap", total)))
+        assert (got.value, got.as_of) == (800_000, date(2025, 12, 31))
+
+    def test_convertible_notes_tagged_in_halves_are_summed(self):
+        payload = facts(
+            **{
+                "us-gaap:ConvertibleNotesPayableCurrent": ("USD", [instant("2025-12-31", 2_000_000)]),
+                "us-gaap:ConvertibleNotesPayableNoncurrent": ("USD", [instant("2025-12-31", 5_000_000)]),
+            }
+        )
+        assert _convertible_notes(payload).value == 7_000_000
+
     def test_duration_facts_are_never_read_as_instants(self):
         payload = facts(
             **{"us-gaap:CommonStockSharesIssued": ("shares", [span("2025-01-01", "2025-12-31", 9)])}
@@ -219,6 +242,19 @@ class TestShareGrowth:
             }
         )
         assert _share_growth(payload) == pytest.approx(0.5)
+
+    def test_a_reverse_split_inside_the_window_does_not_hide_the_dilution(self):
+        """20M grew to 100M through offerings, then a 1-for-10 left 10M."""
+        payload = facts(
+            **{
+                "dei:EntityCommonStockSharesOutstanding": (
+                    "shares",
+                    [instant("2025-03-01", 20_000_000), instant("2026-03-01", 10_000_000)],
+                )
+            }
+        )
+        assert _share_growth(payload) == pytest.approx(-0.5)
+        assert _share_growth(payload, ((date(2025, 12, 1), 0.1),)) == pytest.approx(4.0)
 
 
 class TestTwelveMonthWindows:

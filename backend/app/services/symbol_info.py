@@ -102,7 +102,7 @@ class SymbolInfoService:
         # symbol -> (facts, filings, read). The documents themselves are held,
         # not their id(): a freed payload's id can be reused by its replacement.
         # Holds each symbol's facts payload too, so it is bounded to the same size.
-        self._dilution_cache: dict[str, tuple[object, object, DilutionRead | None]] = (
+        self._dilution_cache: dict[str, tuple[object, object, object, DilutionRead | None]] = (
             BoundedDict(FACTS_CACHE_SIZE)
         )
 
@@ -178,12 +178,14 @@ class SymbolInfoService:
             return None
         facts = self._edgar.peek_facts(symbol)
         filings = self._edgar.peek_filings(symbol)
+        split = self._splits.peek(symbol) if self._splits is not None else None
         cached = self._dilution_cache.get(symbol)
-        if cached is not None and cached[0] is facts and cached[1] is filings:
-            read = cached[2]
+        if cached is not None and cached[:3] == (facts, filings, split):
+            read = cached[3]
         else:
-            read = measure_dilution(facts, filings)
-            self._dilution_cache[symbol] = (facts, filings, read)
+            splits = ((split.ex_date, 1 / split.ratio),) if split and split.ratio > 0 else ()
+            read = measure_dilution(facts, filings, splits=splits)
+            self._dilution_cache[symbol] = (facts, filings, split, read)
         # Attached outside the memo: the shelf capacity is priced off the
         # tape, and caching it against the filings would freeze it at
         # whatever the stock was worth when the documents last changed.

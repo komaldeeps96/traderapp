@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from ..core.bounded import BoundedDict
 from ..core.clock import now_epoch
 from ..core.settings import NewsAISettings
 from ..domain.news import to_paragraphs
@@ -36,6 +37,8 @@ logger = logging.getLogger(__name__)
 # ceiling: a brief for a symbol whose headlines have been evicted is a brief
 # nothing will ever ask for again.
 MAX_SYMBOLS = 40
+# Each reading is a Node process of a few hundred MB on a 16 GB machine.
+MAX_CONCURRENT_READINGS = 2
 
 
 class NewsAIService:
@@ -52,8 +55,11 @@ class NewsAIService:
         # correct rather than merely fast: it changes exactly when the set of
         # stories the model read changes.
         self._cache: dict[str, tuple[str, Brief]] = {}
-        self._started_at: dict[str, float] = {}
+        self._started_at: dict[str, float] = BoundedDict(MAX_SYMBOLS)
         self._running: dict[str, asyncio.Task[Brief]] = {}
+        self._slots = asyncio.Semaphore(MAX_CONCURRENT_READINGS)
+        # Readings waiting for a slot; a newer ask cancels them.
+        self._queued: set[str] = set()
 
     @property
     def enabled(self) -> bool:
@@ -68,14 +74,6 @@ class NewsAIService:
 
     def resolve_binary(self) -> str | None:
         return self._reader.resolve_binary()
-
-    def peek(self, symbol: str) -> Brief | None:
-        """The brief held for a symbol, if it still covers the current day."""
-        held = self._cache.get(symbol)
-        if held is None:
-            return None
-        current = digest(symbol, select_session(self._news.peek(symbol), now_epoch()))
-        return held[1] if held[0] == current else None
 
     async def brief(self, symbol: str, *, force: bool = False) -> dict:
         """The panel's payload: a brief, or the reason there is not one.
@@ -112,12 +110,19 @@ class NewsAIService:
             return running
 
         since = now_epoch() - self._started_at.get(symbol, 0.0)
-        if not force and held is not None and since < self._settings.min_interval_seconds:
-            # New headlines, but the last reading is minutes old. Serve it and
-            # say it is behind rather than starting a process for a row the
-            # reader can already see in the list below.
-            return _ready({**held[1].to_dict(), "stale": True})
+        wait = self._settings.min_interval_seconds - since
+        if not force and wait > 0:
+            if held is not None:
+                # New headlines, but the last reading is minutes old. Serve it
+                # and say it is behind rather than starting a process for a row
+                # the reader can already see in the list below.
+                return _ready({**held[1].to_dict(), "stale": True})
+            return _unavailable("failed", f"The last reading failed; try again in {wait:.0f}s.")
 
+        for other in self._queued - {symbol}:
+            queued = self._running.get(other)
+            if queued is not None:
+                queued.cancel()
         self._started_at[symbol] = now_epoch()
         task = asyncio.create_task(self._read(symbol, selection))
         self._running[symbol] = task
@@ -134,6 +139,8 @@ class NewsAIService:
         except (BriefError, ReaderError) as exc:
             return _unavailable("failed", str(exc))
         except asyncio.CancelledError:
+            if running.cancelled():
+                return _unavailable("failed", "Set aside for a newer symbol; ask again.")
             raise
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("News summary failed for %s: %s", symbol, exc)
@@ -152,12 +159,15 @@ class NewsAIService:
         return None
 
     async def _read(self, symbol: str, selection: NewsWindow) -> Brief:
+        self._queued.add(symbol)
         try:
-            bodies = await self._bodies(symbol, selection)
-            prompt = build_prompt(symbol, selection, bodies)
-            stdout = await self._reader.run(
-                prompt=prompt, schema=SCHEMA, system_prompt=SYSTEM_PROMPT
-            )
+            async with self._slots:
+                self._queued.discard(symbol)
+                bodies = await self._bodies(symbol, selection)
+                prompt = build_prompt(symbol, selection, bodies)
+                stdout = await self._reader.run(
+                    prompt=prompt, schema=SCHEMA, system_prompt=SYSTEM_PROMPT
+                )
             brief = to_brief(
                 parse_output(stdout),
                 symbol=symbol,
@@ -166,6 +176,7 @@ class NewsAIService:
                 model=self._settings.model,
             )
         finally:
+            self._queued.discard(symbol)
             self._running.pop(symbol, None)
         self._cache[symbol] = (digest(symbol, selection), brief)
         self._evict()

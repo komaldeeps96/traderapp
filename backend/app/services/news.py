@@ -12,7 +12,8 @@ in one list deduplicated *as a whole* — a live headline is often the starred
 bulletin whose fuller press release arrives seconds later. So the raw rows are
 kept per symbol and the whole set is rebuilt on every change.
 
-Article bodies are cached indefinitely: an article is immutable once published.
+An article is immutable once published, so a cached body never goes stale; the
+cache is bounded by count only.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import asyncio
 import itertools
 import logging
 
+from ..core.bounded import BoundedDict
 from ..core.clock import now_epoch
 from ..domain.news import BENZINGA_CODE, Headline, build, to_benzinga_row
 
@@ -44,6 +46,8 @@ MAX_ROWS = 400
 # Symbols kept in memory at once — a session switching tickers all day should
 # not accumulate every one of them.
 MAX_SYMBOLS = 40
+# Article bodies, across every symbol: each is a few KB of press release.
+ARTICLE_CACHE_SIZE = 500
 
 
 class NewsService:
@@ -67,7 +71,7 @@ class NewsService:
         # evicting by that would drop its headline in the merge that added it.
         self._used_at: dict[str, int] = {}
         self._uses = itertools.count()
-        self._articles: dict[tuple[str, str], str] = {}
+        self._articles: dict[tuple[str, str], str] = BoundedDict(ARTICLE_CACHE_SIZE)
         self._providers: list[dict] | None = None
 
     def peek(self, symbol: str) -> list[Headline]:

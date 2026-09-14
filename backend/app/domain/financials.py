@@ -203,6 +203,7 @@ INCOME_STATEMENT: tuple[LineSpec, ...] = (
         # -96.2M against the -94.8M every other source publishes.
         _us("NetIncomeLoss", "ProfitLoss")
         + _ifrs("ProfitLossAttributableToOwnersOfParent", "ProfitLoss"),
+        merge_chain=False,
     ),
     LineSpec(
         "eps_basic",
@@ -571,11 +572,14 @@ def _period_key(end: date, annual: bool, year_end_month: int | None) -> str:
     if year_end_month is None:
         return end.isoformat()
 
-    month = _anchor_month(end)
+    anchor = _anchor_date(end)
+    month = anchor.month
     # A quarter belongs to the fiscal year closing *after* it. Day 28 so the
     # fortnight anchor cannot push this sentinel into the previous month, and so
-    # into the previous fiscal year label.
-    year_end = date(end.year if month <= year_end_month else end.year + 1, year_end_month, 28)
+    # into the previous fiscal year label. The anchored year, as fiscal_year_of
+    # uses: a quarter closing 3 January belongs to the year just ended.
+    year = anchor.year if month <= year_end_month else anchor.year + 1
+    year_end = date(year, year_end_month, 28)
     # Counted forward from the month the fiscal year closes, so Apple's
     # December quarter is Q1 — the company's own numbering, not the calendar's.
     quarter = ((month - year_end_month - 1) % 12) // 3 + 1
@@ -695,7 +699,7 @@ def _derive_total_liabilities(lines: list[dict]) -> None:
             "kind": spec.unit,
             "key": spec.key,
             "label": spec.label,
-            "unit": spec.unit,
+            "unit": assets.get("unit", spec.unit),
             "concepts": [],
             "_values": {},
         }
@@ -854,8 +858,10 @@ async def convert_to_usd(built: dict, fx) -> dict:
     call it growth. Two rates per period, since IAS 21 puts flows at the average
     across the period and balances at the closing rate on the sheet date.
 
-    A period whose rate cannot be fetched keeps its own currency and is reported
-    as unconverted rather than mixed into a dollar column.
+    A period whose rate cannot be fetched is blanked and named in
+    ``unconverted_periods`` rather than mixed into a dollar column. With no rate
+    for any period (a currency the source does not carry), the table stays in
+    the filer's own currency.
     """
     native = built.get("currency", USD_CODE)
     if native == USD_CODE:
@@ -881,6 +887,11 @@ async def convert_to_usd(built: dict, fx) -> dict:
 
     keys = [period["key"] for period in built.get("periods", [])]
     unconverted = [key for key in keys if closing.get(key) is None or average.get(key) is None]
+    if keys and len(unconverted) == len(keys):
+        built["native_currency"] = native
+        built["converted"] = False
+        built["unconverted_periods"] = unconverted
+        return built
 
     for statement in built.get("statements", []):
         for line in statement.get("lines", []):

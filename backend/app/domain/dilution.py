@@ -207,8 +207,8 @@ _WARRANT_STRIKE = (
     ("us-gaap", "ClassOfWarrantOrRightExercisePriceOfWarrantsOrRights1"),
 )
 _PREFERRED = (("us-gaap", "PreferredStockSharesOutstanding"),)
-_CONVERTIBLE = (
-    ("us-gaap", "ConvertibleNotesPayable"),
+_CONVERTIBLE_TOTAL = (("us-gaap", "ConvertibleNotesPayable"),)
+_CONVERTIBLE_PARTS = (
     ("us-gaap", "ConvertibleNotesPayableCurrent"),
     ("us-gaap", "ConvertibleNotesPayableNoncurrent"),
 )
@@ -280,6 +280,7 @@ def measure(
     facts: dict | None,
     filings: list[Filing] | None = None,
     today: date | None = None,
+    splits: tuple[tuple[date, float], ...] = (),
 ) -> DilutionRead | None:
     """Read the dilution picture, or ``None`` with nothing to read it from.
 
@@ -300,7 +301,7 @@ def measure(
     warrants = _latest_instant(facts, _WARRANTS)
     warrant_strike = _latest_instant(facts, _WARRANT_STRIKE)
     preferred = _latest_instant(facts, _PREFERRED)
-    convertible = _latest_instant(facts, _CONVERTIBLE)
+    convertible = _convertible_notes(facts)
     cash = _latest_instant(facts, _CASH)
     public_float = _latest_instant(facts, _PUBLIC_FLOAT)
     operating_flow = _annual_flow(facts, _OPERATING_CASH_FLOW)
@@ -329,7 +330,7 @@ def measure(
         if public_float and on_baby_shelf
         else None
     )
-    growth = _share_growth(facts)
+    growth = _share_growth(facts, splits)
     offerings = _count_offerings(filings, today)
     delinquent = _has_form(filings, {"NT 10-Q", "NT 10-K", "NT 20-F"}, today)
     listing_deficiency = _has_item(filings, LISTING_DEFICIENCY_ITEM, today)
@@ -388,14 +389,15 @@ def _facts_for(facts: dict | None, taxonomy: str, concept: str) -> list[dict]:
 def _latest_instant(
     facts: dict | None, concepts: tuple[tuple[str, str], ...]
 ) -> Dated | None:
-    """The most recently reported point value.
+    """The most recently reported point value across ``concepts``.
 
     Instant facts (a balance, a share count) carry an ``end`` and no ``start``.
-    Ties on ``end`` break by ``filed``: the newer statement of a restated
-    quarter is the one to believe.
+    The newest ``end`` wins whichever concept reported it: a 2019 figure under
+    the preferred concept must not beat this quarter's under the next. Ties go
+    to the earlier concept, then to the newer filing of a restated quarter.
     """
-    for taxonomy, concept in concepts:
-        best: tuple[str, str, dict] | None = None
+    best: tuple[tuple[str, int, str], dict] | None = None
+    for rank, (taxonomy, concept) in enumerate(concepts):
         for entry in _facts_for(facts, taxonomy, concept):
             if entry.get("start") is not None:
                 continue
@@ -403,18 +405,33 @@ def _latest_instant(
             value = entry.get("val")
             if not isinstance(end, str) or not isinstance(value, (int, float)):
                 continue
-            key = (end, str(entry.get("filed") or ""))
-            if best is None or key > (best[0], best[1]):
-                best = (end, key[1], entry)
-        if best is not None:
-            parsed = parse_iso_date(best[0])
-            if parsed is not None:
-                return Dated(
-                    value=float(best[2]["val"]),
-                    as_of=parsed,
-                    form=str(best[2].get("form") or ""),
-                )
-    return None
+            key = (end, -rank, str(entry.get("filed") or ""))
+            if best is None or key > best[0]:
+                best = (key, entry)
+    if best is None:
+        return None
+    parsed = parse_iso_date(best[0][0])
+    if parsed is None:
+        return None
+    return Dated(value=float(best[1]["val"]), as_of=parsed, form=str(best[1].get("form") or ""))
+
+
+def _convertible_notes(facts: dict | None) -> Dated | None:
+    """Convertible notes outstanding: the tagged total, or current plus
+    non-current where only the halves reach the newest date."""
+    total = _latest_instant(facts, _CONVERTIBLE_TOTAL)
+    parts = [
+        part
+        for part in (_latest_instant(facts, (concept,)) for concept in _CONVERTIBLE_PARTS)
+        if part is not None
+    ]
+    if not parts:
+        return total
+    newest = max(part.as_of for part in parts)
+    if total is not None and total.as_of >= newest:
+        return total
+    same_day = [part for part in parts if part.as_of == newest]
+    return Dated(sum(part.value for part in same_day), newest, same_day[0].form)
 
 
 def _annual_flow(
@@ -424,7 +441,7 @@ def _annual_flow(
 
     Cash-flow facts are cumulative from the fiscal year start, so the year is
     one ``start``-to-``end`` span and summing the reported periods would count
-    Q1 four times. A full-year span is preferred; failing that the longest
+    Q1 four times. A full-year span is preferred; failing that the latest
     year-to-date span is scaled up, an estimate used only for the runway.
     """
     for taxonomy, concept in concepts:
@@ -459,13 +476,15 @@ def _annual_flow(
     return None
 
 
-def _share_growth(facts: dict | None) -> float | None:
+def _share_growth(
+    facts: dict | None, splits: tuple[tuple[date, float], ...] = ()
+) -> float | None:
     """Change in the reported share count over the trailing year.
 
     The window ends at the newest report rather than today: with a delinquent
     filer, anchoring on today would stretch it to whatever the gap happens to
     be. A company public under a year reports ``None`` rather than a rate off a
-    stub.
+    stub. ``splits`` are (ex-date, new shares per old share).
     """
     points: list[tuple[date, float]] = []
     for taxonomy, concept in _SHARES_OUTSTANDING:
@@ -488,9 +507,14 @@ def _share_growth(facts: dict | None) -> float | None:
     earlier = [point for point in points if point[0] <= cutoff]
     if not earlier:
         return None
-    _, base = earlier[-1]
+    base_date, base = earlier[-1]
     if base <= 0:
         return None
+    # The base restated in post-split shares: a 1-for-10 inside the window
+    # otherwise reads as the count falling 90% while offerings quintupled it.
+    for day, new_per_old in splits:
+        if base_date < day <= latest_date:
+            base *= new_per_old
     return (latest - base) / base
 
 

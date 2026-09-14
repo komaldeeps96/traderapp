@@ -125,8 +125,36 @@ class TestDisclosure:
 class TestFailure:
     async def test_a_period_with_no_rate_is_left_out_and_named(self):
         """Better a missing column than a CAD figure in a dollar table."""
+
+        class NoRateFor2024(FakeFx):
+            async def closing_rate(self, currency, on):
+                return None if on.year == 2024 else await super().closing_rate(currency, on)
+
+            async def average_rate(self, currency, start, end):
+                return None if end.year == 2024 else await super().average_rate(currency, start, end)
+
+        data = {
+            "facts": {
+                "ifrs-full": ifrs(
+                    "Revenue",
+                    [
+                        fact("2024-01-01", "2024-12-31", 100.0, filed="2025-03-01"),
+                        fact("2025-01-01", "2025-12-31", 200.0, filed="2026-03-01"),
+                    ],
+                )
+            }
+        }
+        built = await convert_to_usd(build_statements(data, annual=True), NoRateFor2024())
+        assert built["currency"] == "USD"
+        assert line(built, "revenue")["values"] == [140.0, None]
+        assert built["unconverted_periods"] == ["FY2024"]
+
+    async def test_with_no_rate_at_all_the_table_stays_in_its_own_currency(self):
+        """A currency the rate source does not carry (TWD) would otherwise blank
+        every figure in the table."""
         built = await convert_to_usd(build_statements(canadian(), annual=True), FakeFx(fails=True))
-        assert line(built, "revenue")["values"] == [None]
+        assert (built["currency"], built["converted"]) == ("CAD", False)
+        assert line(built, "revenue")["values"] == [1000.0]
         assert built["unconverted_periods"] == ["FY2025"]
 
     async def test_nothing_reported_survives_conversion(self):

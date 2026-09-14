@@ -259,6 +259,24 @@ class TestValuationBasis:
         # 1000 / (10+10+10+10), not 1000 / 100.
         assert by_key["pe"] == pytest.approx(25.0)
 
+    def test_four_quarters_with_one_never_filed_are_not_a_trailing_year(self):
+        """Q4, Q3, Q1 and the Q4 before span fifteen months; the gap has no
+        column at all, so only the dates give it away."""
+        starts = ["2025-10-01", "2025-07-01", "2025-01-01", "2024-10-01"]
+        ends = ["2025-12-31", "2025-09-30", "2025-03-31", "2024-12-31"]
+        rows = [fact(s, e, 30, filed="2026-02-01", form="10-Q") for s, e in zip(starts, ends, strict=True)]
+        income = [fact(s, e, 10, filed="2026-02-01", form="10-Q") for s, e in zip(starts, ends, strict=True)]
+        built = build_metrics(
+            None,
+            annual=True,
+            market_cap=1000.0,
+            statements=build_statements(self._year(400.0, 100.0), annual=True),
+            trailing=build_statements(
+                facts(usd(REVENUE, rows), usd("NetIncomeLoss", income)), annual=False
+            ),
+        )
+        assert built["valuation"]["basis"] == "annual"
+
     def test_the_fiscal_year_stands_when_there_are_no_quarters(self):
         """A foreign private issuer files no 10-Q; the year is all there is."""
         built = build_metrics(
@@ -415,3 +433,22 @@ class TestBorrowedValuation:
         )
         assert built["valuation"]["source"] == "filings"
         assert built["valuation"]["basis"] == "annual"
+
+
+class TestQuarterlyGrowth:
+    def test_is_against_the_same_quarter_a_year_earlier(self):
+        """A retailer's Q1 against its Q4 is seasonality, not growth."""
+        quarters = [
+            ("2024-01-01", "2024-03-31", 100),
+            ("2024-04-01", "2024-06-30", 100),
+            ("2024-07-01", "2024-09-30", 100),
+            ("2024-10-01", "2024-12-31", 200),
+            ("2025-01-01", "2025-03-31", 120),
+            ("2025-04-01", "2025-06-30", 120),
+            ("2025-07-01", "2025-09-30", 120),
+            ("2025-10-01", "2025-12-31", 250),
+        ]
+        rows = [fact(s, e, v, filed="2026-02-01", form="10-Q") for s, e, v in quarters]
+        built = build_metrics(facts(usd(REVENUE, rows)), annual=False)
+        # 250 against 200, not against the 120 before it.
+        assert metric(built, "revenue_growth")["values"][0] == pytest.approx(0.25)

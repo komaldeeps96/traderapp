@@ -91,8 +91,7 @@ _DISTRESS_TERMS = (
     "class action",
     "subpoena",
     # Not bare "investigation": biotech headlines say "for investigational
-    # use", which is the ordinary description of a drug in trials, and a
-    # Celularity press release was tinted red by it during testing.
+    # use", the ordinary description of a drug in trials.
     "under investigation",
     "sec investigation",
     "doj investigation",
@@ -108,11 +107,8 @@ _DISTRESS_TERMS = (
     "notice from nasdaq",
     "nyse notice",
     "receives notice regarding",
-    # Briefing.com's auto-generated 8-K summaries word it this way. Verified
-    # against live data: CELU's "Files 8K - Listing Notice" headlines on
-    # 2026-07-29 and 2026-06-12 are the same filings the filings tab shows as
-    # 8-K item 3.01, so leaving them untagged had the two panels disagreeing
-    # about the same event.
+    # Briefing.com's auto-generated summaries word an 8-K item 3.01 this way;
+    # untagged, the news and filings panels disagree about one event.
     "listing notice",
 )
 
