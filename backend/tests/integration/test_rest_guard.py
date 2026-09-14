@@ -38,8 +38,3 @@ class TestWhereARequestComesFrom:
     )
     def test_the_terminals_own_pages_are_served(self, client, headers):
         assert client.get("/api/health", headers=headers).status_code == 200
-
-
-class TestStatementPeriods:
-    def test_an_unknown_period_is_refused_rather_than_read_as_annual(self, client):
-        assert client.get("/api/financials/AAPL?period=weekly").status_code == 422

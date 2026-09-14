@@ -28,14 +28,11 @@ from ..services.broadcaster import ChartBroadcaster
 from ..services.corporate_actions import ReverseSplitService
 from ..services.fanout import FanOut
 from ..services.filing_watch import FilingWatchService
-from ..services.fx import FxService
 from ..services.halts import HaltTracker
 from ..services.hub import SubscriptionHub
 from ..services.market_data import MarketDataService
 from ..services.news import NewsService
 from ..services.news_ai import NewsAIService
-from ..services.ownership import OwnershipService
-from ..services.peers import PeerService
 from ..services.quotes import QuoteService
 from ..services.regime import RegimeService
 from ..services.scanner import ScannerService
@@ -134,10 +131,6 @@ class AppContainer:
             for tier in SCANNER_TIERS
         }
         self.regime = RegimeService(self.tv, self.settings.regime)
-        self.ownership = OwnershipService(self.edgar)
-        self.peers = PeerService(self.tv)
-        # Shared so a rate is fetched once per period, not once per tab.
-        self.fx = FxService(cache_path=self.settings.fx_cache_file)
         self.state = StateStore(
             self.settings.state_file,
             self.settings.default_symbol,
@@ -224,7 +217,6 @@ class AppContainer:
         await self.broker.stop()
         await self.router.stop()
         await self.yahoo.close()
-        await self.fx.close()
         if self.edgar is not None:
             await self.edgar.close()
         # Last: the router is quiet by now, so nothing can schedule a new load

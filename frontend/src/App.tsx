@@ -1,13 +1,9 @@
-import { lazy, Suspense } from "react";
-
 import { Chart } from "@/components/Chart";
 import { ChartControls } from "@/components/ChartControls";
 import { ChartLegend } from "@/components/ChartLegend";
 import { Dock } from "@/components/Dock";
 import { KeyLevelsPanel } from "@/components/KeyLevelsPanel";
-import { MainTabs } from "@/components/MainTabs";
 import { OrderPanel } from "@/components/OrderPanel";
-import { PanelFallback } from "@/components/PanelFallback";
 import { ScannerPanel } from "@/components/ScannerPanel";
 import { ScannerTabs } from "@/components/ScannerTabs";
 import { WatchlistPanel } from "@/components/WatchlistPanel";
@@ -17,21 +13,6 @@ import { useHotkeys } from "@/hooks/useHotkeys";
 import { useTerminal } from "@/hooks/useTerminal";
 import { useTerminalStore } from "@/store/useTerminalStore";
 import { SCANNER_TIER_IDS } from "@/types/protocol";
-
-// The tabs behind the chart are fetched the first time they open, so the first
-// paint downloads only what it draws.
-const FinancialsTab = lazy(() =>
-  import("@/components/FinancialsTab").then((module) => ({ default: module.FinancialsTab })),
-);
-const MetricsTab = lazy(() =>
-  import("@/components/MetricsTab").then((module) => ({ default: module.MetricsTab })),
-);
-const OwnershipTab = lazy(() =>
-  import("@/components/OwnershipTab").then((module) => ({ default: module.OwnershipTab })),
-);
-const PeersTab = lazy(() =>
-  import("@/components/PeersTab").then((module) => ({ default: module.PeersTab })),
-);
 
 /**
  * The terminal layout.
@@ -58,7 +39,6 @@ export default function App() {
   const notice = useTerminalStore((state) => state.notice);
   const setNotice = useTerminalStore((state) => state.setNotice);
   const status = useTerminalStore((state) => state.status);
-  const mainTab = useTerminalStore((state) => state.mainTab);
   const scannerTab = useTerminalStore((state) => state.scannerTab);
   const halted = useTerminalStore((state) => state.info?.halted === true);
   useHotkeys(setTimeframe);
@@ -107,7 +87,6 @@ export default function App() {
           onToggleTheme={toggleTheme}
         />
         <TopPanel />
-        <MainTabs />
 
         {error && status === "error" && (
           <div
@@ -144,7 +123,6 @@ export default function App() {
               centre themselves on the seam between the two. */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="relative min-h-0 min-w-0 flex-1">
-              {/* A halt stops every tab's decision, so it frames them all. */}
               {halted && (
                 <div
                   className="pointer-events-none absolute inset-0 z-30 ring-2 ring-inset ring-down"
@@ -155,78 +133,12 @@ export default function App() {
                   </span>
                 </div>
               )}
-              {/* Hidden with `visibility`, never unmounted or `display:none`.
-                A collapsed container is zero-height and lightweight-charts
-                cannot size a pane inside one — the dock hit exactly that and
-                unmounts its charts instead. That is not an option here:
-                coming back to the chart has to return it to the same bars at
-                the same zoom, not reset it to the right edge. */}
-              <div
-                id="main-panel-chart"
-                role="tabpanel"
-                aria-label="Price chart"
-                data-testid="main-panel-chart"
-                data-active={mainTab === "chart"}
-                aria-hidden={mainTab !== "chart"}
-                className={`group absolute inset-0 ${
-                  mainTab === "chart" ? "" : "invisible pointer-events-none"
-                }`}
-              >
+              <div className="group absolute inset-0">
                 <Chart />
                 <ChartLegend onToggle={toggleIndicator} />
                 <ChartControls />
               </div>
-              {/* Outside the chart panel: a tab still loading must never hide
-                  or unmount the chart. */}
-              <Suspense
-                fallback={
-                  <div className="absolute inset-0 flex">
-                    <PanelFallback />
-                  </div>
-                }
-              >
-                {mainTab === "peers" && (
-                  <div
-                    id="main-panel-peers"
-                    role="tabpanel"
-                    data-testid="main-panel-peers"
-                    className="absolute inset-0"
-                  >
-                    <PeersTab />
-                  </div>
-                )}
-                {mainTab === "ownership" && (
-                  <div
-                    id="main-panel-ownership"
-                    role="tabpanel"
-                    data-testid="main-panel-ownership"
-                    className="absolute inset-0"
-                  >
-                    <OwnershipTab />
-                  </div>
-                )}
-                {mainTab === "metrics" && (
-                  <div
-                    id="main-panel-metrics"
-                    role="tabpanel"
-                    data-testid="main-panel-metrics"
-                    className="absolute inset-0"
-                  >
-                    <MetricsTab />
-                  </div>
-                )}
-                {mainTab === "financials" && (
-                  <div
-                    id="main-panel-financials"
-                    role="tabpanel"
-                    data-testid="main-panel-financials"
-                    className="absolute inset-0"
-                  >
-                    <FinancialsTab />
-                  </div>
-                )}
-              </Suspense>
-              {mainTab === "chart" && status === "loading" && (
+              {status === "loading" && (
                 <div
                   className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
                   data-testid="chart-loading"

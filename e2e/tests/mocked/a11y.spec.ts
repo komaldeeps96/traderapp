@@ -59,18 +59,6 @@ test.describe('accessibility', () => {
     expect(['INPUT', 'BUTTON', 'SELECT']).toContain(focused);
   });
 
-  test('the main tabs move with the arrow keys', async ({ terminal }) => {
-    // The ARIA tabs pattern: one Tab stop for the strip, arrows within it,
-    // and the selection follows focus.
-    await terminal.waitForChart();
-    await terminal.page.getByTestId('main-tab-chart').focus();
-    await terminal.page.keyboard.press('ArrowRight');
-    const next = terminal.page.getByRole('tab', { selected: true, name: /financials/i });
-    await expect(next).toBeFocused();
-    await terminal.page.keyboard.press('Home');
-    await expect(terminal.page.getByTestId('main-tab-chart')).toHaveAttribute('aria-selected', 'true');
-  });
-
   test('a symbol can be loaded without a mouse', async ({ terminal, backend }) => {
     await terminal.waitForChart();
     await terminal.symbolInput.focus();

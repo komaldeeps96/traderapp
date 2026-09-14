@@ -10,18 +10,15 @@ import { create } from "zustand";
 
 import { sendCommand } from "@/lib/commands";
 import { clampDockWidth, type DockTabId } from "@/lib/dock";
-import type { MainTabId } from "@/lib/mainTabs";
 import type { ScannerTabId } from "@/lib/scannerTabs";
 import {
   loadDockTab,
-  loadMainTab,
   loadScannerTab,
   loadDockWidth,
   loadMiniTimeframes,
   loadNewsAi,
   loadVisibility,
   saveDockTab,
-  saveMainTab,
   saveScannerTab,
   saveDockWidth,
   saveMiniTimeframes,
@@ -160,7 +157,6 @@ interface TerminalState {
 
   // the right-hand dock — which tab is open and how wide the rail is
   dockTab: DockTabId;
-  mainTab: MainTabId;
   scannerTab: ScannerTabId;
   dockWidth: number;
 
@@ -236,7 +232,6 @@ interface TerminalState {
   ) => void;
   setMiniTimeframe: (slot: number, timeframe: Timeframe) => void;
   setDockTab: (tab: DockTabId) => void;
-  setMainTab: (tab: MainTabId) => void;
   setScannerTab: (tab: ScannerTabId) => void;
   setDockWidth: (width: number) => void;
   setNews: (
@@ -326,7 +321,6 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   watchlistRevision: 0,
   miniTimeframes: loadMiniTimeframes(),
   dockTab: loadDockTab(),
-  mainTab: loadMainTab(),
   scannerTab: loadScannerTab(),
   dockWidth: loadDockWidth(),
 
@@ -566,11 +560,6 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   setScannerTab: (scannerTab) => {
     saveScannerTab(scannerTab);
     set({ scannerTab });
-  },
-
-  setMainTab: (mainTab) => {
-    saveMainTab(mainTab);
-    set({ mainTab });
   },
 
   setDockTab: (dockTab) => {

@@ -2,14 +2,8 @@
 
 import type {
   ArticleResponse,
-  ConceptsResponse,
   FilingsResponse,
-  FinancialPeriodKind,
-  FinancialsResponse,
   FundamentalsResponse,
-  MetricsResponse,
-  OwnershipResponse,
-  PeersResponse,
   NewsBriefResponse,
   NewsResponse,
   IndicatorSpec,
@@ -63,35 +57,10 @@ export const api = {
   // Warmed server-side at subscribe time, so this is normally a cache read.
   fundamentals: (symbol: string, signal?: AbortSignal) =>
     getJson<FundamentalsResponse>(`/api/fundamentals/${encodeURIComponent(symbol)}`, signal),
-  financials: (symbol: string, period: FinancialPeriodKind, signal?: AbortSignal) =>
-    getJson<FinancialsResponse>(
-      `/api/financials/${encodeURIComponent(symbol)}?period=${period}`,
-      signal,
-    ),
-  metrics: (symbol: string, period: FinancialPeriodKind, signal?: AbortSignal) =>
-    getJson<MetricsResponse>(
-      `/api/metrics/${encodeURIComponent(symbol)}?period=${period}`,
-      signal,
-    ),
   // The socket pushes this after every edit; the fetch is only for a reload
   // that lands before the socket is up.
   watchlist: (signal?: AbortSignal) =>
     getJson<WatchlistResponse>('/api/watchlist', signal),
-  // Priced per filing, so it is fetched when the tab opens and never warmed.
-  ownership: (symbol: string, signal?: AbortSignal) =>
-    getJson<OwnershipResponse>(`/api/ownership/${encodeURIComponent(symbol)}`, signal),
-  peers: (symbol: string, signal?: AbortSignal) =>
-    getJson<PeersResponse>(`/api/peers/${encodeURIComponent(symbol)}`, signal),
-  concepts: (
-    symbol: string,
-    query: string,
-    period: FinancialPeriodKind,
-    signal?: AbortSignal,
-  ) =>
-    getJson<ConceptsResponse>(
-      `/api/concepts/${encodeURIComponent(symbol)}?q=${encodeURIComponent(query)}&period=${period}`,
-      signal,
-    ),
   filings: (symbol: string, signal?: AbortSignal) =>
     getJson<FilingsResponse>(`/api/filings/${encodeURIComponent(symbol)}`, signal),
   news: (symbol: string, signal?: AbortSignal) =>

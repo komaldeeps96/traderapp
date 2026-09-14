@@ -19,12 +19,7 @@ import {
   makeArticle,
   makeBrief,
   makeFilings,
-  makeFinancials,
   makeFundamentals,
-  makeMetrics,
-  makeConcepts,
-  makeOwnership,
-  makePeers,
   makeWatchlistMessage,
   makeWatchlistRow,
   makeInfo,
@@ -131,30 +126,6 @@ export async function installMockBackend(
   // The dock's fundamentals panel. Served for any symbol; specs that need a
   // different read override it with `page.route` after installing.
   await json(page, '**/api/fundamentals/**', makeFundamentals());
-  // One handler reading the query rather than two competing globs: `**`
-  // crosses a '/' and would match the quarterly URL too, leaving which
-  // fixture answers a question about route precedence.
-  await page.route('**/api/financials/**', (route) => {
-    const quarterly = new URL(route.request().url()).searchParams.get('period') === 'quarterly';
-    void route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      headers: { 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify(
-        quarterly
-          ? {
-              ...makeFinancials(),
-              period: 'quarterly',
-              periods: [
-                { key: 'FY2026 Q3', end: '2026-06-27', fiscal_year: 2026 },
-                { key: 'FY2026 Q2', end: '2026-03-28', fiscal_year: 2026 },
-              ],
-            }
-          : makeFinancials(),
-      ),
-    });
-  });
-  await json(page, '**/api/metrics/**', makeMetrics());
   // The watchlist the mock server is holding. Add and remove edit *this*, and
   // the whole list is broadcast back — the same contract the real server has,
   // which is what lets a spec assert that the panel renders what came back
@@ -169,9 +140,6 @@ export async function installMockBackend(
       body: JSON.stringify({ symbols: watchlist, rows: watchlist.map(makeWatchlistRow), note: null }),
     });
   });
-  await json(page, '**/api/concepts/**', makeConcepts());
-  await json(page, '**/api/ownership/**', makeOwnership());
-  await json(page, '**/api/peers/**', makePeers());
   await json(page, '**/api/filings/**', makeFilings());
   // Order matters: the article and brief routes are registered first so the
   // broader news pattern does not swallow them.

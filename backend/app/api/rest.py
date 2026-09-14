@@ -13,29 +13,17 @@ always-visible chip needs rides on the ``info`` message.
 from __future__ import annotations
 
 import re
-from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..core.clock import now_epoch
-from ..domain.financials import build_statements, convert_to_usd, search_concepts
 from ..domain.news import to_paragraphs
 from ..domain.protocol import SYMBOL_PATTERN
 from ..domain.scanner import SCAN_CODES, SCANNER_TIERS
 from ..domain.screener import SymbolStats
-from ..domain.sessions import ny_date
 from ..domain.timeframes import Timeframe
 from ..services.container import AppContainer, get_container
-from ..services.metrics import TTM_QUARTERS, build_metrics
-from ..services.ownership import summarise
 from ..services.scanner import UNAVAILABLE_NOTE
 from .origin import refuse_cross_site
-
-# Twelve years of annual statements, or three of quarterly. Past that the
-# request is a scrape rather than a screen.
-MAX_FINANCIAL_PERIODS = 12
-
-Period = Literal["annual", "quarterly"]
 
 router = APIRouter(prefix="/api", dependencies=[Depends(refuse_cross_site)])
 
@@ -56,11 +44,6 @@ def _symbol(raw: str) -> str:
     if not _SYMBOL.fullmatch(symbol):
         raise HTTPException(status_code=422, detail="invalid symbol")
     return symbol
-
-
-def _window(period: Period, limit: int) -> tuple[bool, int]:
-    """Whether the statements are annual, and how many periods, within bounds."""
-    return period == "annual", max(1, min(limit, MAX_FINANCIAL_PERIODS))
 
 
 async def _reference_stats(container: AppContainer, symbol: str) -> SymbolStats | None:
@@ -154,121 +137,6 @@ async def fundamentals(symbol: str) -> dict:
     }
 
 
-@router.get("/financials/{symbol}")
-async def financials(symbol: str, period: Period = "annual", limit: int = 8) -> dict:
-    """Income statement, balance sheet and cash flow, from EDGAR.
-
-    Prefetched like the fundamentals panel: a typed symbol can arrive before
-    the subscribe-time warm finishes, and an empty statement reads as a company
-    that files nothing.
-    """
-    container = _container()
-    resolved = _symbol(symbol)
-    annual, limit = _window(period, limit)
-
-    if container.edgar is None:
-        return {
-            "symbol": resolved,
-            "available": False,
-            "note": None,
-            "period": period,
-            "periods": [],
-            "statements": [],
-        }
-
-    await container.edgar.prefetch(resolved)
-    built = build_statements(container.edgar.peek_facts(resolved), annual=annual, limit=limit)
-    # Everything on this screen is quoted in dollars, so a filer reporting in
-    # its own currency is converted rather than captioned and left alone.
-    built = await convert_to_usd(built, container.fx)
-    return {
-        "symbol": resolved,
-        "available": True,
-        "note": container.edgar.note(),
-        "period": period,
-        **built,
-    }
-
-
-@router.get("/concepts/{symbol}")
-async def concepts(symbol: str, q: str = "", period: Period = "annual", limit: int = 8) -> dict:
-    """Every concept a filer tags, searchable — not just the statement lines.
-
-    The curated statement is roughly a tenth of what a company reports. Values
-    are **as filed**, in the unit the company used — converting a concept whose
-    meaning is not known would invent a number rather than report one.
-    """
-    container = _container()
-    resolved = _symbol(symbol)
-    annual, limit = _window(period, limit)
-
-    if container.edgar is None:
-        return {"symbol": resolved, "available": False, "query": q, "periods": [], "rows": []}
-
-    await container.edgar.prefetch(resolved)
-    found = search_concepts(
-        container.edgar.peek_facts(resolved), annual=annual, query=q, limit=limit
-    )
-    return {"symbol": resolved, "available": True, **found}
-
-
-@router.get("/metrics/{symbol}")
-async def metrics(symbol: str, period: Period = "annual", limit: int = 8) -> dict:
-    """Ratios per period, and valuation against today's market cap.
-
-    The multiples mix two sources: the filings for trailing figures and the
-    quote side for market cap. A book value is as of a quarter end, and
-    comparing today's price against it is the point.
-    """
-    container = _container()
-    resolved = _symbol(symbol)
-    annual, limit = _window(period, limit)
-
-    stats = await _reference_stats(container, resolved)
-    market_cap = stats.market_cap if stats is not None else None
-
-    if container.edgar is None:
-        return {
-            "symbol": resolved,
-            "available": False,
-            "period": period,
-            "periods": [],
-            "groups": [],
-            "valuation": None,
-        }
-
-    await container.edgar.prefetch(resolved)
-    facts = container.edgar.peek_facts(resolved)
-    # Built and converted once, then handed to the ratios: a foreign filer
-    # must not be converted twice, and the two tabs must not disagree.
-    statements = await convert_to_usd(
-        build_statements(facts, annual=annual, limit=limit), container.fx
-    )
-    # The quarters, whatever the table is showing, because the multiples are
-    # quoted on a trailing twelve months everywhere else and a fiscal-year
-    # P/E disagrees with every other screen the user has open.
-    trailing = await convert_to_usd(
-        build_statements(facts, annual=False, limit=TTM_QUARTERS), container.fx
-    )
-    built = build_metrics(
-        facts,
-        annual=annual,
-        limit=limit,
-        market_cap=market_cap,
-        statements=statements,
-        trailing=trailing,
-        # The same reference row the market cap came from. A filer with no
-        # 10-Q leaves nothing to trail, and this carries a trailing year.
-        stats=stats.to_dict() if stats is not None else None,
-    )
-    return {
-        "symbol": resolved,
-        "available": True,
-        "period": period,
-        **built,
-    }
-
-
 @router.get("/filings/{symbol}")
 async def filings(symbol: str) -> dict:
     """The SEC filing trail, classified by what each form means to a trade.
@@ -287,60 +155,6 @@ async def filings(symbol: str) -> dict:
         "available": True,
         "note": container.edgar.note(),
         "filings": [row.to_dict() for row in container.edgar.peek_filings(resolved)],
-    }
-
-
-@router.get("/peers/{symbol}")
-async def peers(symbol: str) -> dict:
-    """The company beside the ones it competes with.
-
-    Ranked against its own industry rather than every filer: a 39x earnings
-    multiple is expensive for a utility and cheap for a chip designer.
-    """
-    container = _container()
-    resolved = _symbol(symbol)
-    if not container.settings.regime.enabled:
-        return {
-            "symbol": resolved,
-            "available": False,
-            "industry": "",
-            "rows": [],
-            "ranks": [],
-            "note": None,
-        }
-    comparison = await container.peers.compare(resolved)
-    return {"symbol": resolved, "available": True, **comparison}
-
-
-@router.get("/ownership/{symbol}")
-async def ownership(symbol: str) -> dict:
-    """What insiders have done, with the payroll set aside.
-
-    Priced per *filing* rather than per company, since the numbers live inside
-    each Form 4 — so it is capped, cached, and runs when the tab is opened
-    rather than at subscribe time.
-    """
-    container = _container()
-    resolved = _symbol(symbol)
-
-    if container.edgar is None:
-        return {
-            "symbol": resolved,
-            "available": False,
-            "note": None,
-            "summary": None,
-            "trades": [],
-        }
-
-    await container.edgar.prefetch(resolved)
-    filings = container.edgar.peek_filings(resolved)
-    trades = await container.ownership.trades(resolved, filings)
-    return {
-        "symbol": resolved,
-        "available": True,
-        "note": container.edgar.note(),
-        "summary": summarise(trades, ny_date(now_epoch())),
-        "trades": [trade.to_dict() for trade in trades],
     }
 
 

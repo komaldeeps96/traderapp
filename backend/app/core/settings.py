@@ -368,9 +368,6 @@ class Settings(BaseSettings):
 
     indicators_file: Path = CONFIG_DIR / "indicators.yaml"
     state_file: Path = CONFIG_DIR / "state.yaml"
-    # Exchange rates for periods that have already closed, which never change.
-    # A cache, not a setting: deleting it costs one refetch.
-    fx_cache_file: Path = CONFIG_DIR / "fx-rates.json"
 
     @classmethod
     def settings_customise_sources(

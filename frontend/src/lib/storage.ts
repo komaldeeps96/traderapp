@@ -11,11 +11,6 @@ import {
   MINI_TIMEFRAME_CHOICES,
 } from '@/chart/mini';
 import {
-  MAIN_DEFAULT_TAB,
-  isMainTabId,
-  type MainTabId,
-} from '@/lib/mainTabs';
-import {
   SCANNER_DEFAULT_TAB,
   isScannerTabId,
   type ScannerTabId,
@@ -34,7 +29,6 @@ const VISIBILITY_KEY = 'traderapp.indicators';
 const ZOOM_KEY = 'traderapp.zoom';
 const MINI_TF_KEY = 'traderapp.miniTimeframes';
 const DOCK_TAB_KEY = 'traderapp.dockTab';
-const MAIN_TAB_KEY = 'traderapp.mainTab';
 const SCANNER_TAB_KEY = 'traderapp.scannerTab';
 const DOCK_WIDTH_KEY = 'traderapp.dockWidth';
 const NEWS_AI_KEY = 'traderapp.newsAi';
@@ -245,29 +239,6 @@ export function defaultVisibility(
     if (option) defaults[spec.id] = option.enabled;
   }
   return defaults;
-}
-
-/**
- * Which main-area tab was last open.
- *
- * A tab removed by a later build falls back to the chart rather than leaving
- * the middle of the terminal blank.
- */
-export function loadMainTab(): MainTabId {
-  try {
-    const saved = localStorage.getItem(MAIN_TAB_KEY);
-    return isMainTabId(saved) ? saved : MAIN_DEFAULT_TAB;
-  } catch {
-    return MAIN_DEFAULT_TAB;
-  }
-}
-
-export function saveMainTab(tab: MainTabId): void {
-  try {
-    localStorage.setItem(MAIN_TAB_KEY, tab);
-  } catch {
-    // Private browsing or a full quota: the tab simply does not persist.
-  }
 }
 
 /** Which scanner tab was last open. */
