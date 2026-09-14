@@ -138,6 +138,10 @@ class WatchlistService:
 
         self._note = None
         quotes = _shape(payload)
+        # A symbol TradingView does not know is cached as a miss, or it would
+        # send every later call back to the network.
+        for symbol in symbols:
+            quotes.setdefault(symbol, _blank())
         self._quotes = (now_epoch(), quotes)
         return quotes
 

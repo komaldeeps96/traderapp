@@ -41,6 +41,10 @@ BackfillHandler = Callable[[str], Awaitable[None]]
 # of blank chart.
 KEEP_WARM_SECONDS = 600.0
 KEEP_WARM_MAX_SYMBOLS = 8
+# A runner prints a few hundred times a second; a load that stalls on the
+# request budget must not buffer without end.
+EARLY_TRADE_LIMIT = 50_000
+MINUTE_BUCKETS = Timeframe.M1.seconds // Timeframe.S10.seconds
 
 
 class MarketDataService:
@@ -65,6 +69,8 @@ class MarketDataService:
         self._repairs: dict[str, asyncio.Task] = {}
         self._parked: dict[str, asyncio.Task] = {}
         self._backfill_handlers: list[BackfillHandler] = []
+        # Prints that arrive while a symbol loads: the stream starts first.
+        self._early_trades: dict[str, list[Trade]] = {}
 
     async def start(self) -> None:
         self._router.on_trade(self._handle_trade)
@@ -160,6 +166,7 @@ class MarketDataService:
         if not daily_bars and not focus_bars:
             logger.warning("No data returned for %s", symbol)
             self._loads.pop(symbol, None)
+            self._early_trades.pop(symbol, None)
             return False
 
         stamp = now_epoch()
@@ -168,6 +175,7 @@ class MarketDataService:
             self._store.replace(symbol, base, focus_bars, loaded_at=stamp)
         self._rebuild_levels(symbol)
         self._loaded.add(symbol)
+        await self._replay_early_trades(symbol)
         self._bump(symbol)
         self._loads.pop(symbol, None)
 
@@ -226,7 +234,9 @@ class MarketDataService:
             landed = False
             for timeframe, result in merges:
                 if isinstance(result, list) and result:
-                    self._store.merge(symbol, timeframe, result)
+                    self._store.merge(
+                        symbol, timeframe, self._without_live_edge(symbol, timeframe, result)
+                    )
                     landed = True
 
             if self._refresh_minutes_from_tensec(symbol):
@@ -277,18 +287,19 @@ class MarketDataService:
         which read higher on the consolidated tape's convention: the one seam
         this accepts.
 
-        Only the IBKR-served window is folded. The prior sessions behind it were
-        rebuilt from Alpaca's tape through our own condition filter, so
-        overwriting Alpaca's published minutes there would trade an
-        authoritative number for an approximation, closing no gap.
+        Only the window IBKR actually served is folded — with TWS down that is
+        none of it. The rest was rebuilt from Alpaca's tape through our own
+        condition filter, so overwriting Alpaca's published minutes there would
+        trade an authoritative number for an approximation, closing no gap.
         """
         tensec = self._store.get(symbol, Timeframe.S10)
-        if not tensec:
+        native = self._router.native_tensec_since(symbol)
+        if not tensec or native is None:
             return False
         # Measured back from the live edge of the 10s base, not the wall clock:
         # it is the same boundary the router fetched against, and it stays true
         # of a series loaded from a fixture.
-        cutoff = tensec[-1].time - TENSEC_WINDOW_SECONDS
+        cutoff = max(tensec[-1].time - TENSEC_WINDOW_SECONDS, native)
         live = [bar for bar in tensec if bar.time >= cutoff]
         if not live:
             return False
@@ -325,7 +336,9 @@ class MarketDataService:
             bars = await self._router.fetch_recent_tensec(symbol)
             if not bars or symbol not in self._loaded:
                 return
-            self._store.merge(symbol, Timeframe.S10, bars)
+            self._store.merge(
+                symbol, Timeframe.S10, self._without_live_edge(symbol, Timeframe.S10, bars)
+            )
             self._refresh_minutes_from_tensec(symbol)
             self._bump(symbol)
             for handler in self._backfill_handlers:
@@ -572,6 +585,9 @@ class MarketDataService:
 
     async def _handle_trade(self, symbol: str, trade: Trade) -> None:
         if symbol not in self._loaded:
+            early = self._early_trades.get(symbol)
+            if symbol in self._loads and (early is None or len(early) < EARLY_TRADE_LIMIT):
+                self._early_trades.setdefault(symbol, []).append(trade)
             return
 
         builders = self._builders.setdefault(symbol, {})
@@ -581,9 +597,9 @@ class MarketDataService:
                 builder = BarBuilder(timeframe)
                 # Continue the period already in the store rather than opening
                 # a fresh bar mid-period, which would discard its volume so far.
-                existing = self._store.get(symbol, timeframe)
-                if existing:
-                    builder.adopt(existing[-1])
+                seed = self._live_seed(symbol, timeframe)
+                if seed is not None:
+                    builder.adopt(seed)
                 builders[timeframe] = builder
 
             completed = builder.add_trade(trade)
@@ -594,14 +610,52 @@ class MarketDataService:
                 self._store.upsert(symbol, timeframe, current)
         self._bump(symbol)
 
-    async def _handle_bar(self, symbol: str, timeframe: Timeframe, bar: Bar) -> None:
-        """Apply a provider's own minute bar.
+    def _live_seed(self, symbol: str, timeframe: Timeframe) -> Bar | None:
+        """The bar a new builder continues. For the minute, the 10s tail when no
+        minute bar reaches that far yet — with a 10s focus the minute base has
+        not loaded, and a builder started empty commits the minute short."""
+        existing = self._store.get(symbol, timeframe)
+        last = existing[-1] if existing else None
+        if timeframe is Timeframe.M1:
+            tensec = self._store.get(symbol, Timeframe.S10)
+            if tensec:
+                minute = bucket_start(tensec[-1].time, Timeframe.M1)
+                if last is None or last.time < minute:
+                    tail = [bar for bar in tensec[-MINUTE_BUCKETS:] if bar.time >= minute]
+                    return resample(tail, Timeframe.M1)[-1]
+        return last
 
-        These carry consolidated volume a trade stream can understate, so the
-        provider bar replaces whatever we built for that period. Minute base
-        only; 10s bars are always trade-built.
+    async def _replay_early_trades(self, symbol: str) -> None:
+        """Apply the prints that arrived during the load, past its last bar."""
+        trades = self._early_trades.pop(symbol, [])
+        base = Timeframe.S10 if self._store.has(symbol, Timeframe.S10) else Timeframe.M1
+        stored = self._store.get(symbol, base)
+        after = stored[-1].time + base.seconds if stored else 0
+        for trade in trades:
+            if trade.time >= after:
+                await self._handle_trade(symbol, trade)
+
+    def _without_live_edge(self, symbol: str, timeframe: Timeframe, bars: list[Bar]) -> list[Bar]:
+        """``bars`` less the two the live builder owns: a snapshot fetched while
+        a period closed holds it half-built, and ``merge`` lets it win."""
+        builder = self._builders.get(symbol, {}).get(timeframe)
+        current = builder.current if builder is not None else None
+        if current is None:
+            return bars
+        edge = current.time - timeframe.seconds
+        return [bar for bar in bars if bar.time < edge]
+
+    async def _handle_bar(self, symbol: str, timeframe: Timeframe, bar: Bar) -> None:
+        """Apply a provider's own minute bar where our 10s base does not reach.
+
+        Where it does, the minute stays the sum of its 10s bars: a provider bar
+        counts prints our condition filter drops, and on a delayed feed lands
+        fifteen minutes late over minutes already built.
         """
         if symbol not in self._loaded or timeframe is not Timeframe.M1:
+            return
+        tensec = self._store.get(symbol, Timeframe.S10)
+        if tensec and tensec[-1].time >= bar.time:
             return
 
         self._store.upsert(symbol, Timeframe.M1, bar)

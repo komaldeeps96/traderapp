@@ -24,8 +24,8 @@ from ..domain.protocol import (
 )
 
 if TYPE_CHECKING:
+    from ..core.api_budget import ApiBudget
     from ..providers.router import FeedRouter
-    from .api_budget import ApiBudget
     from .halts import HaltTracker
     from .hub import SubscriptionHub
     from .market_data import MarketDataService

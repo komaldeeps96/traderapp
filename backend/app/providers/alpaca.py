@@ -53,7 +53,7 @@ class AlpacaProvider(MarketDataProvider):
     def __init__(self, settings: AlpacaSettings, budget=None):
         super().__init__()
         self._settings = settings
-        # ProviderBudget from services.api_budget; optional so tests and
+        # ProviderBudget from core.api_budget; optional so tests and
         # scripts can run the provider bare.
         self._budget = budget
         self._client: httpx.AsyncClient | None = None

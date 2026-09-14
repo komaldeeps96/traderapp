@@ -123,7 +123,7 @@ class IBKRProvider(MarketDataProvider):
         super().__init__()
         self._settings = settings
         self._scanner_settings = scanner_settings
-        # ProviderBudget from services.api_budget covering historical-data
+        # ProviderBudget from core.api_budget covering historical-data
         # pacing; optional so tests can run the provider bare.
         self._budget = budget
         self._ib = None
@@ -245,9 +245,10 @@ class IBKRProvider(MarketDataProvider):
                     attempt = 0
                     self._connected_event.set()
                     self._attach()
+                    # The router re-routes on this, under its lock; applying the
+                    # streams here as well races a ticker switch into two
+                    # subscriptions on one Ticker.
                     await self._emit_status()
-                    # Re-establish streams that were routed elsewhere while down.
-                    await self._apply_streams(self._symbols)
                     continue
                 except Exception as exc:
                     delay = min(2 ** min(attempt, 5), self._settings.max_reconnect_delay_seconds)
@@ -537,6 +538,11 @@ class IBKRProvider(MarketDataProvider):
         self._news_providers = [(entry.code, entry.name) for entry in providers]
         return self._news_providers
 
+    @property
+    def has_history_budget(self) -> bool:
+        """Whether a bar request would go now rather than wait for pacing."""
+        return self._budget is None or self._budget.used() < self._budget.limit
+
     async def fetch_historical_news(self, symbol: str, days: int, limit: int) -> list[dict]:
         """Recent headlines for a symbol, from every entitled provider.
 
@@ -554,9 +560,9 @@ class IBKRProvider(MarketDataProvider):
         codes = "+".join(code for code, _ in providers)
         end = datetime.now(UTC)
         start = end - timedelta(days=days)
+        # Not charged to the budget: it models bar pacing, and headlines spending
+        # it starve the chart's first paint.
         try:
-            if self._budget is not None:
-                await self._budget.acquire()
             rows = await self._ib.reqHistoricalNewsAsync(
                 contract.conId,
                 providerCodes=codes,
@@ -700,6 +706,10 @@ class IBKRProvider(MarketDataProvider):
             await self._ib.qualifyContractsAsync(contract)
         except Exception as exc:
             logger.warning("IBKR could not qualify %s: %s", symbol, exc)
+            return None
+        # An unknown or ambiguous symbol comes back unqualified, not raised.
+        if not getattr(contract, "conId", 0):
+            logger.warning("IBKR could not qualify %s", symbol)
             return None
         self._contracts[symbol] = contract
         return contract

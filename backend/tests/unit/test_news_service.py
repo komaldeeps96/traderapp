@@ -12,9 +12,10 @@ from app.services.news import (
 
 
 class FakeIBKR:
-    """The three provider methods the service uses, and nothing else."""
+    """The provider surface the service uses, and nothing else."""
 
     def __init__(self, rows=None, providers=None, article="<p>Body text</p>"):
+        self.is_available = True
         self.rows = rows or []
         self.providers = providers or [("DJ-N", "Dow Jones Global Equity Trader")]
         self.article = article

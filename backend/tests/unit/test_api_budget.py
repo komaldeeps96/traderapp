@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-from app.services.api_budget import ApiBudget, ProviderBudget
+from app.core.api_budget import ApiBudget, ProviderBudget
 
 
 class TestProviderBudget:

@@ -121,6 +121,7 @@ class FakeIB:
         self.scanner_data = None
         self.scanner_cancelled = False
         self.qualify_failures: set[str] = set()
+        self.qualify_unknown: set[str] = set()
 
     def isConnected(self) -> bool:
         return self.connected
@@ -134,6 +135,11 @@ class FakeIB:
     async def qualifyContractsAsync(self, contract):
         if contract.symbol in self.qualify_failures:
             raise RuntimeError(f"cannot qualify {contract.symbol}")
+        # ib_async answers an unknown symbol with None and fills conId in place otherwise.
+        if contract.symbol in self.qualify_unknown:
+            return [None]
+        contract.conId = 1
+        return [contract]
 
     async def reqHistoricalDataAsync(self, contract, **kwargs):
         self.history_calls.append(kwargs)
@@ -434,6 +440,13 @@ class TestFetchBars:
         first = provider._contracts["AAPL"]
         await provider.fetch_bars("AAPL", Timeframe.M1, end, end)
         assert provider._contracts["AAPL"] is first
+
+    async def test_an_unknown_symbol_is_not_cached_as_a_contract(self, provider, ib):
+        """Cached unqualified, a mistyped symbol stays dead for the whole session."""
+        ib.qualify_unknown.add("ZZZZ")
+        end = datetime.now(UTC)
+        assert await provider.fetch_bars("ZZZZ", Timeframe.M1, end, end) == []
+        assert "ZZZZ" not in provider._contracts
 
 
 # ── realtime ───────────────────────────────────────────────────────────

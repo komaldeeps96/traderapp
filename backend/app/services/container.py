@@ -10,6 +10,7 @@ from __future__ import annotations
 import functools
 import logging
 
+from ..core.api_budget import ApiBudget
 from ..core.settings import Settings, get_settings
 from ..domain.protocol import DataSource
 from ..domain.scanner import SCANNER_TIERS
@@ -23,7 +24,6 @@ from ..providers.ibkr import IBKRProvider
 from ..providers.ibkr_broker import IBKRBroker
 from ..providers.router import FeedRouter
 from ..providers.yahoo import YahooFloatProvider
-from ..services.api_budget import ApiBudget
 from ..services.broadcaster import ChartBroadcaster
 from ..services.corporate_actions import ReverseSplitService
 from ..services.fanout import FanOut

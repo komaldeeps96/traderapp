@@ -33,15 +33,18 @@ from datetime import UTC, datetime
 
 import httpx
 
+from ..core.api_budget import ProviderBudget
+from ..core.bounded import BoundedDict
 from ..core.clock import now_epoch, parse_iso_date
 from ..domain.filings import Filing, classify, filing_url
-from ..services.api_budget import ProviderBudget
 
 logger = logging.getLogger(__name__)
 
 TICKER_MAP_TTL_SECONDS = 24 * 3600.0
 FILINGS_TTL_SECONDS = 300.0
 FACTS_TTL_SECONDS = 12 * 3600.0
+# A parsed companyfacts runs 0.3-37 MB; a day of ticker switching must not keep them all.
+FACTS_CACHE_SIZE = 16
 # A failed lookup is retried sooner than a good one, but not per broadcast.
 MISS_TTL_SECONDS = 900.0
 # SEC blocks a caller that keeps asking. A refused ticker map waits this long
@@ -120,7 +123,7 @@ class EdgarProvider:
         self._map_failed = False
         self._profiles: dict[str, tuple[float, CompanyProfile | None]] = {}
         self._filings: dict[str, tuple[float, list[Filing]]] = {}
-        self._facts: dict[str, tuple[float, dict | None]] = {}
+        self._facts: dict[str, tuple[float, dict | None]] = BoundedDict(FACTS_CACHE_SIZE)
         self._map_lock = asyncio.Lock()
         # Per symbol, so two subscribes cannot fetch one company twice while
         # a 20-second companyfacts download holds up no other symbol.

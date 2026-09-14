@@ -19,6 +19,7 @@ import logging
 from collections.abc import Callable
 from datetime import date, timedelta
 
+from ..core.bounded import BoundedDict
 from ..core.clock import now_epoch, to_ny
 from ..domain.bars import Bar
 from ..domain.dilution import SHELF_LOOKBACK_DAYS, DilutionRead, ShelfCapacity, shelf_capacity
@@ -26,7 +27,7 @@ from ..domain.dilution import measure as measure_dilution
 from ..domain.sessions import Session, ny_date, session_of
 from ..domain.timeframes import Timeframe
 from ..market.store import BarStore
-from ..providers.edgar import EdgarProvider
+from ..providers.edgar import FACTS_CACHE_SIZE, EdgarProvider
 from ..providers.yahoo import YahooFloatProvider
 from .corporate_actions import ReverseSplitService
 from .halts import HaltState
@@ -100,7 +101,10 @@ class SymbolInfoService:
         self._edgar = edgar
         # symbol -> (facts, filings, read). The documents themselves are held,
         # not their id(): a freed payload's id can be reused by its replacement.
-        self._dilution_cache: dict[str, tuple[object, object, DilutionRead | None]] = {}
+        # Holds each symbol's facts payload too, so it is bounded to the same size.
+        self._dilution_cache: dict[str, tuple[object, object, DilutionRead | None]] = (
+            BoundedDict(FACTS_CACHE_SIZE)
+        )
 
     async def prefetch(self, symbol: str) -> None:
         """Warm every reference cache; called at subscribe time.

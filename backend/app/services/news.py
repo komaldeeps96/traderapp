@@ -121,6 +121,9 @@ class NewsService:
         for rows in (wire, benzinga):
             if isinstance(rows, list) and rows:
                 self._merge(symbol, rows)
+        # Asked mid-handshake, IBKR answers nothing; that is not a fresh backfill.
+        if self._provider is not None and not self._provider.is_available:
+            self._fetched_at.pop(symbol, None)
 
     async def _from_ibkr(self, symbol: str) -> list[dict]:
         if self._provider is None:

@@ -54,9 +54,8 @@ TENSEC_RECENT_SECONDS = 4 * 3600
 # What it buys is the slow moving averages: ``ema()`` returns nothing until it
 # has ``span`` bars, and EMA 600 on the 10s chart is the 100-minute EMA.
 #
-# The seam this accepts: Alpaca's tape includes odd lots and IBKR's "Last" slice
-# does not (~21-26% of shares on a small-cap gapper), so the prior sessions read
-# higher on volume. Prices, and so every moving average, are unaffected.
+# The tape runs through market/conditions.py, the live stream's own filter, so
+# odd lots are out of both sides of the seam.
 
 
 class FeedRouter(MarketDataProvider):
@@ -75,6 +74,8 @@ class FeedRouter(MarketDataProvider):
         self._symbols: set[str] = set()
         self._routed_to: DataSource | None = None
         self._lock = asyncio.Lock()
+        # Per symbol, where the 10s bars IBKR itself served begin.
+        self._native_since: dict[str, int] = {}
 
         # Forward market events from whichever provider is live.
         for provider in (alpaca, ibkr):
@@ -137,9 +138,15 @@ class FeedRouter(MarketDataProvider):
         if source is DataSource.NONE:
             return "No market data provider is available. Check credentials and TWS."
         if source is DataSource.ALPACA and not self._ibkr.is_available:
+            if not getattr(self._alpaca, "is_streaming", True):
+                return "IBKR unavailable, and Alpaca's stream is not connected: prices are not live."
             suffix = " (15-minute delayed)" if self._alpaca.is_delayed else ""
             return f"IBKR unavailable — using Alpaca{suffix}."
         return None
+
+    def native_tensec_since(self, symbol: str) -> int | None:
+        """Where the 10s bars IBKR itself served begin, or None if it served none."""
+        return self._native_since.get(symbol)
 
     # ── history ────────────────────────────────────────────────────────
 
@@ -153,25 +160,10 @@ class FeedRouter(MarketDataProvider):
             return await self._fetch_daily(symbol, start, now)
 
         if base is Timeframe.S10:
-            return await self._fetch_tensec(symbol, now)
+            raise ValueError("the 10s base loads in slices: fetch_recent_tensec and after")
 
         start = now - timedelta(days=self._history.intraday_days)
         return await self._fetch_intraday(symbol, start, now)
-
-    async def _fetch_tensec(self, symbol: str, end: datetime) -> list[Bar]:
-        """The whole 10s window in one go, every slice merged.
-
-        Newer slices win the overlaps: IBKR's native bars over Alpaca's
-        rebuilt tape, and the recent slice over the earlier one.
-        """
-        recent, earlier, prior = await asyncio.gather(
-            self.fetch_recent_tensec(symbol, end),
-            self.fetch_earlier_tensec(symbol, end),
-            self.fetch_prior_tensec(symbol, end),
-        )
-        if not recent and not earlier and not prior:
-            return []
-        return merge_bars(recent, merge_bars(earlier, prior))
 
     async def _settle_ibkr(self) -> None:
         """Give a just-started IBKR connection a beat to come up.
@@ -186,16 +178,19 @@ class FeedRouter(MarketDataProvider):
     async def fetch_recent_tensec(self, symbol: str, end: datetime | None = None) -> list[Bar]:
         """The last four hours of 10s bars — the fast first paint.
 
-        One native IBKR request when TWS is up; a page-capped Alpaca tape
-        walk only as the fallback.
+        One native IBKR request when TWS is up and its pacing budget has room;
+        a page-capped Alpaca tape walk otherwise, since waiting minutes for a
+        slot is a blank chart.
         """
         await self._settle_ibkr()
         end = end or datetime.now(UTC)
         start = end - timedelta(seconds=TENSEC_RECENT_SECONDS)
-        if self._ibkr.is_available:
+        if self._ibkr.is_available and getattr(self._ibkr, "has_history_budget", True):
             bars = await self._safe_fetch(self._ibkr, symbol, Timeframe.S10, start, end)
             if bars:
+                self._native_since[symbol] = bars[0].time
                 return bars
+        self._native_since.pop(symbol, None)
         if self._alpaca.is_available:
             return await self._safe_fetch(self._alpaca, symbol, Timeframe.S10, start, end)
         return []
@@ -212,13 +207,17 @@ class FeedRouter(MarketDataProvider):
         if not self._ibkr.is_available:
             return []
         end = end or datetime.now(UTC)
-        return await self._safe_fetch(
+        bars = await self._safe_fetch(
             self._ibkr,
             symbol,
             Timeframe.S10,
             end - timedelta(seconds=TENSEC_WINDOW_SECONDS),
             end - timedelta(seconds=TENSEC_RECENT_SECONDS),
         )
+        # Extends the native window only where the recent slice was native too.
+        if bars and symbol in self._native_since:
+            self._native_since[symbol] = min(self._native_since[symbol], bars[0].time)
+        return bars
 
     async def fetch_prior_tensec(self, symbol: str, end: datetime | None = None) -> list[Bar]:
         """The sessions behind the IBKR window, off Alpaca's trade tape.

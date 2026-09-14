@@ -218,32 +218,33 @@ class TestPriorSessions:
         assert await router.fetch_prior_tensec("RUN", NOW) == []
 
 
-class TestFullWindow:
-    async def test_merges_every_slice_with_the_newer_one_winning(self):
-        shared = 1_000_000
-        ibkr = StubProvider("ibkr", True, [make_bar(shared, 5.0)])
-        alpaca = StubProvider("alpaca", True, [make_bar(shared, 4.0)])
-        router = router_with(alpaca, ibkr)
+class TestNativeWindow:
+    """What the minute fold may overwrite: only bars IBKR itself served."""
 
-        bars = await router.fetch_history("RUN", Timeframe.S10)
+    async def test_a_native_recent_slice_marks_where_ibkr_begins(self):
+        ibkr = StubProvider("ibkr", True, [make_bar(1_000_000, 5.0)])
+        router = router_with(StubProvider("alpaca", True), ibkr)
+        await router.fetch_recent_tensec("RUN", NOW)
+        assert router.native_tensec_since("RUN") == 1_000_000
 
-        # Every slice returned the same scripted timestamp; it lands once, and
-        # IBKR's close wins it over the tape's.
-        assert len(bars) == 1
-        assert bars[0].close == pytest.approx(5.0)
-        assert len(ibkr.calls) == 2
-        assert len(alpaca.calls) == 1
-
-    async def test_the_prior_slice_alone_still_draws_a_chart(self):
-        """TWS down and the recent tape empty: yesterday is better than nothing."""
-        alpaca = StubProvider("alpaca", True, {Timeframe.S10: [make_bar(800_000, 4.0)]})
+    async def test_a_tape_fallback_marks_nothing_native(self):
+        alpaca = StubProvider("alpaca", True, [make_bar(1_000_000, 4.0)])
         router = router_with(alpaca, StubProvider("ibkr", False))
+        await router.fetch_recent_tensec("RUN", NOW)
+        assert router.native_tensec_since("RUN") is None
 
-        assert await router.fetch_history("RUN", Timeframe.S10)
+    async def test_the_earlier_slice_extends_a_native_window(self):
+        ibkr = StubProvider("ibkr", True, [make_bar(1_000_000, 5.0)])
+        router = router_with(StubProvider("alpaca", True), ibkr)
+        await router.fetch_recent_tensec("RUN", NOW)
+        ibkr.bars = [make_bar(900_000, 5.0)]
+        await router.fetch_earlier_tensec("RUN", NOW)
+        assert router.native_tensec_since("RUN") == 900_000
 
-    async def test_nothing_available_returns_nothing(self):
-        router = router_with(StubProvider("alpaca", False), StubProvider("ibkr", False))
-        assert await router.fetch_history("RUN", Timeframe.S10) == []
+    async def test_the_10s_base_is_not_one_fetch(self):
+        router = router_with(StubProvider("alpaca", True), StubProvider("ibkr", True))
+        with pytest.raises(ValueError):
+            await router.fetch_history("RUN", Timeframe.S10)
 
 
 class TestFastMinutePath:

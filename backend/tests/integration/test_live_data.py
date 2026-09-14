@@ -105,18 +105,19 @@ class TestTrades:
 
 
 class TestProviderBars:
-    async def test_a_provider_bar_replaces_our_built_one(self, loaded):
-        """Consolidated volume must replace, never add to, the trade tally."""
+    async def test_a_minute_our_10s_base_covers_stays_the_sum_of_its_10s_bars(self, loaded):
+        """A provider bar counts prints our condition filter drops; taken over a
+        built minute, the 1m chart stops agreeing with the 10s one."""
         last = loaded.bars("AAPL", Timeframe.M1)[-1]
         await loaded._handle_trade("AAPL", Trade(time=last.time, price=100.0, size=50))
+        built = loaded.bars("AAPL", Timeframe.M1)[-1].volume
 
-        authoritative = Bar(
-            time=last.time, open=10, high=20, low=5, close=15, volume=99_999, trades=42
-        )
-        await loaded._handle_bar("AAPL", Timeframe.M1, authoritative)
-        assert loaded.bars("AAPL", Timeframe.M1)[-1].volume == pytest.approx(99_999)
+        provider = Bar(time=last.time, open=10, high=20, low=5, close=15, volume=99_999)
+        await loaded._handle_bar("AAPL", Timeframe.M1, provider)
+        assert loaded.bars("AAPL", Timeframe.M1)[-1].volume == pytest.approx(built)
 
-    async def test_later_trades_continue_from_the_provider_bar(self, loaded):
+    async def test_past_the_10s_base_later_trades_continue_from_the_provider_bar(self, loaded):
+        loaded._store.replace("AAPL", Timeframe.S10, [])
         last = loaded.bars("AAPL", Timeframe.M1)[-1]
         authoritative = Bar(time=last.time, open=10, high=20, low=5, close=15, volume=1000)
         await loaded._handle_bar("AAPL", Timeframe.M1, authoritative)
@@ -130,6 +131,38 @@ class TestProviderBars:
         bar = Bar(time=OPEN, open=1, high=1, low=1, close=1, volume=1)
         await loaded._handle_bar("ZZZZ", Timeframe.M1, bar)
         assert not loaded.is_loaded("ZZZZ")
+
+
+class TestTheLoadSeam:
+    async def test_prints_that_arrived_during_the_load_are_replayed_past_its_last_bar(self, loaded):
+        """The stream starts before the load; dropping its prints leaves the edge short."""
+        tensec = loaded.bars("AAPL", Timeframe.S10)
+        after = tensec[-1].time + Timeframe.S10.seconds
+        loaded._early_trades["AAPL"] = [
+            Trade(time=tensec[-1].time, price=1.0, size=1),
+            Trade(time=after, price=200.0, size=7),
+        ]
+        await loaded._replay_early_trades("AAPL")
+
+        tensec = loaded.bars("AAPL", Timeframe.S10)
+        assert tensec[-1].time == after
+        assert tensec[-1].close == pytest.approx(200.0)
+        assert all(bar.low != pytest.approx(1.0) for bar in tensec)
+
+    async def test_a_new_minute_builder_continues_the_10s_tail(self, loaded):
+        """With no minute bar that far yet, the builder must not start the minute empty."""
+        minute = loaded.bars("AAPL", Timeframe.M1)[-1].time + 60
+        loaded._store.merge(
+            "AAPL",
+            Timeframe.S10,
+            [
+                Bar(time=minute, open=10, high=11, low=9, close=10.5, volume=4000),
+                Bar(time=minute + 10, open=10.5, high=12, low=10, close=11, volume=200),
+            ],
+        )
+        seed = loaded._live_seed("AAPL", Timeframe.M1)
+        assert seed is not None
+        assert (seed.time, seed.open, seed.volume) == (minute, 10, 4200)
 
 
 class TestCaching:

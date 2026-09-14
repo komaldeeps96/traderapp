@@ -247,7 +247,7 @@ class TestProvider:
         await edgar.close()
 
     async def test_the_budget_is_taken_for_every_request(self):
-        from app.services.api_budget import ProviderBudget
+        from app.core.api_budget import ProviderBudget
 
         budget = ProviderBudget("edgar", 9, 1)
         edgar = provider(edgar_ok, budget=budget)

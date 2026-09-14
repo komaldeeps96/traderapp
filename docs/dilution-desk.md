@@ -28,7 +28,7 @@ overhang or shelf capacity either, so it would not have removed the work.
 
 - [x] **1 — EDGAR provider, filing taxonomy, dilution service** — DONE
       `domain/filings.py`, `providers/edgar.py`, `domain/dilution.py`,
-      `services/api_budget.py` (+edgar bucket), wired into `container.py` and
+      `core/api_budget.py` (+edgar bucket), wired into `container.py` and
       the `symbol_info` prefetch loop. 842 backend tests pass, ruff clean.
       Validated against live EDGAR: CELU reads SERIAL (89% warrant overhang,
       5.6 months runway, baby shelf, 6 offerings, delinquent), AAPL CLEAN.
