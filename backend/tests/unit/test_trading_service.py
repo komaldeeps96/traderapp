@@ -82,8 +82,8 @@ class FakeBroker:
         return 2
 
 
-def quote(bid: float, ask: float) -> Quote:
-    return Quote(bid=bid, ask=ask, bid_size=10, ask_size=10, time=0)
+def quote(bid: float, ask: float, time: float = 0.0) -> Quote:
+    return Quote(bid=bid, ask=ask, bid_size=10, ask_size=10, time=time)
 
 
 def build(
@@ -94,15 +94,25 @@ def build(
     bid_ask: tuple[float, float] | None = (4.25, 4.27),
     clock: FakeClock | None = None,
     feed_delayed: bool = False,
+    feed_live: bool = True,
+    halted: bool = False,
+    quote_age: float = 0.0,
     **overrides,
 ) -> tuple[TradingService, FakeBroker]:
     broker = FakeBroker(connected=connected, positions=positions)
     quotes = QuoteService()
     if bid_ask is not None:
-        quotes._latest["WETO"] = quote(*bid_ask)
+        quotes._latest["WETO"] = quote(*bid_ask, time=-quote_age)
     settings = TradingSettings(enabled=enabled, **overrides)
     service = TradingService(
-        broker, quotes, settings, clock=clock or FakeClock(), feed_delayed=lambda: feed_delayed
+        broker,
+        quotes,
+        settings,
+        clock=clock or FakeClock(),
+        feed_delayed=lambda: feed_delayed,
+        feed_live=lambda: feed_live,
+        halted=lambda _symbol: halted,
+        wall_clock=lambda: 0.0,
     )
     return service, broker
 
@@ -157,11 +167,10 @@ async def test_an_amount_over_the_cap_is_refused_for_what_it_asked_for() -> None
 async def test_the_cap_also_catches_a_plan_that_grows_past_it_at_the_limit() -> None:
     """Six shares of a $10.00 ask is $60.00, which fits — but the order goes
     out at the $10.05 limit, which does not. The ceiling bounds the worst
-    case, so this is refused."""
+    case, so five go."""
     service, broker = build(bid_ask=(9.99, 10.00), max_order_dollars=60)
-    result = await service.buy("WETO", 60)
-    assert not result["ok"]
-    assert broker.sent == []
+    assert (await service.buy("WETO", 60))["ok"]
+    assert broker.sent[0]["shares"] * broker.sent[0]["limit"] <= 60
 
 
 # ── long only ──────────────────────────────────────────────────────────
@@ -408,3 +417,44 @@ def test_the_state_carries_the_button_configuration() -> None:
 def test_the_state_carries_the_repeat_window_the_strip_mirrors() -> None:
     service, _ = build(repeat_guard_seconds=0.75)
     assert service.state()["repeat_guard_seconds"] == 0.75
+
+
+# ── what the browser also checks, held here too ────────────────────────
+
+
+async def test_a_dead_market_data_feed_refuses_the_order() -> None:
+    service, broker = build(feed_live=False)
+    result = await service.buy("WETO", 25)
+    assert not result["ok"]
+    assert broker.sent == []
+
+
+async def test_a_halted_symbol_refuses_both_sides() -> None:
+    """A marketable limit placed into a halt rests there and fills at the reopen."""
+    service, broker = build(halted=True, positions={"WETO": 14})
+    assert not (await service.buy("WETO", 25))["ok"]
+    assert not (await service.sell("WETO", 1.0))["ok"]
+    assert broker.sent == []
+
+
+async def test_a_quote_that_stopped_moving_refuses_the_order() -> None:
+    """A SELL ALL priced off the last bid before a feed froze rests above the market."""
+    service, broker = build(quote_age=60.0, positions={"WETO": 14})
+    result = await service.sell("WETO", 1.0)
+    assert not result["ok"]
+    assert "60s old" in result["message"]
+    assert broker.sent == []
+
+
+async def test_buying_past_the_position_cap_is_refused() -> None:
+    """$25 at a 4.32 limit is 5 shares: 66 held makes 71 x 4.32 = $306.72."""
+    service, broker = build(positions={"WETO": 66}, max_position_dollars=300)
+    result = await service.buy("WETO", 25)
+    assert "position cap" in result["message"]
+    assert broker.sent == []
+
+
+async def test_buying_up_to_the_position_cap_goes_through() -> None:
+    service, broker = build(positions={"WETO": 60}, max_position_dollars=300)
+    assert (await service.buy("WETO", 25))["ok"]
+    assert broker.sent[0]["shares"] == 5

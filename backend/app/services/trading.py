@@ -14,7 +14,7 @@ import time
 from collections.abc import Callable
 
 from ..core.settings import TradingSettings
-from ..domain.orders import OrderPlan, plan_buy, plan_sell
+from ..domain.orders import OrderPlan, plan_buy, plan_sell, to_micros
 from ..providers.ibkr_broker import IBKRBroker
 from ..services.quotes import QuoteService
 
@@ -42,6 +42,9 @@ class TradingService:
         settings: TradingSettings,
         clock: Callable[[], float] = time.monotonic,
         feed_delayed: Callable[[], bool] = lambda: False,
+        feed_live: Callable[[], bool] = lambda: True,
+        halted: Callable[[str], bool] = lambda _symbol: False,
+        wall_clock: Callable[[], float] = time.time,
     ):
         self._broker = broker
         self._quotes = quotes
@@ -50,6 +53,10 @@ class TradingService:
         # Whether the quotes that size an order are the delayed tape: a limit
         # priced off a fifteen-minute-old book fills badly or rests unseen.
         self._feed_delayed = feed_delayed
+        self._feed_live = feed_live
+        self._halted = halted
+        # Quote.time is a UTC epoch second, so its age is measured on the wall.
+        self._wall_clock = wall_clock
         # Symbols with an order being placed. Qualifying a contract awaits the
         # network, so two windows could otherwise both pass every check.
         self._in_flight: set[str] = set()
@@ -160,9 +167,15 @@ class TradingService:
         checks = (
             (not self._settings.enabled, "Trading is disabled."),
             (not self._broker.is_available, "TWS is not connected."),
+            (not self._feed_live(), "No market data feed; an order would be priced off a frozen book."),
             (
                 self._feed_delayed(),
                 "Quotes are on the delayed feed; an order would be priced off a stale book.",
+            ),
+            (self._halted(symbol), f"{symbol} is halted; an order would rest until the reopen."),
+            (
+                self._quote_age(symbol) > self._settings.max_quote_age_seconds,
+                f"The quote on {symbol} is {self._quote_age(symbol):.0f}s old.",
             ),
             (
                 self._repeated(symbol, plan.side),
@@ -171,8 +184,24 @@ class TradingService:
             ),
             (plan.blocked is not None, BLOCKED_MESSAGES.get(plan.blocked or "", plan.blocked)),
             (plan.shares <= 0, BLOCKED_MESSAGES["too_small"]),
+            (
+                self._over_position_cap(symbol, plan),
+                f"{symbol} would pass the ${self._settings.max_position_dollars:g} position cap.",
+            ),
         )
         return next((message for failed, message in checks if failed), None)
+
+    def _quote_age(self, symbol: str) -> float:
+        """Seconds since the quote last moved; zero with none, which ``no_quote`` refuses."""
+        quote = self._quotes.get(symbol)
+        return 0.0 if quote is None else self._wall_clock() - quote.time
+
+    def _over_position_cap(self, symbol: str, plan: OrderPlan) -> bool:
+        if plan.side != "BUY":
+            return False
+        held = max(0, self._broker.position(symbol))
+        worst_case = (held + plan.shares) * to_micros(plan.limit)
+        return worst_case > to_micros(self._settings.max_position_dollars)
 
     def _repeated(self, symbol: str, side: str) -> bool:
         sent = self._last_sent.get((symbol, side))

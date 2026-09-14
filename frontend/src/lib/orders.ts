@@ -154,16 +154,17 @@ export function previewBuy(
     return { shares: 0, limit: 0, notional: 0, blocked: "no_quote" };
 
   const limit = buyLimit(quote.ask, offset);
-  const shares = sharesForDollars(dollars, quote.ask);
-  if (shares <= 0)
+  const wanted = sharesForDollars(dollars, quote.ask);
+  if (wanted <= 0)
     return { shares: 0, limit, notional: 0, blocked: "too_small" };
 
-  const notional = toPrice(shares * toMicros(limit));
-  const blocked =
-    dollars > maxOrderDollars || toMicros(notional) > toMicros(maxOrderDollars)
-      ? "over_cap"
-      : null;
-  return { shares, limit, notional, blocked };
+  // Exact: both operands are integers far below 2^53, so the floor of the
+  // float quotient is the integer quotient. Mirrors `cap // limit` in Python.
+  const cap = toMicros(maxOrderDollars);
+  const shares = Math.min(wanted, Math.floor(cap / toMicros(limit)));
+  if (toMicros(dollars) > cap || shares <= 0)
+    return { shares: 0, limit, notional: 0, blocked: "over_cap" };
+  return { shares, limit, notional: toPrice(shares * toMicros(limit)), blocked: null };
 }
 
 /**

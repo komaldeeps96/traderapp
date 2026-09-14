@@ -56,6 +56,12 @@ CANCEL_RACE_CODES = frozenset({10147, 10148})
 # arrive on errorEvent and reject nothing.
 CONNECTION_NOTICES = frozenset({1100, 1101, 1102})
 WARNINGS = range(2100, 2200)
+# ib_async keeps a 321 open as ValidationError, since after a modify the order is
+# still live. This client never modifies, so for it the order is dead.
+REJECTED_STATUS = "ValidationError"
+ACCEPTED_STATUSES = frozenset({"PreSubmitted", "Submitted", "Filled"})
+# TWS answers a qualify in milliseconds; past this it is not answering.
+QUALIFY_TIMEOUT_SECONDS = 3.0
 # "Order Canceled" — also TWS's answer to a cancel this client asked for.
 ORDER_CANCELLED = 202
 
@@ -266,7 +272,15 @@ class IBKRBroker:
             return
         if not self._account:
             accounts = self._ib.managedAccounts()
-            self._account = accounts[0] if len(accounts) == 1 else ""
+            if len(accounts) != 1:
+                self._last_error = (
+                    f"This login manages {len(accounts)} accounts; "
+                    "set trading.account to the one to trade."
+                )
+                raise RuntimeError(self._last_error)
+            self._account = accounts[0]
+        # Re-learned on the next order: the checkbox may have changed meanwhile.
+        self._read_only = False
         self._attach()
         self._seed_positions()
         self._ready = True
@@ -312,8 +326,12 @@ class IBKRBroker:
 
         ``reqPositionsAsync`` runs inside ``connectAsync`` regardless of the
         readonly flag (``ib.py:2056``), so the opening snapshot is already paid
-        for.
+        for. It replaces what was held: ib_async omits flat positions, so one
+        closed elsewhere while disconnected is simply absent.
         """
+        self._positions.clear()
+        self._avg_cost.clear()
+        self._unrealized.clear()
         for position in self._ib.positions(self._account or ""):
             self._absorb_position(position.contract, position.position, position.avgCost)
         self._positions_known = True
@@ -406,13 +424,21 @@ class IBKRBroker:
             if shares
         ]
 
+    def _is_other_account(self, event) -> bool:
+        account = getattr(event, "account", None)
+        return bool(account) and account != self._account
+
     def _on_position(self, position) -> None:
+        if self._is_other_account(position):
+            return
         if self._absorb_position(position.contract, position.position, position.avgCost):
             self._schedule(self._emit_positions())
 
     def _on_portfolio(self, item) -> None:
         """``updatePortfolioEvent`` — position, average cost and unrealised
         P&L together, pushed on every change to any of them."""
+        if self._is_other_account(item):
+            return
         symbol = self._absorb_position(item.contract, item.position, item.averageCost)
         if symbol is None:
             return
@@ -426,11 +452,17 @@ class IBKRBroker:
         cached = self._contracts.get(symbol)
         if cached is not None:
             return cached
+        contract = self._stock(symbol, "SMART", "USD")
         try:
-            contract = self._stock(symbol, "SMART", "USD")
-            await self._ib.qualifyContractsAsync(contract)
+            await asyncio.wait_for(
+                self._ib.qualifyContractsAsync(contract), QUALIFY_TIMEOUT_SECONDS
+            )
         except Exception as exc:
             logger.warning("Broker could not qualify %s: %s", symbol, exc)
+            return None
+        # An unknown or ambiguous symbol comes back unqualified, not raised.
+        if not getattr(contract, "conId", 0):
+            logger.warning("Broker could not qualify %s", symbol)
             return None
         self._contracts[symbol] = contract
         return contract
@@ -518,6 +550,7 @@ class IBKRBroker:
             trade
             for trade in self._ib.openTrades()
             if getattr(trade.order, "orderRef", "") == ORDER_REF
+            and trade.orderStatus.status != REJECTED_STATUS
         ]
 
     def _order_wire(self, trade) -> dict:
@@ -536,6 +569,8 @@ class IBKRBroker:
         }
 
     def _on_order_status(self, trade) -> None:
+        if trade.orderStatus.status in ACCEPTED_STATUSES:
+            self._read_only = False
         self._schedule(self._emit_order(trade))
 
     def _on_execution(self, trade, fill) -> None:

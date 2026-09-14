@@ -11,6 +11,7 @@ import functools
 import logging
 
 from ..core.settings import Settings, get_settings
+from ..domain.protocol import DataSource
 from ..domain.scanner import SCANNER_TIERS
 from ..indicators.engine import IndicatorEngine
 from ..indicators.spec import load_indicator_specs
@@ -74,6 +75,8 @@ class AppContainer:
             self.quotes,
             self.settings.trading,
             feed_delayed=lambda: self.router.is_delayed,
+            feed_live=lambda: self.router.active_source is not DataSource.NONE,
+            halted=lambda symbol: self.halts.status(symbol).halted,
         )
 
         self.tv = TVDataService()

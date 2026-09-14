@@ -196,13 +196,14 @@ def test_setup_is_idempotent() -> None:
     assert len(ib.orderStatusEvent.handlers) == 1
 
 
-def test_several_managed_accounts_leaves_the_account_unset() -> None:
-    """Guessing which of several accounts to trade is not a thing to guess.
-    IBKR treats a blank account on a multi-account login as an error, which
-    is a refusal the user can act on; picking one silently is not."""
+def test_several_managed_accounts_refuse_to_become_ready() -> None:
+    """Which of several accounts to trade is not a thing to guess, and a blank
+    account would mix every account's positions under one symbol."""
     broker = build(FakeIB(accounts=("U1", "U2")))
-    broker._finish_setup()
-    assert broker.account == ""
+    with pytest.raises(RuntimeError):
+        broker._finish_setup()
+    assert not broker.is_available
+    assert "trading.account" in (broker.last_error or "")
 
 
 def test_a_configured_account_is_not_overridden() -> None:
@@ -405,6 +406,54 @@ def test_buys_other_symbols_and_finished_orders_claim_nothing() -> None:
         FakeTrade("WETO", "SELL", 30, status="Cancelled"),
     ]
     assert broker.committed_to_sells("WETO") == 0
+
+
+def test_an_order_tws_refused_on_validation_is_not_working() -> None:
+    """ib_async leaves a 321 open as ValidationError. Counted, it holds its
+    shares as a working sell and ALL refuses until the socket drops."""
+    broker, ib = ready_broker()
+    ib.trades = [FakeTrade("WETO", "SELL", 100, status="ValidationError")]
+    assert broker.committed_to_sells("WETO") == 0
+    assert broker.working_orders() == []
+
+
+def test_a_reconnect_replaces_positions_rather_than_merging_them() -> None:
+    """Closed from the phone while disconnected: ib_async omits a flat position,
+    so a merge would keep the 14 shares and ALL would open a short."""
+    broker, ib = ready_broker(position=14)
+    ib._positions = []
+    broker._on_disconnected()
+    broker._finish_setup()
+    assert broker.position("WETO") == 0
+
+
+def test_another_accounts_position_is_ignored() -> None:
+    broker, _ = ready_broker(position=14)
+    other = FakePosition("WETO", 500)
+    other.account = "U2"
+    broker._on_position(other)
+    assert broker.position("WETO") == 14
+
+
+def test_an_accepted_order_clears_the_read_only_latch() -> None:
+    broker, _ = ready_broker()
+    broker._on_error(1, 321, "The API interface is currently in Read-Only mode.", None)
+    assert broker.read_only
+    broker._on_order_status(FakeTrade("WETO", "BUY", 1, status="Submitted"))
+    assert not broker.read_only
+
+
+async def test_an_unknown_symbol_is_not_cached_as_a_contract() -> None:
+    """ib_async answers an unknown or ambiguous symbol with None, not a raise."""
+    broker, ib = ready_broker()
+    broker._stock = lambda symbol, _exchange, _currency: FakeContract(symbol)
+
+    async def qualify(*_contracts):
+        return [None]
+
+    ib.qualifyContractsAsync = qualify
+    assert await broker._contract("ZZZZ") is None
+    assert "ZZZZ" not in broker._contracts
 
 
 def test_an_order_this_app_did_not_place_is_not_counted() -> None:

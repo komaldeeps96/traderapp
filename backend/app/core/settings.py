@@ -137,6 +137,11 @@ class TradingSettings(_Section):
     # position. Order is display order, left to right.
     buy_dollars: list[float] = Field(default_factory=lambda: [10.0, 25.0, 50.0])
     sell_fractions: list[float] = Field(default_factory=lambda: [0.25, 0.5, 1.0])
+    # A quote that has not moved in this long is a feed that stopped, not a quiet book.
+    max_quote_age_seconds: float = Field(default=15.0, gt=0)
+    # Held plus bought, at the limit. The per-order cap alone bounds nothing:
+    # enough clicks build any size.
+    max_position_dollars: float = Field(default=300.0, gt=0)
 
     # DAY over IOC: both essentially always fill at these sizes, but DAY's
     # failure is a resting order that shows in the working count, while IOC's is

@@ -79,6 +79,19 @@ def test_sell_plans_match_the_shared_table(case: dict) -> None:
     assert (plan.shares, plan.blocked) == (case["shares"], case["blocked"])
 
 
+@pytest.mark.parametrize("case", CASES["buy_plans"], ids=_id)
+def test_buy_plans_match_the_shared_table(case: dict) -> None:
+    plan = plan_buy(
+        symbol="WETO",
+        dollars=case["dollars"],
+        bid=case["bid"],
+        ask=case["ask"],
+        max_order_dollars=case["max"],
+        **OFFSET,
+    )
+    assert (plan.shares, plan.blocked) == (case["shares"], case["blocked"])
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [(0.5, 1), (1.5, 2), (2.5, 3), (-2.5, -2), (2.4999, 2), (0.49999999999999994, 0), (7.0, 7)],
@@ -193,16 +206,16 @@ def test_the_cap_stops_an_order_larger_than_the_button_clicked() -> None:
 
 def test_the_cap_is_measured_at_the_limit_not_at_the_ask() -> None:
     """A plan that fits under the cap at the ask but not at the limit is
-    refused. Bounding the expected spend rather than the worst case would let
-    the offset carry an order past the ceiling."""
+    trimmed to fit. Bounding the expected spend rather than the worst case
+    would let the offset carry an order past the ceiling."""
     # 6 shares: 6 x 10.00 = 60.00 at the ask, 6 x 10.05 = 60.30 at the limit.
     plan = plan_buy(
         symbol="X", dollars=60, bid=9.99, ask=10.00, offset_cents=5, offset_bps=15,
         max_order_dollars=60.0,
     )
-    assert plan.shares == 6
-    assert plan.notional == pytest.approx(60.30)
-    assert plan.blocked == "over_cap"
+    assert plan.shares == 5
+    assert plan.notional == pytest.approx(50.25)
+    assert plan.blocked is None
 
 
 def test_a_sell_plan_prices_through_the_bid() -> None:

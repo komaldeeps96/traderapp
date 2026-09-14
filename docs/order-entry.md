@@ -271,8 +271,10 @@ protection is elsewhere:
 1. **`trading.enabled: false` by default**, and explicitly false in every
    test settings object, exactly as `alpaca.news_stream` already is. With it
    off the broker never connects and `place()` is unreachable.
-2. **`max_order_dollars` — a hard server-side cap**, rejected before anything
-   reaches TWS. A bug in the dollar arithmetic cannot become a $50,000 order.
+2. **`max_order_dollars` — a hard server-side cap**, measured at the limit.
+   A button larger than it is refused; a within-cap amount the offset lifts
+   over it (a sub-quarter stock) is trimmed to fit. `max_position_dollars`
+   bounds held plus bought, since enough clicks build any size.
 3. **Long-only is enforced on the backend**, not by disabling a button. A sell
    is a fraction of the position IBKR reports less what this client's sells
    have already claimed: the unfilled rest of working sells, and fills IBKR has
@@ -285,8 +287,9 @@ protection is elsewhere:
    `repeat_guard_seconds` (1s) is refused on the server, and the strip holds
    that side for the same window so the second click is visibly dead. Focus
    leaves the button on click, so a stray Enter cannot press it again.
-5. **Halts disable the side.** `HaltTracker` already knows; the strip shows
-   `HALTED` and the buttons go dead.
+5. **Halts and a stopped feed refuse on the server**, not only on the strip:
+   a halted symbol, no market-data source, or a quote older than
+   `max_quote_age_seconds` prices a marketable limit off a book that is gone.
 6. **Rejections are loud.** `errorEvent` and a rejected `orderStatus` land on
    the strip in red and stay there until the next action, rather than in a
    log nobody is reading during a move.
@@ -294,6 +297,9 @@ protection is elsewhere:
 8. **Orders only from this machine.** The terminal is served to the LAN so a
    phone can watch it. Buys and sells from anything but loopback are refused
    unless `trading.allow_remote` is set; cancel-all is accepted from anywhere.
+   A request whose `Host` is not this machine (`allowed_host_regex`) is
+   refused outright, which is what stops a DNS-rebinding page in this
+   browser counting as loopback.
    The socket itself refuses pages whose origin is not the terminal's own,
    because browsers exempt WebSockets from CORS.
 
@@ -315,7 +321,7 @@ trading:
   host: 127.0.0.1
   port: 7496                # the live account, same TWS as the data client
   client_id: 2              # the data client is 1
-  account: ""               # blank = the single managed account
+  account: ""               # blank = the single managed account; several refuse
   offset_cents: 5           # the floor
   offset_bps: 15            # and the proportionate part; the larger wins
   buy_dollars: [10, 25, 50]
@@ -323,6 +329,8 @@ trading:
   tif: DAY                  # or IOC — see above
   outside_rth: true
   max_order_dollars: 60     # hard cap, server-side
+  max_position_dollars: 300 # held plus bought, per symbol
+  max_quote_age_seconds: 15 # a quote this still is a stopped feed
   repeat_guard_seconds: 1   # same side, same symbol: one order per window
   allow_remote: false       # buys and sells only from this machine
 ```

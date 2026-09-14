@@ -174,7 +174,9 @@ def plan_buy(
     """Everything a buy would be, or the reason it cannot happen.
 
     The notional is measured at the *limit*, not the ask: the limit is the most
-    this order can spend, and the cap bounds the worst case.
+    this order can spend, and the cap bounds the worst case. Where the offset
+    alone lifts a within-cap amount over it, as on a sub-quarter stock, the
+    shares are trimmed to fit rather than the button refused.
     """
     if not _quote_ok(bid, ask):
         return OrderPlan("BUY", symbol, 0, 0.0, 0.0, blocked="no_quote")
@@ -184,10 +186,11 @@ def plan_buy(
     if shares <= 0:
         return OrderPlan("BUY", symbol, 0, limit, 0.0, blocked="too_small")
 
-    notional = to_price(shares * to_micros(limit))
-    if to_micros(notional) > to_micros(max_order_dollars):
-        return OrderPlan("BUY", symbol, shares, limit, notional, blocked="over_cap")
-    return OrderPlan("BUY", symbol, shares, limit, notional)
+    cap = to_micros(max_order_dollars)
+    shares = min(shares, cap // to_micros(limit))
+    if to_micros(dollars) > cap or shares <= 0:
+        return OrderPlan("BUY", symbol, 0, limit, 0.0, blocked="over_cap")
+    return OrderPlan("BUY", symbol, shares, limit, to_price(shares * to_micros(limit)))
 
 
 def plan_sell(

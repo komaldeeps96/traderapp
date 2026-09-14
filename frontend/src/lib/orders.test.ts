@@ -61,6 +61,16 @@ describe("the shared case table", () => {
       expect([plan.shares, plan.blocked]).toEqual([row.shares, row.blocked]);
     },
   );
+
+  it.each(cases.buy_plans)("$why", (row) => {
+    const plan = previewBuy(
+      row.dollars,
+      { bid: row.bid, ask: row.ask },
+      OFFSET,
+      row.max,
+    );
+    expect([plan.shares, plan.blocked]).toEqual([row.shares, row.blocked]);
+  });
 });
 
 describe("properties the table cannot express", () => {
@@ -134,14 +144,12 @@ describe("buy previews", () => {
     });
   });
 
-  it("blocks at the cap the server would refuse it at", () => {
-    // Six shares is $60.00 at the ask and $60.30 at the limit. The server
-    // measures the cap at the limit, so the button must too — otherwise it
-    // draws as live and fails on the click.
+  it("trims to the cap the server measures at the limit", () => {
+    // Six shares is $60.00 at the ask and $60.30 at the limit, so five go.
     expect(previewBuy(60, { bid: 9.99, ask: 10.0 }, OFFSET, 60)).toMatchObject({
-      shares: 6,
-      notional: 60.3,
-      blocked: "over_cap",
+      shares: 5,
+      notional: 50.25,
+      blocked: null,
     });
   });
 

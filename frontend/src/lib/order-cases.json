@@ -19,7 +19,9 @@
     { "why": "$41: 15bps is 6.2c, and the ceil lands off the raw tick", "bid": 41.05, "ask": 41.1, "buy": 41.17, "sell": 40.98 },
     { "why": "expensive name, offset is wholly proportionate", "bid": 412.0, "ask": 412.1, "buy": 412.72, "sell": 411.38 },
     { "why": "two-cent stock: the sell clamps to one tick, not below zero", "bid": 0.02, "ask": 0.025, "buy": 0.075, "sell": 0.0001 },
-    { "why": "ask already exactly on a tick is not nudged a penny up", "bid": 9.99, "ask": 10.0, "buy": 10.05, "sell": 9.94 }
+    { "why": "ask already exactly on a tick is not nudged a penny up", "bid": 9.99, "ask": 10.0, "buy": 10.05, "sell": 9.94 },
+    { "why": "a sub-penny ask above $1 still rounds to the cent, away from the market", "bid": 4.265, "ask": 4.275, "buy": 4.33, "sell": 4.21 },
+    { "why": "a sell limit landing exactly on $1.00 keeps the cent tick", "bid": 1.05, "ask": 1.06, "buy": 1.11, "sell": 1.0 }
   ],
   "buy_shares": [
     { "dollars": 10, "ask": 0.8, "shares": 12 },
@@ -67,5 +69,12 @@
     { "why": "every share already in a working sell: a second ALL cannot short", "position": 14, "committed": 14, "fraction": 1.0, "shares": 0, "blocked": "committed" },
     { "position": 14, "committed": 20, "fraction": 0.25, "shares": 0, "blocked": "committed" },
     { "why": "flat outranks committed", "position": 0, "committed": 5, "fraction": 1.0, "shares": 0, "blocked": "no_position" }
+  ],
+  "buy_plans": [
+    { "why": "an ordinary buy sits well inside the cap", "dollars": 50, "bid": 4.25, "ask": 4.27, "max": 60, "shares": 11, "blocked": null },
+    { "why": "the offset alone lifts a sub-quarter buy over the cap: trimmed, not refused", "dollars": 50, "bid": 0.19, "ask": 0.2, "max": 60, "shares": 240, "blocked": null },
+    { "why": "a huge share count is trimmed to the cap at the limit", "dollars": 10, "bid": 0.0004, "ask": 0.0005, "max": 60, "shares": 1188, "blocked": null },
+    { "why": "a button larger than the cap is refused outright", "dollars": 100, "bid": 4.25, "ask": 4.27, "max": 60, "shares": 0, "blocked": "over_cap" },
+    { "why": "not one share fits", "dollars": 50, "bid": 70.0, "ask": 70.1, "max": 60, "shares": 0, "blocked": "too_small" }
   ]
 }
