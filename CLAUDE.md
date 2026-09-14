@@ -37,12 +37,9 @@ run the smallest thing that proves it — or say what was **not** checked.
       | python3 -c 'import json,sys; print(list(json.load(sys.stdin)["facts"]))'
 
 A verified limit is a starting point: find what does work and bring that back.
-"The SEC does not have it" is not "the terminal cannot show it" — foreign
-filers with no interim statements in `companyfacts` still have quarterly
-fundamentals on the TradingView row we already fetch (`total_revenue_fq`,
-`net_income_fq`, `gross_profit_fq`, `oper_income_fq`,
-`cash_f_operating_activities_fq`, `earnings_per_share_diluted_fq`). Non-US
-filers may report under `ifrs-full` rather than `us-gaap`.
+"The SEC does not have it" is not "the terminal cannot show it" — the
+TradingView row we already fetch often carries what `companyfacts` lacks.
+Non-US filers may report under `ifrs-full` rather than `us-gaap`.
 
 ## Running tests
 
@@ -116,18 +113,12 @@ before touching source. All three engines pass in full sequentially.
 
 ## The screen
 
-Three columns. `docs/terminal-expansion.md` is the design.
+Three columns.
 
 **Left** has its own tab strip: *Day* holds the four IBKR market-cap scanners,
-*Swing* four TradingView setups that need no TWS, *Watch* the watchlist. Key
-levels sit beneath all three.
+*Watch* the watchlist. Key levels sit beneath both.
 
-**Middle** is tabbed — Chart, Financials, Metrics, Insiders, Peers. The chart
-is **hidden with `visibility`, never unmounted**: a `display:none` container
-is zero-height and lightweight-charts cannot size a pane inside one;
-unmounting loses the viewport. The order strip sits across the bottom
-*outside* the tab panel, so a position stays on screen while a balance sheet
-is read.
+**Middle** is the chart, with the order strip across its bottom edge.
 
 **Right dock** has four tabs — Charts, Fund, News, Filings. The first stacks
 1-minute over 5-minute context charts; `MINI_SLOT_COUNT` in `chart/mini.ts`
@@ -268,9 +259,9 @@ changes do not fail.
 
 ## The audit suite
 
-`backend/tests/audit/` checks our figures against **yfinance** and
-**TradingView**, over the network, for twenty companies spanning market-cap
-tiers, sixteen sectors, four countries and four reporting currencies.
+`backend/tests/audit/` checks the chart against **TradingView** and
+**yfinance**, over the network, for twenty companies spanning market-cap
+tiers, sixteen sectors and four countries.
 
 Excluded from every normal run — `addopts` carries `-m 'not audit'`. Run it
 deliberately:
@@ -278,21 +269,14 @@ deliberately:
     cd backend && .venv/bin/pip install -e '.[audit]'
     cd backend && .venv/bin/pytest -m audit          # ~60 s
 
-`companyfacts` is cached under `tests/audit/.cache/`.
-
-The two auditors answer different questions. **yfinance** reports in the
-filer's own currency, so it checks the *parse*: right concept, right period,
-before restatement. **TradingView** publishes in USD, so it checks the
-*conversion*. Failing one and passing the other localises a fault.
-
 `test_watchlist.py` has no outside source, because it is not checking a
 figure: it asks the live screener whether ten named symbols (an ADR, an ETF, a
 second share class, a secondary listing) come back with a price at all. A unit
 test cannot see that fault — every symbol produces a row, and every row is
 empty.
 
-`test_indicators.py` and `test_screens.py` cover the chart. Nobody else
-computes a moving average over *our* bars, so it checks the two things that
+`test_indicators.py` covers the chart. Nobody else computes a moving
+average over *our* bars, so it checks the two things that
 can be: our closes match TradingView's exactly, and our arithmetic lands where
 theirs does, to the fourth decimal.
 
@@ -310,27 +294,3 @@ Four differences are **design, asserted rather than tolerated**:
 extremes, previous close, and weekly and monthly bucketing agree to 0.00%.
 `High.YTD` resolves as a TradingView column but returns null for every symbol,
 so the year-to-date high is audited against yfinance's daily bars instead.
-
-The screens have no external truth — they are our own definition — so they are
-checked against their own printed claim. A panel headed "within 10% of the
-52-week high" returning something 40% below is worse than an empty panel,
-because it is believed.
-
-`test_ratios.py` covers what is built *on* the statements, where a mistake
-reaches a decision: multiples are quoted on a trailing twelve months.
-
-### Reading a disagreement
-
-**A disagreement is not automatically our bug.** yfinance publishes an
-*adjusted* "Operating Income" alongside "Total Operating Income As Reported",
-and only the second is the figure in the filing — comparing against the wrong
-one condemns correct readings by the dozen. Before changing anything, read the
-concept out of `companyfacts` and find which side is right.
-
-Genuine differences live in two tables, each entry carrying its reason:
-`EXPECTED_DIVERGENCE` (a bank's "revenue" has no single definition; yfinance
-folds redeemable minority interests into equity and US GAAP does not) and
-`INCOHERENT_PERIODS` (`companyfacts` holding a SPAC's balance sheet and its
-predecessor's under one date, because the separating dimensions are not
-published). The point of an audit is lost the moment those become a way to
-silence a failure.

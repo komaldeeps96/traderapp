@@ -146,10 +146,8 @@ The reasoning, in the order it mattered:
    at the chart's right edge and the bid/ask readout. The bottom edge of the
    chart is the nearest fixed anchor to a live price that moves vertically;
    the top of the screen is the furthest.
-2. **It must never be behind a tab.** Placed inside the chart column but
-   *outside* the tab panel, it survives Chart → Financials → Metrics
-   unchanged. A position is a thing you can be in while reading a balance
-   sheet.
+2. **It must never be behind a tab.** It sits in the chart column, outside
+   the dock's tabs, so no panel opened for reading can cover a position.
 3. **It must not neighbour the symbol input.** The input is in the toolbar at
    the top. Buy buttons up there are one mistyped ticker away from an
    unintended order.
