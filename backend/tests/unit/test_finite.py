@@ -12,13 +12,10 @@ because three peers reported no book value at all.
 
 from __future__ import annotations
 
-import math
-
 import pytest
 
 from app.domain.screener import finite
 from app.services.peers import rank
-from app.services.swing import SCREENS_BY_ID, _passes
 
 
 class TestFinite:
@@ -76,20 +73,3 @@ class TestNanCannotRank:
         entry = self._book(rows, "ME")
         assert entry["position"] is None
 
-
-class TestNanCannotPassAFilter:
-    def test_a_row_with_no_high_is_rejected(self):
-        """Every comparison against NaN is False.
-
-        So `off_high < -10` is False for a missing high, and the row passes
-        the "within 10% of the high" test by failing it.
-        """
-        screen = SCREENS_BY_ID["trend"]
-        assert _passes(screen, {"off_high": -5.0}) is True
-        assert _passes(screen, {"off_high": None}) is False
-        assert _passes(screen, {"off_high": math.nan}) is False
-
-    def test_a_row_with_no_volume_is_rejected_by_the_breakout_screen(self):
-        screen = SCREENS_BY_ID["breakout"]
-        assert _passes(screen, {"off_high": -1.0, "rvol": 2.0}) is True
-        assert _passes(screen, {"off_high": -1.0, "rvol": math.nan}) is False

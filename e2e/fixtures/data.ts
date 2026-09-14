@@ -1035,22 +1035,6 @@ export function makeMetrics(symbol = 'AAPL', overrides: Partial<Record<string, u
   };
 }
 
-/** The swing screen catalogue, as the endpoint lists it. */
-export function makeSwingScreens() {
-  return {
-    screens: [
-      {
-        id: 'trend',
-        label: 'Trend continuation',
-        note: 'Above a rising 50 and 200, within 10% of the 52-week high, ranked by three-month strength.',
-      },
-      { id: 'breakout', label: 'Breakout', note: 'At the 52-week high on expanding volume.' },
-    ],
-    config: { min_market_cap: 2_000_000_000, min_avg_volume: 1_000_000, rows: 15 },
-    note: null,
-  };
-}
-
 /**
  * One watchlist row, as the screener would fill it.
  *
@@ -1148,51 +1132,6 @@ export function makeOrder(overrides: Partial<OrderRow> = {}) {
       at: SESSION_START,
       ...overrides,
     } satisfies OrderRow,
-  };
-}
-
-export function makeSwingRows(screenId = 'trend', overrides: Partial<Record<string, unknown>> = {}) {
-  return {
-    screen_id: screenId,
-    rows: [
-      {
-        symbol: 'TEAM',
-        name: 'Atlassian',
-        sector: 'Technology',
-        close: 190.41,
-        change: 2.58,
-        rvol: 1.23,
-        market_cap: 49_000_000_000,
-        avg_volume: 2_400_000,
-        perf_week: 3.1,
-        perf_month: 12.4,
-        perf_quarter: 94.55,
-        adr: 3.2,
-        off_high: -2.33,
-        distance_to_sma50: 1.4,
-        next_earnings: null,
-      },
-      {
-        symbol: 'ANF',
-        name: 'Abercrombie & Fitch',
-        sector: 'Consumer',
-        close: 148.42,
-        change: -1.83,
-        rvol: 0.75,
-        market_cap: 7_200_000_000,
-        avg_volume: 1_800_000,
-        perf_week: -2.0,
-        perf_month: 8.0,
-        perf_quarter: 86.62,
-        adr: 4.1,
-        off_high: -3.98,
-        distance_to_sma50: 2.2,
-        next_earnings: null,
-      },
-    ],
-    config: { min_market_cap: 2_000_000_000, min_avg_volume: 1_000_000, rows: 15 },
-    note: null,
-    ...overrides,
   };
 }
 

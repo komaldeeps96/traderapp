@@ -15,8 +15,6 @@ import type {
   IndicatorSpec,
   ScannerTiersResponse,
   SessionInfo,
-  SwingRowsResponse,
-  SwingScreensResponse,
   WatchlistResponse,
   TimeframeInfo,
 } from '@/types/protocol';
@@ -75,10 +73,6 @@ export const api = {
       `/api/metrics/${encodeURIComponent(symbol)}?period=${period}`,
       signal,
     ),
-  swingScreens: (signal?: AbortSignal) =>
-    getJson<SwingScreensResponse>('/api/swing/screens', signal),
-  swingRows: (screenId: string, signal?: AbortSignal) =>
-    getJson<SwingRowsResponse>(`/api/swing/${encodeURIComponent(screenId)}`, signal),
   // The socket pushes this after every edit; the fetch is only for a reload
   // that lands before the socket is up.
   watchlist: (signal?: AbortSignal) =>

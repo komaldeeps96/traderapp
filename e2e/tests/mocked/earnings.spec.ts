@@ -4,7 +4,7 @@ import { expect, test } from '../../fixtures/test';
 /**
  * The earnings chip.
  *
- * A swing position held through a report is a different trade from the one
+ * A position held through a report is a different trade from the one
  * that was opened, and the usual way that happens is not knowing. The date
  * was already in the terminal, buried in the dock as an ISO string with no
  * sense of how soon — which is the only part that changes a decision.

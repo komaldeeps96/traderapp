@@ -6,7 +6,7 @@ import {
 import { onTabListKey, tabClass } from '@/lib/tabs';
 import { useTerminalStore } from '@/store/useTerminalStore';
 
-/** Day movers or swing setups — the two questions the left column answers. */
+/** Switches the left column between the day scanners and the watchlist. */
 export function ScannerTabs() {
   const tab = useTerminalStore((state) => state.scannerTab);
   const setTab = useTerminalStore((state) => state.setScannerTab);

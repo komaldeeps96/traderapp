@@ -10,7 +10,6 @@ import { OrderPanel } from "@/components/OrderPanel";
 import { PanelFallback } from "@/components/PanelFallback";
 import { ScannerPanel } from "@/components/ScannerPanel";
 import { ScannerTabs } from "@/components/ScannerTabs";
-import { SwingPanel } from "@/components/SwingPanel";
 import { WatchlistPanel } from "@/components/WatchlistPanel";
 import { Toolbar } from "@/components/Toolbar";
 import { TopPanel } from "@/components/TopPanel";
@@ -89,9 +88,6 @@ export default function App() {
                 }
               />
             ))}
-          {scannerTab === "swing" && (
-            <SwingPanel onSelect={(symbol) => subscribe(symbol, timeframe)} />
-          )}
           {scannerTab === "watch" && (
             <WatchlistPanel
               onSelect={(symbol) => subscribe(symbol, timeframe)}

@@ -62,12 +62,6 @@ class StateStore:
                     if isinstance(entry, str) and entry.strip()
                 ]
 
-            swing = data.get("swing")
-            if isinstance(swing, dict):
-                # Shape only; SwingService.adopt_config validates each value,
-                # so a hand-edited file cannot make a screen unrunnable.
-                self._cache["swing"] = dict(swing)
-
             scanners = data.get("scanners")
             if isinstance(scanners, dict):
                 # Stored as-is, per tier id; ScannerService.adopt_config
@@ -110,11 +104,6 @@ class StateStore:
         symbols = self._cache.get("watchlist")
         return list(symbols) if isinstance(symbols, list) else []
 
-    def swing_config(self) -> dict | None:
-        """The swing screens' shared filters, or None if never saved."""
-        config = self._cache.get("swing")
-        return dict(config) if isinstance(config, dict) else None
-
     def as_dict(self) -> dict[str, object]:
         return dict(self._cache)
 
@@ -149,10 +138,6 @@ class StateStore:
 
     async def save_watchlist(self, symbols: list[str]) -> None:
         self._cache["watchlist"] = list(symbols)
-        await self._persist()
-
-    async def save_swing(self, config: dict) -> None:
-        self._cache["swing"] = dict(config)
         await self._persist()
 
     async def _persist(self) -> None:

@@ -16,7 +16,6 @@ import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
 
 from ..core.clock import now_epoch
 from ..domain.financials import build_statements, convert_to_usd, search_concepts
@@ -30,7 +29,6 @@ from ..services.container import AppContainer, get_container
 from ..services.metrics import TTM_QUARTERS, build_metrics
 from ..services.ownership import summarise
 from ..services.scanner import UNAVAILABLE_NOTE
-from ..services.swing import SCREENS, SCREENS_BY_ID
 from .origin import refuse_cross_site
 
 # Twelve years of annual statements, or three of quarterly. Past that the
@@ -399,61 +397,6 @@ async def news_article(symbol: str, provider: str, article_id: str) -> dict:
         raise HTTPException(status_code=422, detail="provider and article_id are required")
     body = await container.news.article(provider, article_id)
     return {"provider": provider, "article_id": article_id, "paragraphs": to_paragraphs(body)}
-
-
-@router.get("/swing/screens")
-async def swing_screens() -> dict:
-    """The swing setups on offer, and the filters they share.
-
-    These answer from TradingView alone, so unlike the market-cap scanners they
-    still work with no TWS running.
-    """
-    container = _container()
-    return {
-        "screens": [
-            {"id": screen.id, "label": screen.label, "note": screen.note}
-            for screen in SCREENS
-        ],
-        "config": container.swing.config.to_dict(),
-        "note": container.swing.note,
-    }
-
-
-@router.get("/swing/{screen_id}")
-async def swing_rows(screen_id: str) -> dict:
-    container = _container()
-    if screen_id not in SCREENS_BY_ID:
-        raise HTTPException(status_code=404, detail=f"Unknown screen {screen_id!r}")
-    return {
-        "screen_id": screen_id,
-        "rows": await container.swing.rows(screen_id),
-        "config": container.swing.config.to_dict(),
-        "note": container.swing.note_for(screen_id),
-    }
-
-
-class SwingConfigChange(BaseModel):
-    """A JSON body: a page on another site cannot send one without a CORS
-    preflight, where query parameters ride a bare form post."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    min_market_cap: float | None = Field(default=None, ge=0)
-    min_avg_volume: float | None = Field(default=None, ge=0)
-    rows: int | None = Field(default=None, ge=1, le=50)
-
-
-@router.post("/swing/config")
-async def configure_swing(change: SwingConfigChange) -> dict:
-    """Retune the screens, and remember it.
-
-    One config shared by all four: they are the same universe seen four ways,
-    and a per-screen minimum would mean setting the same number four times.
-    """
-    container = _container()
-    config = container.swing.configure(**change.model_dump())
-    await container.state.save_swing(config.to_dict())
-    return {"config": config.to_dict()}
 
 
 @router.get("/watchlist")
