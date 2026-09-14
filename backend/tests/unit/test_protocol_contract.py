@@ -9,11 +9,18 @@ import typing
 from pathlib import Path
 
 from app.core.clock import now_epoch
+from app.core.settings import TradingSettings
 from app.domain import protocol
+from app.domain.news import Catalyst, Headline
+from app.domain.scanner import ScannerRow
 from app.domain.screener import SymbolStats
 from app.market.store import BarStore
+from app.providers.ibkr_broker import IBKRBroker
+from app.services.quotes import QuoteService
 from app.services.symbol_info import SymbolInfoService
+from app.services.trading import TradingService
 from app.services.tv import TVDataService
+from tests.unit.test_ibkr_broker import FakeTrade
 
 PROTOCOL_TS = Path(__file__).resolve().parents[3] / "frontend/src/types/protocol.ts"
 
@@ -105,3 +112,40 @@ def test_the_info_frame_carries_what_the_client_reads():
 
 def test_commands_carry_the_same_fields():
     assert ts_commands() == py_commands()
+
+
+# ── nested payloads ────────────────────────────────────────────────────
+# Plain dicts on the server, so each is held to the code that builds it.
+
+
+def ts_interface(name: str) -> set[str]:
+    match = re.search(rf"^export interface {name}\b[^{{]*\{{(.*?)^\}}", _typescript(), flags=re.S | re.M)
+    assert match, f"{name} is not in protocol.ts"
+    return set(re.findall(r"^  (\w+)\??:", match.group(1), flags=re.M))
+
+
+def test_the_trading_state_matches():
+    settings = TradingSettings()
+    state = TradingService(IBKRBroker(settings), QuoteService(), settings).state()
+    assert set(state) == ts_interface("TradingState")
+
+
+def test_a_position_row_matches():
+    broker = IBKRBroker(TradingSettings())
+    broker._positions = {"AAPL": 5}
+    assert set(broker.positions()[0]) == ts_interface("PositionRow")
+
+
+def test_an_order_row_matches():
+    wire = IBKRBroker(TradingSettings())._order_wire(FakeTrade("AAPL", "BUY", 1))
+    assert set(wire) == ts_interface("OrderRow")
+
+
+def test_a_scanner_row_matches():
+    assert set(ScannerRow(rank=1, symbol="AAPL").to_dict()) == ts_interface("ScannerRow")
+
+
+def test_a_headline_matches():
+    row = Headline("a1", "BZ", 0, "Headline", next(iter(Catalyst))).to_dict()
+    assert set(row) == ts_interface("Headline")
+

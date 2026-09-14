@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 /**
  * The two primitives the symbol panel's rows are built from.
  *
@@ -55,5 +57,32 @@ export function Field({
         {value}
       </span>
     </span>
+  );
+}
+
+/**
+ * One line of the panel. Wrapping is allowed but nothing inside is
+ * right-aligned, so an overlong value pushes the tail of its own row down
+ * rather than rearranging the panel.
+ */
+export function Row({
+  children,
+  className = '',
+  testId,
+  hovering,
+}: {
+  children: ReactNode;
+  className?: string;
+  testId?: string;
+  hovering?: boolean;
+}) {
+  return (
+    <div
+      className={`tnum flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 font-mono ${className}`}
+      data-testid={testId}
+      data-hovering={hovering === undefined ? undefined : hovering ? 'true' : 'false'}
+    >
+      {children}
+    </div>
   );
 }

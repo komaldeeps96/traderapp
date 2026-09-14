@@ -26,7 +26,8 @@ from app.domain.scanner import ScannerConfig, ScannerRow
 from app.domain.timeframes import Timeframe
 from app.market.bar_builder import Trade
 from app.providers import ibkr as ibkr_module
-from app.providers.ibkr import TRADE_BUFFER_MAX_AGE, IBKRProvider, _clean
+from app.providers.ibkr import IBKRProvider, _clean
+from app.providers.ibkr_scanner import TRADE_BUFFER_MAX_AGE
 
 # Scanner internals are keyed by scanner_id; the provider itself is
 # agnostic to what a tier is called, so one fixed id exercises it here.
